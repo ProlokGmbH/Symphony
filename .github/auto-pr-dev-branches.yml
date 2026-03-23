@@ -1,0 +1,217 @@
+name: Auto PR and back-merge for developer branches
+
+# Hinweise:
+# - AUTO_PR_TOKEN ist erforderlich: Der Standard-GITHUB_TOKEN darf in vielen Repositories
+#   keine Pull Requests erstellen oder mergen.
+# - Developer-Branches werden direkt hier im Workflow über MANAGED_BRANCHES gepflegt,
+#   z. B. "tilo_dev,max_dev".
+# - Wenn für main zusätzliche Reviews verlangt werden, muss der Token-Actor im Ruleset
+#   als Ausnahme/Berechtigter hinterlegt sein.
+# - Pushes auf main werden ignoriert; ein Back-Merge erfolgt nur dann, wenn sich die
+#   Inhalte von main und Dev-Branch tatsächlich unterscheiden.
+# - Der Back-Merge-Commit enthält [skip ci], damit der Workflow dadurch nicht erneut startet.
+
+env:
+  MAIN_BRANCH: main
+  # Diese Liste mit branches-ignore in ci.yml synchron halten.
+  MANAGED_BRANCHES: tilo_dev, benjamin_dev
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dev-branch-automation-${{ github.head_ref || github.event.pull_request.head.ref || github.ref_name || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  create-pr-and-merge:
+    if: github.event_name == 'push' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate token configuration
+        env:
+          AUTO_PR_TOKEN: ${{ secrets.AUTO_PR_TOKEN }}
+        run: |
+          if [ -n "$AUTO_PR_TOKEN" ]; then
+            exit 0
+          fi
+          echo "Das Secret AUTO_PR_TOKEN fehlt."
+          echo "Der Standard-GITHUB_TOKEN darf hier keine Pull Requests erstellen."
+          echo "Lege ein PAT/GitHub-App-Token als AUTO_PR_TOKEN an."
+          exit 1
+
+      - name: Resolve managed developer branch
+        id: branch
+        env:
+          CONFIGURED_BRANCHES: ${{ env.MANAGED_BRANCHES }}
+          CURRENT_BRANCH: ${{ github.ref_name }}
+        run: |
+          branches="$CONFIGURED_BRANCHES"
+          echo "Konfigurierte Branches: $branches"
+          allowed=false
+          match=""
+          IFS=',' read -r -a items <<< "$branches"
+          for item in "${items[@]}"; do
+            branch="${item#"${item%%[![:space:]]*}"}"
+            branch="${branch%"${branch##*[![:space:]]}"}"
+            [ -n "$branch" ] || continue
+            if [ "$branch" = "$CURRENT_BRANCH" ]; then
+              allowed=true
+              match="$branch"
+              break
+            fi
+          done
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "branch=${match:-$CURRENT_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip unmanaged branch
+        if: steps.branch.outputs.allowed != 'true'
+        run: echo "Branch ${{ github.ref_name }} ist nicht in MANAGED_BRANCHES konfiguriert. Workflow wird übersprungen."
+
+      - name: Create or reuse pull request
+        if: steps.branch.outputs.allowed == 'true'
+        id: pr
+        uses: actions/github-script@v8
+        env:
+          HEAD_BRANCH: ${{ steps.branch.outputs.branch }}
+        with:
+          github-token: ${{ secrets.AUTO_PR_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const head = process.env.HEAD_BRANCH;
+            const base = process.env.MAIN_BRANCH;
+            const { data: comparison } = await github.rest.repos.compareCommits({ owner, repo, base, head });
+            if (comparison.status === 'identical' || comparison.ahead_by === 0) {
+              core.info(`No new commits between ${base} and ${head}; skipping PR creation.`);
+              core.setOutput('skip_merge', 'true');
+              return;
+            }
+            const { data: existing } = await github.rest.pulls.list({ owner, repo, state: 'open', head: `${owner}:${head}`, base, per_page: 100 });
+            let pr = existing[0];
+            if (!pr) {
+              const created = await github.rest.pulls.create({
+                owner,
+                repo,
+                head,
+                base,
+                title: `Auto-PR: ${head} -> ${base}`,
+                body: [
+                  `Dieser Pull Request wurde automatisch nach einem Push auf \`${head}\` erstellt.`,
+                  '',
+                  `- Zielbranch: \`${base}\``,
+                  `- Quellbranch: \`${head}\``,
+                  '- Merge erfolgt automatisch nach erfolgreichen Pflicht-Checks.',
+                  `- Nach erfolgreichem Merge wird \`${base}\` wieder nach \`${head}\` zurückgemergt.`
+                ].join('\n')
+              });
+              pr = created.data;
+              core.info(`Created PR #${pr.number}`);
+            } else {
+              core.info(`Reusing PR #${pr.number}`);
+            }
+            core.setOutput('skip_merge', 'false');
+            core.setOutput('number', String(pr.number));
+            core.setOutput('url', pr.html_url);
+
+      - name: Enable auto-merge after required checks
+        if: steps.branch.outputs.allowed == 'true' && steps.pr.outputs.skip_merge != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_PR_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          gh pr merge "$PR_NUMBER" --repo "${{ github.repository }}" --auto --merge --delete-branch=false
+          echo "Auto-Merge für PR #$PR_NUMBER wurde aktiviert. GitHub merged erst nach erfolgreichen Pflicht-Checks."
+
+  back-merge-main-into-dev-branch:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate token configuration
+        env:
+          AUTO_PR_TOKEN: ${{ secrets.AUTO_PR_TOKEN }}
+        run: |
+          if [ -n "$AUTO_PR_TOKEN" ]; then
+            exit 0
+          fi
+          echo "Das Secret AUTO_PR_TOKEN fehlt."
+          exit 1
+
+      - name: Resolve managed developer branch
+        id: branch
+        env:
+          CONFIGURED_BRANCHES: ${{ env.MANAGED_BRANCHES }}
+          CURRENT_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          branches="$CONFIGURED_BRANCHES"
+          echo "Konfigurierte Branches: $branches"
+          allowed=false
+          match=""
+          IFS=',' read -r -a items <<< "$branches"
+          for item in "${items[@]}"; do
+            branch="${item#"${item%%[![:space:]]*}"}"
+            branch="${branch%"${branch##*[![:space:]]}"}"
+            [ -n "$branch" ] || continue
+            if [ "$branch" = "$CURRENT_BRANCH" ]; then
+              allowed=true
+              match="$branch"
+              break
+            fi
+          done
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "branch=${match:-$CURRENT_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip unmanaged branch
+        if: steps.branch.outputs.allowed != 'true'
+        run: echo "Branch ${{ github.event.pull_request.head.ref }} ist nicht in MANAGED_BRANCHES konfiguriert. Back-Merge wird übersprungen."
+
+      - name: Check out repository
+        if: steps.branch.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.branch.outputs.branch }}
+          fetch-depth: 0
+          token: ${{ secrets.AUTO_PR_TOKEN }}
+
+      - name: Configure git
+        if: steps.branch.outputs.allowed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check whether back-merge is needed
+        if: steps.branch.outputs.allowed == 'true'
+        id: sync
+        env:
+          TARGET_BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          git fetch origin "$MAIN_BRANCH" "$TARGET_BRANCH"
+          if git diff --quiet "origin/$TARGET_BRANCH" "origin/$MAIN_BRANCH"; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "main und $TARGET_BRANCH haben bereits denselben Inhalt. Kein Back-Merge nötig."
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "main und $TARGET_BRANCH unterscheiden sich. Back-Merge wird ausgeführt."
+          fi
+
+      - name: Back-merge main into developer branch
+        if: steps.branch.outputs.allowed == 'true' && steps.sync.outputs.needed == 'true'
+        env:
+          TARGET_BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          git checkout "$TARGET_BRANCH"
+          git merge --no-ff -m "Back-merge $MAIN_BRANCH into $TARGET_BRANCH [skip ci] [skip auto-pr]" "origin/$MAIN_BRANCH"
+          git push origin HEAD:"$TARGET_BRANCH"
+
