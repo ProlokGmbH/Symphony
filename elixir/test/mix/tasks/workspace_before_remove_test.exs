@@ -272,7 +272,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
       """,
       fn log_path ->
         %{root: root, source_repo: source_repo, worktree: worktree, worktree_git_dir: worktree_git_dir} =
-          create_worktree_fixture!("issue/mt-123")
+          create_worktree_fixture!("symphony/mt-123")
 
         original_cwd = File.cwd!()
 
@@ -297,7 +297,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
 
         log = File.read!(log_path)
         assert log =~ "auth status"
-        assert log =~ "pr list --repo openai/symphony --head issue/mt-123 --state open --json number --jq .[].number"
+        assert log =~ "pr list --repo openai/symphony --head symphony/mt-123 --state open --json number --jq .[].number"
 
         File.rm_rf!(root)
       end

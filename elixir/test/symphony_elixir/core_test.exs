@@ -105,6 +105,7 @@ defmodule SymphonyElixir.CoreTest do
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
+    assert Map.get(hooks, "after_create") =~ "branch=\"symphony/$issue_key\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add \"$workspace\" \"$branch\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" main"
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"

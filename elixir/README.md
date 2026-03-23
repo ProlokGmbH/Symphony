@@ -146,7 +146,7 @@ hooks:
   after_create: |
     workspace="$PWD"
     issue_key="$(basename "$workspace")"
-    branch="issue/$issue_key"
+    branch="symphony/$issue_key"
     source_repo="$LOCAL_REPO_PATH"
 
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then

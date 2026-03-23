@@ -22,7 +22,7 @@ hooks:
     workspace="$PWD"
     workspace_root="$(dirname "$workspace")"
     issue_key="$(basename "$workspace")"
-    branch="issue/$issue_key"
+    branch="symphony/$issue_key"
     source_repo="$(cd "$workspace_root/../symphony" && pwd -P)"
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"
