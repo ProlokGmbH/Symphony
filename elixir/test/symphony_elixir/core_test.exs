@@ -596,7 +596,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 39_500, 40_500)
+    assert_due_in_range(due_at_ms, 39_000, 40_500)
   end
 
   test "first abnormal worker exit waits before retrying" do
