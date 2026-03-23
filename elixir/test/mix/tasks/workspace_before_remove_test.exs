@@ -254,6 +254,56 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     )
   end
 
+  test "removes the current linked git worktree and prunes its metadata" do
+    with_fake_gh(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn log_path ->
+        %{root: root, source_repo: source_repo, worktree: worktree, worktree_git_dir: worktree_git_dir} =
+          create_worktree_fixture!("issue/mt-123")
+
+        original_cwd = File.cwd!()
+
+        try do
+          File.cd!(worktree)
+
+          output =
+            capture_io(fn ->
+              BeforeRemove.run([])
+            end)
+
+          assert output =~ "Removed Git worktree #{worktree}"
+        after
+          File.cd!(original_cwd)
+        end
+
+        refute File.exists?(worktree)
+        refute File.exists?(worktree_git_dir)
+
+        {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"])
+        refute worktree_list =~ worktree
+
+        log = File.read!(log_path)
+        assert log =~ "auth status"
+        assert log =~ "pr list --repo openai/symphony --head issue/mt-123 --state open --json number --jq .[].number"
+
+        File.rm_rf!(root)
+      end
+    )
+  end
+
   defp with_fake_gh(fun) do
     with_fake_binaries(
       %{
@@ -344,6 +394,33 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         {key, value} -> System.put_env(key, value)
       end)
     end
+  end
+
+  defp create_worktree_fixture!(branch) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-worktree-#{unique}")
+    source_repo = Path.join(root, "repo")
+    worktree = Path.join(root, "wt")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(root)
+
+    {_output, 0} = System.cmd("git", ["init", source_repo])
+    {_output, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+    {_output, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+    File.write!(Path.join(source_repo, "README.md"), "fixture\n")
+    {_output, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"])
+    {_output, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "init"])
+    {_output, 0} = System.cmd("git", ["-C", source_repo, "worktree", "add", worktree, "-b", branch, "HEAD"])
+
+    {worktree_git_dir, 0} = System.cmd("git", ["-C", worktree, "rev-parse", "--absolute-git-dir"])
+
+    %{
+      root: root,
+      source_repo: source_repo,
+      worktree: worktree,
+      worktree_git_dir: String.trim(worktree_git_dir)
+    }
   end
 
   defp in_temp_dir(fun) do

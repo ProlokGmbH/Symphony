@@ -37,6 +37,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
         branch = opts[:branch] || current_branch()
 
         maybe_close_open_pull_requests(repo, branch)
+        maybe_remove_current_worktree()
     end
   end
 
@@ -111,6 +112,91 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
 
   defp format_output(""), do: ""
   defp format_output(output), do: " output=#{inspect(output)}"
+
+  defp maybe_remove_current_worktree do
+    with {:ok, workspace} <- current_workspace(),
+         {:ok, source_repo} <- current_worktree_source_repo(workspace) do
+      case File.cd(source_repo) do
+        :ok ->
+          remove_worktree(source_repo, workspace)
+          prune_worktrees(source_repo)
+
+        {:error, reason} ->
+          Mix.shell().error("Failed to change directory to #{source_repo} before removing current Git worktree: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  defp current_workspace do
+    case run_command("git", ["rev-parse", "--show-toplevel"]) do
+      {:ok, output} ->
+        case output |> String.trim() |> normalize_absolute_path() do
+          nil -> {:error, :workspace_unavailable}
+          workspace -> {:ok, workspace}
+        end
+
+      {:error, _reason} ->
+        {:error, :workspace_unavailable}
+    end
+  end
+
+  defp current_worktree_source_repo(workspace) do
+    with {:ok, common_dir} <- git_absolute_path(["rev-parse", "--git-common-dir"], workspace),
+         {:ok, absolute_git_dir} <- git_absolute_path(["rev-parse", "--absolute-git-dir"], workspace),
+         true <- absolute_git_dir != common_dir do
+      {:ok, Path.dirname(common_dir)}
+    else
+      false -> {:error, :not_a_linked_worktree}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp git_absolute_path(args, _workspace) do
+    case run_command("git", args) do
+      {:ok, output} ->
+        case output |> String.trim() |> normalize_absolute_path() do
+          nil -> {:error, :path_unavailable}
+          path -> {:ok, path}
+        end
+
+      {:error, _reason} ->
+        {:error, :path_unavailable}
+    end
+  end
+
+  defp normalize_absolute_path(""), do: nil
+
+  defp normalize_absolute_path(path) when is_binary(path) do
+    case Path.type(path) do
+      :absolute -> path
+      _ -> nil
+    end
+  end
+
+  defp remove_worktree(source_repo, workspace) do
+    case run_command("git", ["-C", source_repo, "worktree", "remove", "--force", workspace]) do
+      {:ok, _output} ->
+        Mix.shell().info("Removed Git worktree #{workspace}")
+
+      {:error, {status, output}} ->
+        trimmed_output = String.trim(output)
+
+        Mix.shell().error("Failed to remove Git worktree #{workspace}: exit #{status}#{format_output(trimmed_output)}")
+    end
+  end
+
+  defp prune_worktrees(source_repo) do
+    case run_command("git", ["-C", source_repo, "worktree", "prune"]) do
+      {:ok, _output} ->
+        :ok
+
+      {:error, {status, output}} ->
+        trimmed_output = String.trim(output)
+        Mix.shell().error("Failed to prune Git worktrees in #{source_repo}: exit #{status}#{format_output(trimmed_output)}")
+    end
+  end
 
   defp current_branch do
     case run_command("git", ["branch", "--show-current"]) do

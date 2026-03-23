@@ -16,10 +16,19 @@ tracker:
 polling:
   interval_ms: 5000
 workspace:
-  root: ~/QuantHub/symphony-workspaces
+  root: ~/QuantHub/symphony-worktrees
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
+    workspace="$PWD"
+    workspace_root="$(dirname "$workspace")"
+    issue_key="$(basename "$workspace")"
+    branch="issue/$issue_key"
+    source_repo="$(cd "$workspace_root/../symphony" && pwd -P)"
+    if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$source_repo" worktree add "$workspace" "$branch"
+    else
+      git -C "$source_repo" worktree add -b "$branch" "$workspace" main
+    fi
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi

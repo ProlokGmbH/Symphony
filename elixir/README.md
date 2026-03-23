@@ -124,7 +124,11 @@ Notes:
 - If the Markdown body is blank, Symphony uses a default prompt template that includes the issue
   identifier, title, and body.
 - Use `hooks.after_create` to bootstrap a fresh workspace. For a Git-backed repo, you can run
-  `git clone ... .` there, along with any other setup commands you need.
+  `git clone ... .` there, or attach a local `git worktree` if you want to avoid network fetches
+  during workspace creation.
+- When `hooks.after_create` attaches a linked Git worktree, keep `hooks.before_remove` pointed at
+  `mix workspace.before_remove`; the task closes open PRs for the branch and removes/prunes the
+  linked worktree from the source repo during cleanup.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
@@ -140,7 +144,18 @@ workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:
   after_create: |
-    git clone --depth 1 "$SOURCE_REPO_URL" .
+    workspace="$PWD"
+    issue_key="$(basename "$workspace")"
+    branch="issue/$issue_key"
+    source_repo="$LOCAL_REPO_PATH"
+
+    if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$source_repo" worktree add "$workspace" "$branch"
+    else
+      git -C "$source_repo" worktree add -b "$branch" "$workspace" main
+    fi
+  before_remove: |
+    cd elixir && mise exec -- mix workspace.before_remove
 codex:
   command: "$CODEX_BIN app-server --model gpt-5.3-codex"
 ```
