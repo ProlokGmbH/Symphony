@@ -149,10 +149,14 @@ hooks:
     branch="symphony/$issue_key"
     source_repo="$LOCAL_REPO_PATH"
 
+    git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"
+      if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        git -C "$workspace" pull --ff-only origin "$branch"
+      fi
     else
-      git -C "$source_repo" worktree add -b "$branch" "$workspace" main
+      git -C "$source_repo" worktree add -b "$branch" "$workspace" origin/main
     fi
   before_remove: |
     cd elixir && mise exec -- mix workspace.before_remove

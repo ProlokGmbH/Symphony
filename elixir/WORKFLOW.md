@@ -24,10 +24,14 @@ hooks:
     issue_key="$(basename "$workspace")"
     branch="symphony/$issue_key"
     source_repo="$(cd "$workspace_root/../symphony" && pwd -P)"
+    git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"
+      if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        git -C "$workspace" pull --ff-only origin "$branch"
+      fi
     else
-      git -C "$source_repo" worktree add -b "$branch" "$workspace" main
+      git -C "$source_repo" worktree add -b "$branch" "$workspace" origin/main
     fi
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get

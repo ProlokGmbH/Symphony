@@ -106,8 +106,11 @@ defmodule SymphonyElixir.CoreTest do
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
     assert Map.get(hooks, "after_create") =~ "branch=\"symphony/$issue_key\""
+    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" fetch origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add \"$workspace\" \"$branch\""
-    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" main"
+    assert Map.get(hooks, "after_create") =~ "refs/remotes/origin/$branch"
+    assert Map.get(hooks, "after_create") =~ "git -C \"$workspace\" pull --ff-only origin \"$branch\""
+    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
