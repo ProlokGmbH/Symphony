@@ -98,6 +98,14 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec validate_startup_requirements() :: :ok | {:error, term()}
+  def validate_startup_requirements do
+    case settings() do
+      {:ok, settings} -> validate_startup_requirements(settings)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -114,24 +122,56 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  defp validate_startup_requirements(settings) do
+    case validate_required_environment(settings) do
+      :ok -> validate_semantics(settings)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp validate_semantics(settings) do
-    cond do
-      is_nil(settings.tracker.kind) ->
+    case settings.tracker.kind do
+      nil ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
+      "linear" ->
+        validate_linear_tracker(settings)
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
+      "memory" ->
+        :ok
+
+      kind ->
+        {:error, {:unsupported_tracker_kind, kind}}
+    end
+  end
+
+  defp validate_linear_tracker(settings) do
+    cond do
+      not is_binary(settings.tracker.api_key) ->
         {:error, :missing_linear_api_token}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
+      not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
+
+      not is_binary(settings.tracker.assignee) ->
+        {:error, :missing_linear_assignee}
 
       true ->
         :ok
     end
   end
+
+  defp validate_required_environment(%{tracker: %{kind: "linear"}}) do
+    case System.get_env("LINEAR_ASSIGNEE") do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: {:error, :missing_linear_assignee_env}, else: :ok
+
+      _ ->
+        {:error, :missing_linear_assignee_env}
+    end
+  end
+
+  defp validate_required_environment(_settings), do: :ok
 
   defp format_config_error(reason) do
     case reason do
@@ -144,11 +184,32 @@ defmodule SymphonyElixir.Config do
       {:workflow_parse_error, raw_reason} ->
         "Failed to parse WORKFLOW.md: #{inspect(raw_reason)}"
 
-      :workflow_front_matter_not_a_map ->
-        "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
-
       other ->
-        "Invalid WORKFLOW.md config: #{inspect(other)}"
+        format_simple_config_error(other)
     end
+  end
+
+  defp format_simple_config_error(:workflow_front_matter_not_a_map) do
+    "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
+  end
+
+  defp format_simple_config_error(:missing_linear_api_token) do
+    "Invalid WORKFLOW.md config: missing linear api token"
+  end
+
+  defp format_simple_config_error(:missing_linear_project_slug) do
+    "Invalid WORKFLOW.md config: missing linear project slug"
+  end
+
+  defp format_simple_config_error(:missing_linear_assignee) do
+    "Invalid WORKFLOW.md config: tracker.assignee must resolve to a non-empty value"
+  end
+
+  defp format_simple_config_error(:missing_linear_assignee_env) do
+    "Invalid WORKFLOW.md config: LINEAR_ASSIGNEE must be set in the environment, .env, or .env.local"
+  end
+
+  defp format_simple_config_error(other) do
+    "Invalid WORKFLOW.md config: #{inspect(other)}"
   end
 end

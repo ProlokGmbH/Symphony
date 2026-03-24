@@ -18,25 +18,35 @@ defmodule SymphonyElixir.Application do
   """
 
   use Application
+  alias SymphonyElixir.{Config, EnvFile}
+
+  @spec startup_preflight() :: :ok | {:error, term()}
+  def startup_preflight do
+    case EnvFile.load(File.cwd!()) do
+      :ok -> Config.validate_startup_requirements()
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @impl true
   def start(_type, _args) do
-    :ok = SymphonyElixir.LogFile.configure()
+    with :ok <- startup_preflight(),
+         :ok <- SymphonyElixir.LogFile.configure() do
+      children = [
+        {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+        {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+        SymphonyElixir.WorkflowStore,
+        SymphonyElixir.Orchestrator,
+        SymphonyElixir.HttpServer,
+        SymphonyElixir.StatusDashboard
+      ]
 
-    children = [
-      {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
-      SymphonyElixir.WorkflowStore,
-      SymphonyElixir.Orchestrator,
-      SymphonyElixir.HttpServer,
-      SymphonyElixir.StatusDashboard
-    ]
-
-    Supervisor.start_link(
-      children,
-      strategy: :one_for_one,
-      name: SymphonyElixir.Supervisor
-    )
+      Supervisor.start_link(
+        children,
+        strategy: :one_for_one,
+        name: SymphonyElixir.Supervisor
+      )
+    end
   end
 
   @impl true

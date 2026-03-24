@@ -1,5 +1,5 @@
 ---
-name: push
+name: symphony-push
 description:
   Push current branch changes to origin and create or update the corresponding
   pull request; use when asked to push, publish updates, or create pull request.
@@ -20,7 +20,7 @@ description:
 
 ## Related Skills
 
-- `pull`: use this when push is rejected or sync is not clean (non-fast-forward,
+- `symphony-pull`: use this when push is rejected or sync is not clean (non-fast-forward,
   merge conflict risk, or stale branch).
 
 ## Steps
@@ -30,7 +30,7 @@ description:
 3. Push branch to `origin` with upstream tracking if needed, using whatever
    remote URL is already configured.
 4. If push is not clean/rejected:
-   - If the failure is a non-fast-forward or sync problem, run the `pull`
+   - If the failure is a non-fast-forward or sync problem, run the `symphony-pull`
      skill to merge `origin/main`, resolve conflicts, and rerun validation.
    - Push again; use `--force-with-lease` only when history was rewritten.
    - If the failure is due to auth, permissions, or workflow restrictions on
@@ -67,8 +67,8 @@ make -C elixir all
 # Initial push: respect the current origin remote.
 git push -u origin HEAD
 
-# If that failed because the remote moved, use the pull skill. After
-# pull-skill resolution and re-validation, retry the normal push:
+# If that failed because the remote moved, use the symphony-pull skill. After
+# symphony-pull-skill resolution and re-validation, retry the normal push:
 git push -u origin HEAD
 
 # If the configured remote rejects the push for auth, permissions, or workflow
@@ -112,6 +112,6 @@ gh pr view --json url -q .url
 
 - Do not use `--force`; only use `--force-with-lease` as the last resort.
 - Distinguish sync problems from remote auth/permission problems:
-  - Use the `pull` skill for non-fast-forward or stale-branch issues.
+  - Use the `symphony-pull` skill for non-fast-forward or stale-branch issues.
   - Surface auth, permissions, or workflow restrictions directly instead of
     changing remotes or protocols.

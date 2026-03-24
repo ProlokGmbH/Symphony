@@ -9,87 +9,47 @@ defmodule SymphonyElixir.Linear.Client do
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
 
-  @query """
-  query SymphonyLinearPoll($projectSlug: String!, $stateNames: [String!]!, $first: Int!, $relationFirst: Int!, $after: String) {
-    issues(filter: {project: {slugId: {eq: $projectSlug}}, state: {name: {in: $stateNames}}}, first: $first, after: $after) {
-      nodes {
+  @issue_selection """
+  id
+  identifier
+  title
+  description
+  priority
+  state {
+    name
+  }
+  branchName
+  url
+  assignee {
+    id
+    email
+  }
+  labels {
+    nodes {
+      name
+    }
+  }
+  inverseRelations(first: $relationFirst) {
+    nodes {
+      type
+      issue {
         id
         identifier
-        title
-        description
-        priority
         state {
           name
         }
-        branchName
-        url
-        assignee {
-          id
-        }
-        labels {
-          nodes {
-            name
-          }
-        }
-        inverseRelations(first: $relationFirst) {
-          nodes {
-            type
-            issue {
-              id
-              identifier
-              state {
-                name
-              }
-            }
-          }
-        }
-        createdAt
-        updatedAt
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
       }
     }
   }
+  createdAt
+  updatedAt
   """
 
   @query_by_ids """
   query SymphonyLinearIssuesById($ids: [ID!]!, $first: Int!, $relationFirst: Int!) {
     issues(filter: {id: {in: $ids}}, first: $first) {
       nodes {
-        id
-        identifier
-        title
-        description
-        priority
-        state {
-          name
-        }
-        branchName
-        url
-        assignee {
-          id
-        }
-        labels {
-          nodes {
-            name
-          }
-        }
-        inverseRelations(first: $relationFirst) {
-          nodes {
-            type
-            issue {
-              id
-              identifier
-              state {
-                name
-              }
-            }
-          }
-        }
-        createdAt
-        updatedAt
+        #{@issue_selection}
       }
     }
   }
@@ -99,6 +59,7 @@ defmodule SymphonyElixir.Linear.Client do
   query SymphonyLinearViewer {
     viewer {
       id
+      email
     }
   }
   """
@@ -213,6 +174,24 @@ defmodule SymphonyElixir.Linear.Client do
   def next_page_cursor_for_test(page_info) when is_map(page_info), do: next_page_cursor(page_info)
 
   @doc false
+  @spec candidate_query_for_test(String.t() | nil) :: String.t()
+  def candidate_query_for_test(assignee) when is_binary(assignee) or is_nil(assignee) do
+    assignee_filter =
+      case assignee do
+        value when is_binary(value) ->
+          case build_assignee_filter(value) do
+            {:ok, filter} -> filter
+            {:error, _reason} -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    candidate_query(assignee_filter)
+  end
+
+  @doc false
   @spec merge_issue_pages_for_test([[Issue.t()]]) :: [Issue.t()]
   def merge_issue_pages_for_test(issue_pages) when is_list(issue_pages) do
     issue_pages
@@ -242,7 +221,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do
     with {:ok, body} <-
-           graphql(@query, %{
+           graphql(candidate_query(assignee_filter), %{
              projectSlug: project_slug,
              stateNames: state_names,
              first: @issue_page_size,
@@ -473,19 +452,19 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp assigned_to_worker?(_assignee, nil), do: true
 
-  defp assigned_to_worker?(%{} = assignee, %{match_values: match_values})
-       when is_struct(match_values, MapSet) do
-    assignee
-    |> assignee_id()
-    |> then(fn
-      nil -> false
-      assignee_id -> MapSet.member?(match_values, assignee_id)
-    end)
+  defp assigned_to_worker?(%{} = assignee, %{mode: :id, value: value}) when is_binary(value) do
+    assignee_id(assignee) == value
+  end
+
+  defp assigned_to_worker?(%{} = assignee, %{mode: :email, value: value}) when is_binary(value) do
+    assignee_email(assignee) == value
   end
 
   defp assigned_to_worker?(_assignee, _assignee_filter), do: false
 
   defp assignee_id(%{} = assignee), do: normalize_assignee_match_value(assignee["id"])
+
+  defp assignee_email(%{} = assignee), do: normalize_assignee_email_value(assignee["email"])
 
   defp routing_assignee_filter do
     case Config.settings!().tracker.assignee do
@@ -498,7 +477,7 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp build_assignee_filter(assignee) when is_binary(assignee) do
-    case normalize_assignee_match_value(assignee) do
+    case normalize_assignee_config_value(assignee) do
       nil ->
         {:ok, nil}
 
@@ -506,7 +485,7 @@ defmodule SymphonyElixir.Linear.Client do
         resolve_viewer_assignee_filter()
 
       normalized ->
-        {:ok, %{configured_assignee: assignee, match_values: MapSet.new([normalized])}}
+        {:ok, %{configured_assignee: assignee, mode: assignee_filter_mode(normalized), value: normalized}}
     end
   end
 
@@ -518,7 +497,7 @@ defmodule SymphonyElixir.Linear.Client do
             {:error, :missing_linear_viewer_identity}
 
           viewer_id ->
-            {:ok, %{configured_assignee: "me", match_values: MapSet.new([viewer_id])}}
+            {:ok, %{configured_assignee: "me", mode: :id, value: viewer_id}}
         end
 
       {:ok, _body} ->
@@ -529,14 +508,75 @@ defmodule SymphonyElixir.Linear.Client do
     end
   end
 
+  defp assignee_filter_mode(value) when is_binary(value) do
+    if String.contains?(value, "@"), do: :email, else: :id
+  end
+
+  defp candidate_query(assignee_filter) do
+    """
+    query SymphonyLinearPoll($projectSlug: String!, $stateNames: [String!]!, $first: Int!, $relationFirst: Int!, $after: String) {
+      issues(filter: {project: {slugId: {eq: $projectSlug}}, state: {name: {in: $stateNames}}#{candidate_query_assignee_filter(assignee_filter)}}, first: $first, after: $after) {
+        nodes {
+          #{@issue_selection}
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    """
+  end
+
+  defp candidate_query_assignee_filter(nil), do: ""
+
+  defp candidate_query_assignee_filter(%{mode: :id, value: value}) when is_binary(value) do
+    ", assignee: {id: {eq: #{graphql_string_literal(value)}}}"
+  end
+
+  defp candidate_query_assignee_filter(%{mode: :email, value: value}) when is_binary(value) do
+    ", assignee: {email: {eqIgnoreCase: #{graphql_string_literal(value)}}}"
+  end
+
+  defp graphql_string_literal(value) when is_binary(value), do: Jason.encode!(value)
+
+  defp normalize_assignee_config_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      "me" -> "me"
+      normalized -> normalize_assignee_identifier(normalized)
+    end
+  end
+
   defp normalize_assignee_match_value(value) when is_binary(value) do
-    case value |> String.trim() do
+    normalize_assignee_identifier(value)
+  end
+
+  defp normalize_assignee_match_value(_value), do: nil
+
+  defp normalize_assignee_email_value(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
       "" -> nil
       normalized -> normalized
     end
   end
 
-  defp normalize_assignee_match_value(_value), do: nil
+  defp normalize_assignee_email_value(_value), do: nil
+
+  defp normalize_assignee_identifier(value) when is_binary(value) do
+    normalized = String.trim(value)
+
+    cond do
+      normalized == "" ->
+        nil
+
+      String.contains?(normalized, "@") ->
+        normalize_assignee_email_value(normalized)
+
+      true ->
+        normalized
+    end
+  end
 
   defp extract_labels(%{"labels" => %{"nodes" => labels}}) when is_list(labels) do
     labels

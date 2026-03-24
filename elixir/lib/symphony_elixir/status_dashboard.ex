@@ -335,6 +335,7 @@ defmodule SymphonyElixir.StatusDashboard do
       {:ok, %{running: running, retrying: retrying, codex_totals: codex_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
         project_link_lines = format_project_link_lines()
+        assignee_lines = format_assignee_lines()
         project_refresh_line = format_project_refresh_line(Map.get(snapshot, :polling))
         codex_input_tokens = Map.get(codex_totals, :input_tokens, 0)
         codex_output_tokens = Map.get(codex_totals, :output_tokens, 0)
@@ -364,6 +365,7 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize("total #{format_count(codex_total_tokens)}", @ansi_yellow),
            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
            project_link_lines,
+           assignee_lines,
            project_refresh_line,
            colorize("├─ Running", @ansi_bold),
            "│",
@@ -384,6 +386,7 @@ defmodule SymphonyElixir.StatusDashboard do
           colorize("│ Orchestrator snapshot unavailable", @ansi_red),
           colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
           format_project_link_lines(),
+          format_assignee_lines(),
           format_project_refresh_line(nil),
           closing_border()
         ]
@@ -410,6 +413,16 @@ defmodule SymphonyElixir.StatusDashboard do
 
       _ ->
         [project_line]
+    end
+  end
+
+  defp format_assignee_lines do
+    case Config.settings!().tracker.assignee do
+      assignee when is_binary(assignee) and assignee != "" ->
+        [colorize("│ Assignee: ", @ansi_bold) <> colorize(assignee, @ansi_cyan)]
+
+      _ ->
+        []
     end
   end
 
@@ -634,8 +647,13 @@ defmodule SymphonyElixir.StatusDashboard do
 
   @doc false
   @spec format_running_summary_for_test(map(), integer() | nil) :: String.t()
-  def format_running_summary_for_test(running_entry, terminal_columns \\ nil),
-    do: format_running_summary(running_entry, running_event_width(terminal_columns))
+  def format_running_summary_for_test(running_entry, terminal_columns \\ nil) do
+    terminal_columns =
+      terminal_columns ||
+        fixed_running_width() + @running_row_chrome_width + @running_event_default_width
+
+    format_running_summary(running_entry, running_event_width(terminal_columns))
+  end
 
   @doc false
   @spec format_tps_for_test(number()) :: String.t()

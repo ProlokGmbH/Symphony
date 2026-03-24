@@ -1,17 +1,22 @@
 defmodule SymphonyElixir.CLI do
   @moduledoc """
-  Escript entrypoint for running Symphony with an explicit WORKFLOW.md path.
+  Escript entrypoint for running Symphony with a repo-managed WORKFLOW.md.
   """
 
-  alias SymphonyElixir.LogFile
+  alias SymphonyElixir.{LogFile, Workflow}
 
+  # Keep the legacy acknowledgement flag accepted so older scripts still parse.
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
+          default_workflow_path: (-> String.t()),
+          env_files_dir: (-> String.t()),
           file_regular?: (String.t() -> boolean()),
+          load_env_files: (String.t() -> :ok | {:error, term()}),
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
+          validate_startup_requirements: (-> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
           ensure_all_started: (-> ensure_started_result())
@@ -33,17 +38,9 @@ defmodule SymphonyElixir.CLI do
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
+        with :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
-          run(Path.expand("WORKFLOW.md"), deps)
-        end
-
-      {opts, [workflow_path], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
-          run(workflow_path, deps)
+          run(deps.default_workflow_path.(), deps.env_files_dir.(), deps)
         end
 
       _ ->
@@ -51,39 +48,90 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
-  def run(workflow_path, deps) do
+  @spec run(String.t(), String.t(), deps()) :: :ok | {:error, String.t()}
+  def run(workflow_path, env_files_dir, deps) do
     expanded_path = Path.expand(workflow_path)
+    expanded_env_files_dir = Path.expand(env_files_dir)
 
-    if deps.file_regular?.(expanded_path) do
-      :ok = deps.set_workflow_file_path.(expanded_path)
-
-      case deps.ensure_all_started.() do
-        {:ok, _started_apps} ->
-          :ok
-
-        {:error, reason} ->
-          {:error, "Failed to start Symphony with workflow #{expanded_path}: #{inspect(reason)}"}
-      end
-    else
-      {:error, "Workflow file not found: #{expanded_path}"}
+    case deps.file_regular?.(expanded_path) do
+      true -> load_and_start(expanded_path, expanded_env_files_dir, deps)
+      false -> {:error, "Workflow file not found: #{expanded_path}"}
     end
   end
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--logs-root <path>] [--port <port>]"
   end
 
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
+      default_workflow_path: &Workflow.default_workflow_file_path/0,
+      env_files_dir: &File.cwd!/0,
       file_regular?: &File.regular?/1,
+      load_env_files: &SymphonyElixir.EnvFile.load/1,
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
+      validate_startup_requirements: &SymphonyElixir.Config.validate_startup_requirements/0,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
+  end
+
+  defp format_env_file_error({:invalid_env_file, path, line_number, reason}) do
+    "#{path}:#{line_number}: #{inspect(reason)}"
+  end
+
+  defp format_env_file_error({:env_file_read_failed, path, reason}) do
+    "#{path}: #{inspect(reason)}"
+  end
+
+  defp format_env_file_error(reason), do: inspect(reason)
+
+  defp load_and_start(workflow_path, env_files_dir, deps) do
+    with :ok <- deps.load_env_files.(env_files_dir),
+         :ok <- deps.set_workflow_file_path.(workflow_path),
+         :ok <- deps.validate_startup_requirements.() do
+      start_application(workflow_path, deps)
+    else
+      {:error, reason} ->
+        {:error, format_run_error(workflow_path, reason)}
+    end
+  end
+
+  defp start_application(workflow_path, deps) do
+    case deps.ensure_all_started.() do
+      {:ok, _started_apps} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, "Failed to start Symphony with workflow #{workflow_path}: #{inspect(reason)}"}
+    end
+  end
+
+  defp format_run_error(workflow_path, :missing_linear_assignee_env) do
+    "Failed to start Symphony with workflow #{workflow_path}: LINEAR_ASSIGNEE must be set in the environment, .env, or .env.local"
+  end
+
+  defp format_run_error(workflow_path, :missing_linear_assignee) do
+    "Failed to start Symphony with workflow #{workflow_path}: tracker.assignee must resolve to a non-empty value"
+  end
+
+  defp format_run_error(workflow_path, {:invalid_workflow_config, message}) do
+    "Failed to start Symphony with workflow #{workflow_path}: #{message}"
+  end
+
+  defp format_run_error(workflow_path, :missing_linear_api_token) do
+    "Failed to start Symphony with workflow #{workflow_path}: missing linear api token"
+  end
+
+  defp format_run_error(workflow_path, :missing_linear_project_slug) do
+    "Failed to start Symphony with workflow #{workflow_path}: missing linear project slug"
+  end
+
+  defp format_run_error(workflow_path, reason) do
+    "Failed to load environment for workflow #{workflow_path}: #{format_env_file_error(reason)}"
   end
 
   defp maybe_set_logs_root(opts, deps) do
@@ -100,47 +148,6 @@ defmodule SymphonyElixir.CLI do
           :ok = deps.set_logs_root.(Path.expand(logs_root))
         end
     end
-  end
-
-  defp require_guardrails_acknowledgement(opts) do
-    if Keyword.get(opts, @acknowledgement_switch, false) do
-      :ok
-    else
-      {:error, acknowledgement_banner()}
-    end
-  end
-
-  @spec acknowledgement_banner() :: String.t()
-  defp acknowledgement_banner do
-    lines = [
-      "This Symphony implementation is a low key engineering preview.",
-      "Codex will run without any guardrails.",
-      "SymphonyElixir is not a supported product and is presented as-is.",
-      "To proceed, start with `--i-understand-that-this-will-be-running-without-the-usual-guardrails` CLI argument"
-    ]
-
-    width = Enum.max(Enum.map(lines, &String.length/1))
-    border = String.duplicate("─", width + 2)
-    top = "╭" <> border <> "╮"
-    bottom = "╰" <> border <> "╯"
-    spacer = "│ " <> String.duplicate(" ", width) <> " │"
-
-    content =
-      [
-        top,
-        spacer
-        | Enum.map(lines, fn line ->
-            "│ " <> String.pad_trailing(line, width) <> " │"
-          end)
-      ] ++ [spacer, bottom]
-
-    [
-      IO.ANSI.red(),
-      IO.ANSI.bright(),
-      Enum.join(content, "\n"),
-      IO.ANSI.reset()
-    ]
-    |> IO.iodata_to_binary()
   end
 
   defp set_logs_root(logs_root) do

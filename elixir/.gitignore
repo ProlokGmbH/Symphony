@@ -39,8 +39,12 @@ erl_crash.dump
 /bin/
 
 # Local environment and auth artifacts.
-.env
+.env.local
+.env.local.*
 .env.*
+!.env
+!.env.example
+!.env.local.example
 .secrets
 .credentials
 status.txt

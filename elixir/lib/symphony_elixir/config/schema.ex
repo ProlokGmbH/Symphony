@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   import Ecto.Changeset
 
-  alias SymphonyElixir.PathSafety
+  alias SymphonyElixir.{PathSafety, RuntimePaths}
 
   @primary_key false
 
@@ -369,6 +369,7 @@ defmodule SymphonyElixir.Config.Schema do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
+        project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
 
@@ -422,6 +423,15 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defp resolve_optional_string_setting(nil), do: nil
+
+  defp resolve_optional_string_setting(value) when is_binary(value) do
+    case resolve_env_value(value, nil) do
+      resolved when is_binary(resolved) -> normalize_secret_value(resolved)
+      resolved -> resolved
+    end
+  end
+
   defp resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do
       :missing ->
@@ -438,7 +448,7 @@ defmodule SymphonyElixir.Config.Schema do
   defp resolve_env_value(value, fallback) when is_binary(value) do
     case env_reference_name(value) do
       {:ok, env_name} ->
-        case System.get_env(env_name) do
+        case runtime_env_value(env_name) do
           nil -> fallback
           "" -> nil
           env_value -> env_value
@@ -467,10 +477,14 @@ defmodule SymphonyElixir.Config.Schema do
   defp env_reference_name(_value), do: :error
 
   defp resolve_env_token(env_name) do
-    case System.get_env(env_name) do
+    case runtime_env_value(env_name) do
       nil -> :missing
       env_value -> env_value
     end
+  end
+
+  defp runtime_env_value(env_name) when is_binary(env_name) do
+    System.get_env(env_name) || RuntimePaths.resolve_builtin_env(env_name)
   end
 
   defp normalize_secret_value(value) when is_binary(value) do

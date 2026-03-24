@@ -371,6 +371,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute issue.assigned_to_worker
   end
 
+  test "linear client routes email-matched assignees to the worker case-insensitively" do
+    raw_issue = %{
+      "id" => "issue-email-1",
+      "identifier" => "MT-EMAIL-1",
+      "title" => "Shared API key routing",
+      "state" => %{"name" => "Todo"},
+      "assignee" => %{
+        "id" => "user-123",
+        "email" => "Dev@Example.com"
+      }
+    }
+
+    issue = Client.normalize_issue_for_test(raw_issue, "dev@example.com")
+
+    assert issue.assigned_to_worker
+  end
+
+  test "linear candidate query filters assignee by email when configured" do
+    query = Client.candidate_query_for_test("dev@example.com")
+
+    assert query =~ ~s(assignee: {email: {eqIgnoreCase: "dev@example.com"}})
+  end
+
+  test "linear candidate query filters assignee by id when configured" do
+    query = Client.candidate_query_for_test("user-123")
+
+    assert query =~ ~s(assignee: {id: {eq: "user-123"}})
+  end
+
   test "linear client pagination merge helper preserves issue ordering" do
     issue_page_1 = [
       %Issue{id: "issue-1", identifier: "MT-1"},
@@ -886,29 +915,36 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    project_slug_env_var = "SYMP_LINEAR_PROJECT_SLUG_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
+    project_slug = "resolved-project-slug"
     codex_bin = Path.join(["~", "bin", "codex"])
 
     previous_workspace_root = System.get_env(workspace_env_var)
     previous_api_key = System.get_env(api_key_env_var)
+    previous_project_slug = System.get_env(project_slug_env_var)
 
     System.put_env(workspace_env_var, workspace_root)
     System.put_env(api_key_env_var, api_key)
+    System.put_env(project_slug_env_var, project_slug)
 
     on_exit(fn ->
       restore_env(workspace_env_var, previous_workspace_root)
       restore_env(api_key_env_var, previous_api_key)
+      restore_env(project_slug_env_var, previous_project_slug)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "$#{api_key_env_var}",
+      tracker_project_slug: "$#{project_slug_env_var}",
       workspace_root: "$#{workspace_env_var}",
       codex_command: "#{codex_bin} app-server"
     )
 
     config = Config.settings!()
     assert config.tracker.api_key == api_key
+    assert config.tracker.project_slug == project_slug
     assert config.workspace.root == Path.expand(workspace_root)
     assert config.codex.command == "#{codex_bin} app-server"
   end
@@ -938,6 +974,42 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     config = Config.settings!()
     assert config.tracker.api_key == "env:#{api_key_env_var}"
     assert config.workspace.root == "env:#{workspace_env_var}"
+  end
+
+  test "config leaves optional string settings nil when env indirection is missing" do
+    project_slug_env_var = "SYMP_MISSING_PROJECT_SLUG_#{System.unique_integer([:positive])}"
+    previous_project_slug = System.get_env(project_slug_env_var)
+
+    on_exit(fn ->
+      restore_env(project_slug_env_var, previous_project_slug)
+    end)
+
+    System.delete_env(project_slug_env_var)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "$#{project_slug_env_var}"
+    )
+
+    assert Config.settings!().tracker.project_slug == nil
+  end
+
+  test "config resolves built-in project worktrees root from the invocation directory" do
+    original_cwd = File.cwd!()
+    project_root = Path.join(System.tmp_dir!(), "symphony-project-root-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.cd!(project_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: "$SYMPHONY_PROJECT_WORKTREES_ROOT"
+    )
+
+    assert Config.settings!().workspace.root == project_root <> "-worktrees"
   end
 
   test "config supports per-state max concurrent agent overrides" do
@@ -1111,6 +1183,47 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
+  end
+
+  test "workspace hooks receive built-in project and workflow path variables" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-env-#{System.unique_integer([:positive])}"
+      )
+
+    project_root = Path.join(test_root, "project")
+    workspace_root = project_root <> "-worktrees"
+    env_log = Path.join(test_root, "hook-env.log")
+    original_cwd = File.cwd!()
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.cd!(project_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: "$SYMPHONY_PROJECT_WORKTREES_ROOT",
+      hook_after_create: "printf '%s\\n%s\\n%s\\n%s\\n' \"$SYMPHONY_PROJECT_ROOT\" \"$SYMPHONY_PROJECT_WORKTREES_ROOT\" \"$SYMPHONY_WORKFLOW_DIR\" \"$SYMPHONY_WORKFLOW_FILE\" > \"#{env_log}\""
+    )
+
+    issue = %Issue{id: "issue-hook-env", identifier: "MT-HOOK-ENV"}
+
+    assert {:ok, workspace} = Workspace.create_for_issue(issue)
+    assert workspace == Path.join(workspace_root, "MT-HOOK-ENV")
+
+    [logged_project_root, logged_worktrees_root, logged_workflow_dir, logged_workflow_file] =
+      env_log
+      |> File.read!()
+      |> String.split("\n", trim: true)
+
+    assert logged_project_root == project_root
+    assert logged_worktrees_root == workspace_root
+    assert logged_workflow_dir == Path.dirname(Workflow.workflow_file_path())
+    assert logged_workflow_file == Workflow.workflow_file_path()
   end
 
   test "runtime sandbox policy resolution passes explicit policies through unchanged" do
