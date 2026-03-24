@@ -15,7 +15,7 @@ defmodule SymphonyElixir.CoreTest do
     assert config.polling.interval_ms == 30_000
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-    assert config.tracker.assignee == nil
+    assert config.tracker.assignee == "dev@example.com"
     assert config.agent.max_turns == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -152,6 +152,53 @@ defmodule SymphonyElixir.CoreTest do
     )
 
     assert Config.settings!().tracker.assignee == env_assignee
+  end
+
+  test "startup validation requires LINEAR_ASSIGNEE in the environment" do
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+
+    on_exit(fn -> restore_env("LINEAR_ASSIGNEE", previous_linear_assignee) end)
+    System.delete_env("LINEAR_ASSIGNEE")
+
+    assert {:error, :missing_linear_assignee_env} = Config.validate_startup_requirements()
+
+    System.put_env("LINEAR_ASSIGNEE", "dev@example.com")
+
+    assert :ok = Config.validate_startup_requirements()
+  end
+
+  test "application startup preflight loads env files before validating assignee" do
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+    previous_workflow_path = Workflow.workflow_file_path()
+
+    workflow_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn ->
+      restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
+      Workflow.set_workflow_file_path(previous_workflow_path)
+      File.rm_rf(workflow_root)
+    end)
+
+    System.delete_env("LINEAR_ASSIGNEE")
+    File.mkdir_p!(workflow_root)
+
+    workflow_path = Path.join(workflow_root, "WORKFLOW.md")
+
+    write_workflow_file!(workflow_path,
+      tracker_assignee: nil,
+      tracker_project_slug: "project",
+      codex_command: "/bin/sh app-server"
+    )
+
+    File.write!(Path.join(workflow_root, ".env.local"), "LINEAR_ASSIGNEE=dev@example.com\n")
+    Workflow.set_workflow_file_path(workflow_path)
+
+    assert :ok = SymphonyElixir.Application.startup_preflight()
+    assert System.get_env("LINEAR_ASSIGNEE") == "dev@example.com"
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do

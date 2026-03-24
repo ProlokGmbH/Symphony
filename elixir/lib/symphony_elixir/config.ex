@@ -98,6 +98,15 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec validate_startup_requirements() :: :ok | {:error, term()}
+  def validate_startup_requirements do
+    with {:ok, settings} <- settings(),
+         :ok <- validate_required_environment(settings),
+         :ok <- validate_semantics(settings) do
+      :ok
+    end
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -128,10 +137,25 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
+      settings.tracker.kind == "linear" and not is_binary(settings.tracker.assignee) ->
+        {:error, :missing_linear_assignee}
+
       true ->
         :ok
     end
   end
+
+  defp validate_required_environment(%{tracker: %{kind: "linear"}}) do
+    case System.get_env("LINEAR_ASSIGNEE") do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: {:error, :missing_linear_assignee_env}, else: :ok
+
+      _ ->
+        {:error, :missing_linear_assignee_env}
+    end
+  end
+
+  defp validate_required_environment(_settings), do: :ok
 
   defp format_config_error(reason) do
     case reason do
@@ -146,6 +170,18 @@ defmodule SymphonyElixir.Config do
 
       :workflow_front_matter_not_a_map ->
         "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
+
+      :missing_linear_api_token ->
+        "Invalid WORKFLOW.md config: missing linear api token"
+
+      :missing_linear_project_slug ->
+        "Invalid WORKFLOW.md config: missing linear project slug"
+
+      :missing_linear_assignee ->
+        "Invalid WORKFLOW.md config: tracker.assignee must resolve to a non-empty value"
+
+      :missing_linear_assignee_env ->
+        "Invalid WORKFLOW.md config: LINEAR_ASSIGNEE must be set in the environment, .env, or .env.local"
 
       other ->
         "Invalid WORKFLOW.md config: #{inspect(other)}"

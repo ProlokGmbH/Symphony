@@ -1017,6 +1017,24 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert rendered =~ "http://127.0.0.1:4000/"
   end
 
+  test "status dashboard renders the current assignee in the header" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_assignee: "dev@example.com")
+
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
+
+    assert rendered =~ "│ Assignee:"
+    assert rendered =~ "dev@example.com"
+  end
+
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do
     assert StatusDashboard.dashboard_url_for_test("0.0.0.0", 0, 43_123) ==
              "http://127.0.0.1:43123/"

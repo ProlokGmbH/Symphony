@@ -7,6 +7,7 @@
 │ Rate Limits: unavailable
 │ Project: https://linear.app/project/project/issues
 │ Dashboard: http://127.0.0.1:4000/
+│ Assignee: dev@example.com
 │ Next refresh: n/a
 ├─ Running
 │

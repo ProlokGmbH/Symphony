@@ -47,6 +47,8 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 ## Prerequisites
 
 We recommend using [mise](https://mise.jdx.dev/) to manage Elixir/Erlang versions.
+The repository root also includes the same `mise` tool versions so shells and editors can detect
+Symphony as a project before you `cd elixir`.
 
 ```bash
 mise install
@@ -110,6 +112,9 @@ Title: {{ issue.title }} Body: {{ issue.description }}
 Notes:
 
 - If a value is missing, defaults are used.
+- `tracker.assignee` optionally narrows work to one Linear user. Supported values are `me`, a Linear
+  user ID, or an email address. When set, Symphony only considers issues explicitly assigned to
+  that user; unassigned issues are ignored.
 - Safer Codex defaults are used when policy fields are omitted:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`
@@ -132,6 +137,15 @@ Notes:
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
+- `tracker.project_slug` resolves `$VAR` references such as `$LINEAR_PROJECT_SLUG`.
+- `tracker.assignee` reads from `LINEAR_ASSIGNEE` when unset or when value is `$LINEAR_ASSIGNEE`.
+- On startup, Symphony also loads `.env` and then optional `.env.local` from the same directory as
+  the selected `WORKFLOW.md`. `.env.local` overrides values loaded from `.env`, while already-set
+  process environment variables still win over both files.
+- `LINEAR_ASSIGNEE` is required at startup. If it is missing, Symphony exits instead of starting.
+- This directory now includes a checked-in [.env](/home/parallels/QuantHub/symphony/elixir/.env)
+  for shared repo defaults and a local override template at
+  [.env.local.example](/home/parallels/QuantHub/symphony/elixir/.env.local.example).
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the

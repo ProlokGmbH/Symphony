@@ -369,6 +369,7 @@ defmodule SymphonyElixir.Config.Schema do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
+        project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
 
@@ -417,6 +418,15 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp resolve_secret_setting(value, fallback) when is_binary(value) do
     case resolve_env_value(value, fallback) do
+      resolved when is_binary(resolved) -> normalize_secret_value(resolved)
+      resolved -> resolved
+    end
+  end
+
+  defp resolve_optional_string_setting(nil), do: nil
+
+  defp resolve_optional_string_setting(value) when is_binary(value) do
+    case resolve_env_value(value, nil) do
       resolved when is_binary(resolved) -> normalize_secret_value(resolved)
       resolved -> resolved
     end

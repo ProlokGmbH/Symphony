@@ -371,6 +371,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute issue.assigned_to_worker
   end
 
+  test "linear client routes email-matched assignees to the worker case-insensitively" do
+    raw_issue = %{
+      "id" => "issue-email-1",
+      "identifier" => "MT-EMAIL-1",
+      "title" => "Shared API key routing",
+      "state" => %{"name" => "Todo"},
+      "assignee" => %{
+        "id" => "user-123",
+        "email" => "Dev@Example.com"
+      }
+    }
+
+    issue = Client.normalize_issue_for_test(raw_issue, "dev@example.com")
+
+    assert issue.assigned_to_worker
+  end
+
+  test "linear candidate query filters assignee by email when configured" do
+    query = Client.candidate_query_for_test("dev@example.com")
+
+    assert query =~ ~s(assignee: {email: {eqIgnoreCase: "dev@example.com"}})
+  end
+
+  test "linear candidate query filters assignee by id when configured" do
+    query = Client.candidate_query_for_test("user-123")
+
+    assert query =~ ~s(assignee: {id: {eq: "user-123"}})
+  end
+
   test "linear client pagination merge helper preserves issue ordering" do
     issue_page_1 = [
       %Issue{id: "issue-1", identifier: "MT-1"},
@@ -886,29 +915,36 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    project_slug_env_var = "SYMP_LINEAR_PROJECT_SLUG_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
+    project_slug = "resolved-project-slug"
     codex_bin = Path.join(["~", "bin", "codex"])
 
     previous_workspace_root = System.get_env(workspace_env_var)
     previous_api_key = System.get_env(api_key_env_var)
+    previous_project_slug = System.get_env(project_slug_env_var)
 
     System.put_env(workspace_env_var, workspace_root)
     System.put_env(api_key_env_var, api_key)
+    System.put_env(project_slug_env_var, project_slug)
 
     on_exit(fn ->
       restore_env(workspace_env_var, previous_workspace_root)
       restore_env(api_key_env_var, previous_api_key)
+      restore_env(project_slug_env_var, previous_project_slug)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "$#{api_key_env_var}",
+      tracker_project_slug: "$#{project_slug_env_var}",
       workspace_root: "$#{workspace_env_var}",
       codex_command: "#{codex_bin} app-server"
     )
 
     config = Config.settings!()
     assert config.tracker.api_key == api_key
+    assert config.tracker.project_slug == project_slug
     assert config.workspace.root == Path.expand(workspace_root)
     assert config.codex.command == "#{codex_bin} app-server"
   end

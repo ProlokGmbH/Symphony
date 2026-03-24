@@ -1,7 +1,8 @@
 ---
 tracker:
   kind: linear
-  project_slug: "symphony-07f513c4ae64"
+  project_slug: $LINEAR_PROJECT_SLUG
+  assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo
     - In Progress
