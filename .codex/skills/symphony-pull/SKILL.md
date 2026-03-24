@@ -1,5 +1,5 @@
 ---
-name: pull
+name: symphony-pull
 description:
   Pull latest origin/main into the current local branch and resolve merge
   conflicts (aka update-branch). Use when Codex needs to sync a feature branch
