@@ -46,19 +46,8 @@ Validation command:
 mix specs.check
 ```
 
-## PR Requirements
-
-- PR body must follow `../.github/pull_request_template.md` exactly.
-- Validate PR body locally when needed:
-
-```bash
-mix pr_body.check --file /path/to/pr_body.md
-```
-
 ## Docs Update Policy
 
 If behavior/config changes, update docs in the same PR:
 
-- `../README.md` for project concept and goals.
-- `README.md` for Elixir implementation and run instructions.
 - `WORKFLOW.md` for workflow/config contract changes.

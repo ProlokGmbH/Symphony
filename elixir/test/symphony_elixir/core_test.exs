@@ -13,8 +13,18 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
-    assert config.tracker.active_states == ["Todo", "In Progress"]
-    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+
+    assert config.tracker.active_states == [
+             "Todo Codex",
+             "In Arbeit Codex",
+             "Review Codex",
+             "Test Codex",
+             "Abbruch Codex",
+             "Merge Codex",
+             "Neustart Codex"
+           ]
+
+    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
     assert config.tracker.assignee == "dev@example.com"
     assert config.agent.max_turns == 20
 
@@ -110,11 +120,15 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" fetch origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add \"$workspace\" \"$branch\""
     assert Map.get(hooks, "after_create") =~ "refs/remotes/origin/$branch"
+    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add --track -b \"$branch\" \"$workspace\" \"origin/$branch\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$workspace\" pull --ff-only origin \"$branch\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
+    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
+    assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
     assert Map.get(hooks, "after_create") =~ "if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$PWD\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
+    assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
+    assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
@@ -397,7 +411,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -417,7 +431,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "Todo", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "Todo Codex", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -460,7 +474,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -480,7 +494,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -493,7 +507,7 @@ defmodule SymphonyElixir.CoreTest do
         id: issue_id,
         identifier: issue_identifier,
         state: "Closed",
-        title: "Done",
+        title: "Fertig",
         description: "Completed",
         labels: []
       }
@@ -505,6 +519,152 @@ defmodule SymphonyElixir.CoreTest do
       refute Process.alive?(agent_pid)
       refute File.exists?(workspace)
     after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "cancel issue state stops running agent, cleans workspace, and moves issue to Abgebrochen" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-cancel-reconcile-#{System.unique_integer([:positive])}"
+      )
+
+    previous_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    issue_id = "issue-cancel"
+    issue_identifier = "MT-556-C"
+    workspace = Path.join(test_root, issue_identifier)
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: test_root,
+        tracker_active_states: [
+          "Todo Codex",
+          "In Arbeit Codex",
+          "Review Codex",
+          "Abbruch Codex",
+          "Neustart Codex"
+        ],
+        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+      File.mkdir_p!(test_root)
+      File.mkdir_p!(workspace)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      agent_ref = Process.monitor(agent_pid)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
+            started_at: DateTime.utc_now()
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: "Abbruch Codex",
+        title: "Abort work",
+        description: "User canceled the workflow",
+        labels: []
+      }
+
+      updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+      refute Map.has_key?(updated_state.running, issue_id)
+      refute MapSet.member?(updated_state.claimed, issue_id)
+      assert_receive {:DOWN, ^agent_ref, :process, ^agent_pid, _reason}
+      refute Process.alive?(agent_pid)
+      refute File.exists?(workspace)
+      assert_receive {:memory_tracker_state_update, ^issue_id, "Abgebrochen"}
+    after
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "cancel issue from polling cleans workspace and moves issue to Abgebrochen without dispatch" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-cancel-poll-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    issue_id = "issue-cancel-poll"
+    issue_identifier = "MT-556-P"
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: test_root,
+        tracker_active_states: [
+          "Todo Codex",
+          "In Arbeit Codex",
+          "Review Codex",
+          "Abbruch Codex",
+          "Neustart Codex"
+        ],
+        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"],
+        poll_interval_ms: 30_000
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: "Abbruch Codex",
+        title: "Abort idle work",
+        description: "Workspace should be cleaned without dispatch",
+        labels: []
+      }
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+
+      orchestrator_name = Module.concat(__MODULE__, :CancelPollingOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        restore_app_env(:memory_tracker_issues, previous_memory_issues)
+        restore_app_env(:memory_tracker_recipient, previous_recipient)
+
+        if Process.alive?(pid) do
+          Process.exit(pid, :normal)
+        end
+      end)
+
+      File.mkdir_p!(Path.join(test_root, issue_identifier))
+
+      send(pid, :tick)
+      assert_receive {:memory_tracker_state_update, ^issue_id, "Abgebrochen"}, 1_000
+      Process.sleep(100)
+
+      refute File.exists?(Path.join(test_root, issue_identifier))
+      state = :sys.get_state(pid)
+      refute Map.has_key?(state.running, issue_id)
+      refute MapSet.member?(state.claimed, issue_id)
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
       File.rm_rf(test_root)
     end
   end
@@ -524,7 +684,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
         poll_interval_ms: 30_000
       )
@@ -562,7 +722,7 @@ defmodule SymphonyElixir.CoreTest do
         pid: agent_pid,
         ref: nil,
         identifier: issue_identifier,
-        issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+        issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
         started_at: DateTime.utc_now()
       }
 
@@ -599,7 +759,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-557",
-            state: "Todo"
+            state: "Todo Codex"
           },
           started_at: DateTime.utc_now()
         }
@@ -612,7 +772,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-557",
-      state: "In Progress",
+      state: "In Arbeit Codex",
       title: "Active state refresh",
       description: "State should be refreshed",
       labels: []
@@ -623,7 +783,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert Map.has_key?(updated_state.running, issue_id)
     assert MapSet.member?(updated_state.claimed, issue_id)
-    assert updated_entry.issue.state == "In Progress"
+    assert updated_entry.issue.state == "In Arbeit Codex"
   end
 
   test "reconcile stops running issue when it is reassigned away from this worker" do
@@ -645,7 +805,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-561",
-            state: "In Progress",
+            state: "In Arbeit Codex",
             assigned_to_worker: true
           },
           started_at: DateTime.utc_now()
@@ -659,7 +819,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-561",
-      state: "In Progress",
+      state: "In Arbeit Codex",
       title: "Reassigned active issue",
       description: "Worker should stop",
       labels: [],
@@ -691,7 +851,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-558",
-      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -732,7 +892,7 @@ defmodule SymphonyElixir.CoreTest do
       ref: ref,
       identifier: "MT-559",
       retry_attempt: 2,
-      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -771,7 +931,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-560",
-      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -919,6 +1079,19 @@ defmodule SymphonyElixir.CoreTest do
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
 
+  defp review_handoff_test_recipient(parent, state_agent)
+       when is_pid(parent) and is_pid(state_agent) do
+    receive do
+      {:memory_tracker_state_update, _issue_id, state_name} = message ->
+        Agent.update(state_agent, fn _ -> state_name end)
+        send(parent, message)
+        review_handoff_test_recipient(parent, state_agent)
+
+      _other ->
+        review_handoff_test_recipient(parent, state_agent)
+    end
+  end
+
   test "fetch issues by states with empty state set is a no-op" do
     assert {:ok, []} = Client.fetch_issues_by_states([])
   end
@@ -969,6 +1142,65 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Ticket MT-697"
     assert prompt =~ "created=2026-02-26T18:06:48Z"
     assert prompt =~ "updated=2026-02-26T18:07:03Z"
+  end
+
+  test "prompt builder renders runtime local time context for workflow prompts" do
+    workflow_prompt = "local={{ runtime.local_time }} tz={{ runtime.timezone }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698",
+      title: "Local timestamps in workpad history",
+      description: "Prompt should expose local runtime time",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert [_, local_time] = Regex.run(~r/local=([^ ]+)/, prompt)
+    assert local_time =~ ~r/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/
+    assert prompt =~ "tz="
+  end
+
+  test "prompt builder uses trimmed TZ environment values in runtime context" do
+    previous_tz = System.get_env("TZ")
+    on_exit(fn -> restore_env("TZ", previous_tz) end)
+
+    System.put_env("TZ", "  Europe/Paris  ")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "tz={{ runtime.timezone }}")
+
+    issue = %Issue{
+      identifier: "MT-698A",
+      title: "Trim timezone",
+      description: "Prompt should trim TZ",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698A",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "tz=Europe/Paris"
+  end
+
+  test "prompt builder falls back to system-local when TZ is blank" do
+    previous_tz = System.get_env("TZ")
+    on_exit(fn -> restore_env("TZ", previous_tz) end)
+
+    System.put_env("TZ", "   ")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "tz={{ runtime.timezone }}")
+
+    issue = %Issue{
+      identifier: "MT-698B",
+      title: "Blank timezone",
+      description: "Prompt should handle blank TZ",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698B",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "tz=system-local"
   end
 
   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
@@ -1118,19 +1350,31 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
-    assert prompt =~ "Issue context:"
+    assert prompt =~
+             ~r/(You are working on a Linear (ticket|issue)|Du arbeitest an einem Linear-Ticket) `MT-616`/
+
+    assert prompt =~ ~r/(Issue context|Ticket-Kontext):/
     assert prompt =~ "Identifier: MT-616"
-    assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
-    assert prompt =~ "Current status: In Progress"
+    assert prompt =~ ~r/(Title|Titel): Use rich templates for WORKFLOW.md/
+    assert prompt =~ ~r/(Current status|Aktueller Status): In Progress/
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
-    assert prompt =~ "This is an unattended orchestration session."
-    assert prompt =~ "Only stop early for a true blocker"
-    assert prompt =~ "Do not include \"next steps for user\""
-    assert prompt =~ "open and follow `.codex/skills/symphony-land/SKILL.md`"
-    assert prompt =~ "Do not call `gh pr merge` directly"
-    assert prompt =~ "Continuation context:"
-    assert prompt =~ "retry attempt #2"
+
+    assert prompt =~
+             ~r/(This is an unattended orchestration session\.|Dies ist eine unbeaufsichtigte Orchestrierungssitzung\.)/
+
+    assert prompt =~
+             ~r/(Only stop early for a true blocker|Stoppe nur bei einem echten Blocker frühzeitig)/
+
+    assert prompt =~ ~r/(Local system time for this turn|Lokale Systemzeit für diesen Turn):/
+    assert prompt =~ ~r/(local system time|lokale Systemzeit)/
+    assert prompt =~ ~r/(keine UTC- oder `Z`-Zeitstempel|do not use UTC or `Z` timestamps)/
+
+    assert prompt =~ ~s("next steps for user")
+    assert prompt =~ ".codex/skills/symphony-review/SKILL.md"
+    assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
+    assert prompt =~ "`gh pr merge`"
+    assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
+    assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
   end
 
   test "prompt builder adds continuation guidance for retries" do
@@ -1306,7 +1550,7 @@ defmodule SymphonyElixir.CoreTest do
                AgentRunner.run(
                  issue,
                  test_pid,
-                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Fertig"}]} end
                )
 
       assert_receive {:codex_worker_update, "issue-live-updates",
@@ -1466,9 +1710,9 @@ defmodule SymphonyElixir.CoreTest do
 
         state =
           if attempt == 1 do
-            "In Progress"
+            "In Arbeit Codex"
           else
-            "Done"
+            "Fertig"
           end
 
         {:ok,
@@ -1488,7 +1732,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-247",
         title: "Continue until done",
         description: "Still active after first turn",
-        state: "In Progress",
+        state: "In Arbeit Codex",
         url: "https://example.org/issues/MT-247",
         labels: []
       }
@@ -1520,6 +1764,296 @@ defmodule SymphonyElixir.CoreTest do
       assert Enum.at(turn_texts, 1) =~ "continuation turn #2 of 3"
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner moves Review Codex issues to Review after a clean review turn" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review Codex" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-handoff",
+             identifier: "MT-REVIEW",
+             title: "Review handoff",
+             description: "Advance after clean review turn",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-handoff",
+        identifier: "MT-REVIEW",
+        title: "Review handoff",
+        description: "Advance after clean review turn",
+        state: "Review Codex",
+        url: "https://example.org/issues/MT-REVIEW",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Review"}
+      assert "Review" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner moves Test Codex issues to Merge Codex after a clean test turn without code changes" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-test-merge-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-clean"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-clean"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-test-clean-handoff",
+             identifier: "MT-TEST-CLEAN",
+             title: "Test handoff clean",
+             description: "Advance to merge when tests need no fixes",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-test-clean-handoff",
+        identifier: "MT-TEST-CLEAN",
+        title: "Test handoff clean",
+        description: "Advance to merge when tests need no fixes",
+        state: "Test Codex",
+        url: "https://example.org/issues/MT-TEST-CLEAN",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Merge Codex"}
+      assert "Merge Codex" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner moves Test Codex issues back to Review after a clean test turn with code changes" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-test-review-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-fix"}}}'
+            ;;
+          4)
+            printf '# fixed during test\\n' > README.md
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-fix"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-test-fix-handoff",
+             identifier: "MT-TEST-FIX",
+             title: "Test handoff with fix",
+             description: "Return to review when tests required a fix",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-test-fix-handoff",
+        identifier: "MT-TEST-FIX",
+        title: "Test handoff with fix",
+        description: "Return to review when tests required a fix",
+        state: "Test Codex",
+        url: "https://example.org/issues/MT-TEST-FIX",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Review"}
+      assert "Review" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
@@ -1595,7 +2129,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-248",
              title: "Stop at max turns",
              description: "Still active",
-             state: "In Progress"
+             state: "In Arbeit Codex"
            }
          ]}
       end
@@ -1605,7 +2139,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-248",
         title: "Stop at max turns",
         description: "Still active",
-        state: "In Progress",
+        state: "In Arbeit Codex",
         url: "https://example.org/issues/MT-248",
         labels: []
       }

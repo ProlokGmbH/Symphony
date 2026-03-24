@@ -18,7 +18,8 @@ defmodule SymphonyElixir.PromptBuilder do
     |> Solid.render!(
       %{
         "attempt" => Keyword.get(opts, :attempt),
-        "issue" => issue |> Map.from_struct() |> to_solid_map()
+        "issue" => issue |> Map.from_struct() |> to_solid_map(),
+        "runtime" => runtime_context()
       },
       @render_opts
     )
@@ -53,6 +54,32 @@ defmodule SymphonyElixir.PromptBuilder do
   defp to_solid_value(value) when is_map(value), do: to_solid_map(value)
   defp to_solid_value(value) when is_list(value), do: Enum.map(value, &to_solid_value/1)
   defp to_solid_value(value), do: value
+
+  defp runtime_context do
+    %{
+      "local_time" => local_timestamp(),
+      "timezone" => local_timezone()
+    }
+  end
+
+  defp local_timestamp do
+    NaiveDateTime.local_now()
+    |> NaiveDateTime.truncate(:second)
+    |> NaiveDateTime.to_iso8601()
+  end
+
+  defp local_timezone do
+    case System.get_env("TZ") do
+      timezone when is_binary(timezone) ->
+        case String.trim(timezone) do
+          "" -> "system-local"
+          trimmed -> trimmed
+        end
+
+      _ ->
+        "system-local"
+    end
+  end
 
   defp default_prompt(prompt) when is_binary(prompt) do
     if String.trim(prompt) == "" do

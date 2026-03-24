@@ -193,6 +193,59 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec git_status_snapshot(Path.t(), worker_host()) :: {:ok, String.t()} | {:error, term()}
+  def git_status_snapshot(workspace, worker_host \\ nil) when is_binary(workspace) do
+    case worker_host do
+      nil ->
+        local_git_status_snapshot(workspace)
+
+      worker_host when is_binary(worker_host) ->
+        remote_git_status_snapshot(workspace, worker_host)
+    end
+  end
+
+  defp local_git_status_snapshot(workspace) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
+             cd: workspace,
+             env: Enum.into(RuntimePaths.builtin_env(), []),
+             stderr_to_stdout: true
+           ) do
+        {output, 0} ->
+          {:ok, String.trim_trailing(output)}
+
+        {output, status} ->
+          {:error, {:workspace_git_status_failed, :local, status, output}}
+      end
+    end
+  end
+
+  defp remote_git_status_snapshot(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case run_remote_command(worker_host, remote_git_status_script(workspace), Config.settings!().hooks.timeout_ms) do
+        {:ok, {output, 0}} ->
+          {:ok, output |> IO.iodata_to_binary() |> String.trim_trailing()}
+
+        {:ok, {output, status}} ->
+          {:error, {:workspace_git_status_failed, worker_host, status, output}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp remote_git_status_script(workspace) when is_binary(workspace) do
+    [
+      remote_hook_env_exports(),
+      "cd #{shell_escape(workspace)}",
+      "git status --porcelain=v1 --untracked-files=all"
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
   defp workspace_path_for_issue(safe_id, nil) when is_binary(safe_id) do
     Config.settings!().workspace.root
     |> Path.join(safe_id)

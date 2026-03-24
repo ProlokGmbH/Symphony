@@ -70,15 +70,25 @@ defmodule SymphonyElixir.TestSupport do
   def restore_env(key, value), do: System.put_env(key, value)
 
   def stop_default_http_server do
+    case Process.whereis(SymphonyElixir.Supervisor) do
+      pid when is_pid(pid) ->
+        terminate_default_http_server()
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp terminate_default_http_server do
     case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn
            {SymphonyElixir.HttpServer, _pid, _type, _modules} -> true
            _child -> false
          end) do
-      {SymphonyElixir.HttpServer, pid, _type, _modules} when is_pid(pid) ->
+      {SymphonyElixir.HttpServer, child_pid, _type, _modules} when is_pid(child_pid) ->
         :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.HttpServer)
 
-        if Process.alive?(pid) do
-          Process.exit(pid, :normal)
+        if Process.alive?(child_pid) do
+          Process.exit(child_pid, :normal)
         end
 
         :ok
@@ -97,8 +107,16 @@ defmodule SymphonyElixir.TestSupport do
           tracker_api_token: "token",
           tracker_project_slug: "project",
           tracker_assignee: "dev@example.com",
-          tracker_active_states: ["Todo", "In Progress"],
-          tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_active_states: [
+            "Todo Codex",
+            "In Arbeit Codex",
+            "Review Codex",
+            "Test Codex",
+            "Abbruch Codex",
+            "Merge Codex",
+            "Neustart Codex"
+          ],
+          tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"],
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           worker_ssh_hosts: [],
