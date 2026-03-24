@@ -851,6 +851,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "Todo Codex",
              "In Arbeit Codex",
              "Review Codex",
+             "Test Codex",
              "Abbruch Codex",
              "Merge Codex",
              "Neustart Codex"

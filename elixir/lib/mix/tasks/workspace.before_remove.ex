@@ -1,11 +1,11 @@
 defmodule Mix.Tasks.Workspace.BeforeRemove do
   use Mix.Task
 
-  @shortdoc "Close PRs, delete the remote branch, and remove the linked worktree"
+  @shortdoc "Close PRs, delete matching branches, and remove the linked worktree"
 
   @moduledoc """
   Closes open pull requests for the current Git branch, deletes the matching
-  remote branch, and removes the linked worktree.
+  remote and local branches, and removes the linked worktree.
 
   This task is intended for use from the `before_remove` workspace hook.
 
@@ -132,7 +132,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       :ok ->
         try do
           maybe_delete_remote_branch(source_repo, branch)
-          remove_worktree(source_repo, workspace)
+          maybe_delete_local_branch_after_worktree_removal(source_repo, workspace, branch)
           prune_worktrees(source_repo)
         after
           restore_original_cwd(original_cwd, source_repo)
@@ -196,6 +196,50 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       {:error, {status, output}} ->
         trimmed_output = String.trim(output)
         Mix.shell().error("Failed to delete remote branch #{branch}: exit #{status}#{format_output(trimmed_output)}")
+    end
+  end
+
+  defp maybe_delete_local_branch_after_worktree_removal(source_repo, workspace, branch) do
+    case remove_worktree(source_repo, workspace) do
+      :ok -> maybe_delete_local_branch(source_repo, branch)
+      :error -> :ok
+    end
+  end
+
+  defp maybe_delete_local_branch(_source_repo, nil), do: :ok
+
+  defp maybe_delete_local_branch(source_repo, branch)
+       when is_binary(source_repo) and is_binary(branch) do
+    case local_branch_exists?(source_repo, branch) do
+      true ->
+        delete_local_branch(source_repo, branch)
+
+      false ->
+        :ok
+
+      {:error, {status, output}} ->
+        trimmed_output = String.trim(output)
+
+        Mix.shell().error("Failed to check local branch #{branch} in #{source_repo}: exit #{status}#{format_output(trimmed_output)}")
+    end
+  end
+
+  defp local_branch_exists?(source_repo, branch) do
+    case run_command("git", ["-C", source_repo, "show-ref", "--verify", "--quiet", "refs/heads/#{branch}"]) do
+      {:ok, _output} -> true
+      {:error, {1, _output}} -> false
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp delete_local_branch(source_repo, branch) do
+    case run_command("git", ["-C", source_repo, "branch", "-D", branch]) do
+      {:ok, _output} ->
+        Mix.shell().info("Deleted local branch #{branch}")
+
+      {:error, {status, output}} ->
+        trimmed_output = String.trim(output)
+        Mix.shell().error("Failed to delete local branch #{branch}: exit #{status}#{format_output(trimmed_output)}")
     end
   end
 
@@ -313,11 +357,13 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
     case run_command("git", ["-C", source_repo, "worktree", "remove", "--force", workspace]) do
       {:ok, _output} ->
         Mix.shell().info("Removed Git worktree #{workspace}")
+        :ok
 
       {:error, {status, output}} ->
         trimmed_output = String.trim(output)
 
         Mix.shell().error("Failed to remove Git worktree #{workspace}: exit #{status}#{format_output(trimmed_output)}")
+        :error
     end
   end
 

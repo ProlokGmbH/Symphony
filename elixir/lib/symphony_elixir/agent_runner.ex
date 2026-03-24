@@ -8,6 +8,11 @@ defmodule SymphonyElixir.AgentRunner do
   alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
 
   @type worker_host :: String.t() | nil
+  @review_codex_state_name "review codex"
+  @review_handoff_state_name "Review"
+  @test_codex_state_name "test codex"
+  @test_codex_clean_handoff_state_name "Merge Codex"
+  @test_codex_changed_handoff_state_name "Review"
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -80,16 +85,37 @@ defmodule SymphonyElixir.AgentRunner do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+    with {:ok, initial_workspace_signature} <-
+           maybe_capture_initial_workspace_signature(issue, workspace, worker_host),
+         {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+      turn_context = %{
+        app_session: session,
+        workspace: workspace,
+        codex_update_recipient: codex_update_recipient,
+        opts: opts,
+        issue_state_fetcher: issue_state_fetcher,
+        worker_host: worker_host,
+        initial_workspace_signature: initial_workspace_signature,
+        max_turns: max_turns
+      }
+
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
+        do_run_codex_turns(turn_context, issue, 1)
       after
         AppServer.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
+  defp do_run_codex_turns(turn_context, issue, turn_number) when is_map(turn_context) do
+    app_session = turn_context.app_session
+    workspace = turn_context.workspace
+    codex_update_recipient = turn_context.codex_update_recipient
+    opts = turn_context.opts
+    issue_state_fetcher = turn_context.issue_state_fetcher
+    worker_host = turn_context.worker_host
+    initial_workspace_signature = turn_context.initial_workspace_signature
+    max_turns = turn_context.max_turns
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
     with {:ok, turn_session} <-
@@ -101,20 +127,17 @@ defmodule SymphonyElixir.AgentRunner do
            ) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
-      case continue_with_issue?(issue, issue_state_fetcher) do
+      case continue_with_issue?(
+             issue,
+             issue_state_fetcher,
+             workspace,
+             worker_host,
+             initial_workspace_signature
+           ) do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
-          do_run_codex_turns(
-            app_session,
-            workspace,
-            refreshed_issue,
-            codex_update_recipient,
-            opts,
-            issue_state_fetcher,
-            turn_number + 1,
-            max_turns
-          )
+          do_run_codex_turns(turn_context, refreshed_issue, turn_number + 1)
 
         {:continue, refreshed_issue} ->
           Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
@@ -146,14 +169,23 @@ defmodule SymphonyElixir.AgentRunner do
     """
   end
 
-  defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
+  defp continue_with_issue?(
+         %Issue{id: issue_id} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host,
+         initial_workspace_signature
+       )
+       when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
-        if active_issue_state?(refreshed_issue.state) do
-          {:continue, refreshed_issue}
-        else
-          {:done, refreshed_issue}
-        end
+        resolve_issue_continuation(
+          refreshed_issue,
+          issue_state_fetcher,
+          workspace,
+          worker_host,
+          initial_workspace_signature
+        )
 
       {:ok, []} ->
         {:done, issue}
@@ -163,7 +195,166 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp continue_with_issue?(issue, _issue_state_fetcher), do: {:done, issue}
+  defp continue_with_issue?(
+         issue,
+         _issue_state_fetcher,
+         _workspace,
+         _worker_host,
+         _initial_workspace_signature
+       ),
+       do: {:done, issue}
+
+  defp resolve_issue_continuation(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host,
+         initial_workspace_signature
+       ) do
+    with {:ok, %Issue{} = current_issue, continuation_mode} <-
+           maybe_finalize_active_codex_issue(
+             issue,
+             issue_state_fetcher,
+             workspace,
+             worker_host,
+             initial_workspace_signature
+           ) do
+      continuation_status(current_issue, continuation_mode)
+    end
+  end
+
+  defp continuation_status(%Issue{} = issue, :stop) do
+    {:done, issue}
+  end
+
+  defp continuation_status(%Issue{} = issue, _continuation_mode) do
+    if active_issue_state?(issue.state) do
+      {:continue, issue}
+    else
+      {:done, issue}
+    end
+  end
+
+  defp maybe_finalize_active_codex_issue(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host,
+         initial_workspace_signature
+       ) do
+    cond do
+      review_codex_state?(issue.state) and is_binary(issue.id) ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          @review_handoff_state_name,
+          :review_handoff_state_update_failed,
+          "completed review issue",
+          :stop
+        )
+
+      test_codex_state?(issue.state) and is_binary(issue.id) ->
+        maybe_finalize_test_codex_issue(
+          issue,
+          issue_state_fetcher,
+          workspace,
+          worker_host,
+          initial_workspace_signature
+        )
+
+      true ->
+        {:ok, issue, :normal}
+    end
+  end
+
+  defp refetch_issue(%Issue{id: issue_id} = issue, issue_state_fetcher, fallback_state)
+       when is_binary(issue_id) and is_binary(fallback_state) do
+    case issue_state_fetcher.([issue_id]) do
+      {:ok, [%Issue{} = refreshed_issue | _]} ->
+        {:ok, refreshed_issue}
+
+      {:ok, []} ->
+        {:ok, %{issue | state: fallback_state}}
+
+      {:error, reason} ->
+        {:error, {:issue_state_refresh_failed, reason}}
+    end
+  end
+
+  defp maybe_finalize_test_codex_issue(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host,
+         initial_workspace_signature
+       ) do
+    with {:ok, workspace_changed?} <-
+           workspace_changed_since?(workspace, worker_host, initial_workspace_signature) do
+      next_state =
+        if workspace_changed? do
+          @test_codex_changed_handoff_state_name
+        else
+          @test_codex_clean_handoff_state_name
+        end
+
+      transition_issue_state(
+        issue,
+        issue_state_fetcher,
+        next_state,
+        :test_handoff_state_update_failed,
+        "completed test issue workspace_changed=#{workspace_changed?}",
+        :stop
+      )
+    end
+  end
+
+  defp transition_issue_state(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         next_state,
+         error_tag,
+         reason_label,
+         continuation_mode
+       )
+       when is_binary(next_state) and is_atom(error_tag) do
+    case Tracker.update_issue_state(issue.id, next_state) do
+      :ok ->
+        Logger.info("Auto-transitioned #{reason_label}: #{issue_context(issue)} next_state=#{next_state}")
+
+        with {:ok, %Issue{} = refreshed_issue} <- refetch_issue(issue, issue_state_fetcher, next_state) do
+          {:ok, refreshed_issue, continuation_mode}
+        end
+
+      {:error, reason} ->
+        Logger.warning("Failed auto-transition for #{reason_label}: #{issue_context(issue)} next_state=#{next_state} reason=#{inspect(reason)}")
+
+        {:error, {error_tag, next_state, reason}}
+    end
+  end
+
+  defp workspace_changed_since?(workspace, worker_host, initial_workspace_signature)
+       when is_binary(workspace) and is_binary(initial_workspace_signature) do
+    case Workspace.git_status_snapshot(workspace, worker_host) do
+      {:ok, current_workspace_signature} ->
+        {:ok, current_workspace_signature != initial_workspace_signature}
+
+      {:error, reason} ->
+        {:error, {:workspace_status_snapshot_failed, reason}}
+    end
+  end
+
+  defp workspace_changed_since?(_workspace, _worker_host, nil) do
+    {:error, :missing_initial_workspace_signature}
+  end
+
+  defp maybe_capture_initial_workspace_signature(%Issue{} = issue, workspace, worker_host)
+       when is_binary(workspace) do
+    if test_codex_state?(issue.state) do
+      Workspace.git_status_snapshot(workspace, worker_host)
+    else
+      {:ok, nil}
+    end
+  end
 
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
@@ -173,6 +364,18 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp active_issue_state?(_state_name), do: false
+
+  defp review_codex_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @review_codex_state_name
+  end
+
+  defp review_codex_state?(_state_name), do: false
+
+  defp test_codex_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @test_codex_state_name
+  end
+
+  defp test_codex_state?(_state_name), do: false
 
   defp selected_worker_host(nil, []), do: nil
 

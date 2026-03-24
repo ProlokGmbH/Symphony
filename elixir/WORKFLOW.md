@@ -7,6 +7,7 @@ tracker:
     - Todo Codex
     - In Arbeit Codex
     - Review Codex
+    - Test Codex
     - Abbruch Codex
     - Merge Codex
     - Neustart Codex
@@ -44,7 +45,7 @@ hooks:
       mise trust && mise exec -- mix deps.get
     fi
   before_remove: |
-    # Closes open PRs, deletes the matching remote branch, and removes the linked worktree.
+    # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
     cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$workspace" --source-repo "$SYMPHONY_PROJECT_ROOT"
 agent:
@@ -117,6 +118,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach dem manuellen Commit den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
 - `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
+- `symphony-review`: wenn das Ticket `Review Codex` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
+- `symphony-test`: wenn das Ticket `Test Codex` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
 - `symphony-land`: wenn das Ticket `Merge Codex` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
 ## Statuszuordnung
@@ -126,10 +129,11 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `Todo Codex` -> in der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit Codex` verschieben.
   - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren, nach `Review` zurückkehren).
 - `In Arbeit Codex` -> Implementierung läuft aktiv.
-- `Review Codex` -> ungecommiteten Stand mit `codex review --uncommitted` prüfen; gefundene Probleme direkt beheben und das Review wiederholen, bis keine Abweichungen mehr vorliegen oder `max_turns` erreicht ist; danach nach `Review` verschieben.
+- `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und den dort definierten repository-spezifischen Review-/Fix-Zyklus ausführen; danach nach `Review` verschieben.
+- `Test Codex` -> `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten repository-spezifischen Test-/Fix-Zyklus ausführen; ohne Codeänderungen danach nach `Merge Codex`, mit Codeänderungen zurück nach `Review`.
 - `Abbruch Codex` -> laufende Arbeit sofort abbrechen, Git-Worktree entfernen, vorhandene PR und/oder Remote-Branch löschen und das Issue anschließend nach `Abgebrochen` verschieben.
-- `Review` -> außerhalb des aktiven Codex-Scopes; nichts tun und warten, bis ein Mensch das Issue verschiebt.
-- `Merge Codex` -> von einem Menschen freigegeben und mit PR verbunden; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
+- `Review` -> außerhalb des aktiven Codex-Scopes; nichts tun und warten, bis ein Mensch das Issue nach manuellem Review entweder nach `Test Codex`, `Merge Codex` oder `Neustart Codex` verschiebt.
+- `Merge Codex` -> final freigegeben; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
 - `Neustart Codex` -> Reviewer hat Änderungen angefordert; Planung und Implementierung sind erforderlich.
 - `Fertig` -> terminaler Status; keine weitere Aktion erforderlich.
 - `Abgebrochen` -> terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich.
@@ -144,7 +148,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `Todo Codex` -> sofort nach `In Arbeit Codex` verschieben, dann sicherstellen, dass ein Bootstrap-Workpad-Kommentar existiert (falls nötig erstellen), dann den Ausführungsablauf starten.
      - Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
    - `In Arbeit Codex` -> Ausführungsablauf vom aktuellen Scratchpad-Kommentar aus fortsetzen.
-   - `Review Codex` -> Review-Codex-Ablauf ausführen.
+   - `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und befolgen.
+   - `Test Codex` -> `.codex/skills/symphony-test/SKILL.md` öffnen und befolgen.
    - `Abbruch Codex` -> Abbruch-Ablauf ausführen.
    - `Merge Codex` -> beim Eintritt `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen; `gh pr merge` nicht direkt aufrufen.
    - `Neustart Codex` -> den Neustart-Ablauf ausführen.
@@ -232,7 +237,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
     - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
     - Für Tickets, die als `Todo Codex` mit angehängter PR gestartet sind, führe das vollständige PR-Feedback-Sweep-Protokoll sofort nach dem Kickoff und vor neuer Feature-Arbeit aus.
 5.  Führe die für den Scope erforderlichen Validierungen/Tests aus.
-    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validation`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
+    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
     - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
     - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
     - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `Review Codex` wieder zurück.
@@ -260,30 +265,37 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 ## Schritt 3: `Review Codex`
 
-1. Wenn sich das Issue in `Review Codex` befindet, führe `codex review --uncommitted` im aktuellen Workspace aus.
-2. Wenn das Review Änderungsvorschläge oder Fehler findet, behebe sie direkt im selben Workspace und führe anschließend `codex review --uncommitted` erneut aus.
-3. Wiederhole diesen Review-/Fix-Zyklus, bis das Review keine Abweichungen mehr meldet oder `agent.max_turns` erreicht ist.
-4. Verschiebe das Issue erst danach nach `Review`.
+1. Wenn sich das Issue in `Review Codex` befindet, öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
+3. Verschiebe das Issue erst danach nach `Review`.
+4. Falls ein `Review Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Review Codex` steht, übernimmt Symphony den Statuswechsel nach `Review` als Fallback automatisch.
 
-## Schritt 4: `Abbruch Codex`
+## Schritt 4: `Test Codex`
+
+1. Wenn sich das Issue in `Test Codex` befindet, öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+3. Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge Codex`.
+4. Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Review`, damit der Entwickler die Änderungen erneut begutachten kann.
+5. Falls ein `Test Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Test Codex` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
+
+## Schritt 5: `Abbruch Codex`
 
 1. Wenn sich das Issue in `Abbruch Codex` befindet, brich laufende Arbeit sofort ab.
 2. Entferne den zugehörigen Git-Worktree.
 3. Lösche eine eventuell vorhandene PR und/oder den Remote-Branch über den bestehenden Cleanup-Ablauf.
 4. Verschiebe das Issue danach nach `Abgebrochen`.
 
-## Schritt 5: `Review` und Merge-Abwicklung
+## Schritt 6: `Review` und Merge-Abwicklung
 
 1. Wenn sich das Issue in `Review` befindet, weder coden noch den Ticket-Inhalt ändern.
 2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
-3. Falls nach dem manuellen Commit noch kein Push oder PR-Update erfolgt ist, kann dieser Schritt anschließend weiterhin stattfinden.
+3. Nach dem manuellen Review kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test Codex` verschieben.
 4. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
 5. Wenn Review-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Neustart Codex`.
-6. Bei Freigabe verschiebt ein Mensch das Issue nach `Merge Codex`.
-7. Wenn sich das Issue in `Merge Codex` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-8. Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
+6. Wenn sich das Issue in `Merge Codex` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+7. Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
 
-## Schritt 6: Neustart-Behandlung
+## Schritt 7: Neustart-Behandlung
 
 1. Behandle `Neustart Codex` als vollständigen Reset des Vorgehens, nicht als inkrementelles Patchen.
 2. Lies den kompletten Issue-Body und alle menschlichen Kommentare erneut; identifiziere explizit, was in diesem Versuch anders gemacht wird.
@@ -323,7 +335,9 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 ## Workpad-Vorlage
 
-Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell:
+Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
+Im Abschnitt `### Review` werden die Schritte aus `.symphony/review_codex.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`:
+Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`:
 
 ````md
 ## Codex Workpad
@@ -348,9 +362,17 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 - [ ] gezielte Tests: `<command>`
 
+### Review
+
+- [ ] `<Review-Schritt aus .symphony/review_codex.md>`: `<kurze Statusnotiz>`
+
+### Test
+
+- [ ] `<Test-Schritt aus .symphony/test_codex.md>`: `<kurze Statusnotiz>`
+
 ### Verlauf
 
-- <kurze Fortschrittsnotiz mit Zeitstempel in lokaler Zeit>
+- <kurze Fortschritts-/Review-/Test-Notiz mit Zeitstempel in lokaler Zeit>
 
 ### Unklarheiten
 
