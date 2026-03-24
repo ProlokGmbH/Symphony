@@ -37,6 +37,7 @@ hooks:
       mise trust && mise exec -- mix deps.get
     fi
   before_remove: |
+    # Closes open PRs, deletes the matching remote branch, and removes the linked worktree.
     cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$PWD" --source-repo "$SYMPHONY_PROJECT_ROOT"
 agent:
   max_concurrent_agents: 10
@@ -49,262 +50,253 @@ codex:
     type: dangerFullAccess
 ---
 
-You are working on a Linear ticket `{{ issue.identifier }}`
+Du arbeitest an einem Linear-Ticket `{{ issue.identifier }}`
 
 {% if attempt %}
-Continuation context:
+Fortsetzungskontext:
 
-- This is retry attempt #{{ attempt }} because the ticket is still in an active state.
-- Resume from the current workspace state instead of restarting from scratch.
-- Do not repeat already-completed investigation or validation unless needed for new code changes.
-- Do not end the turn while the issue remains in an active state unless you are blocked by missing required permissions/secrets.
+- Dies ist Wiederholungsversuch Nr. {{ attempt }}, weil sich das Ticket weiterhin in einem aktiven Status befindet.
+- Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
+- Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
+- Beende den Turn nicht, solange das Issue in einem aktiven Status bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert.
   {% endif %}
 
-Issue context:
+Ticket-Kontext:
 Identifier: {{ issue.identifier }}
-Title: {{ issue.title }}
-Current status: {{ issue.state }}
+Titel: {{ issue.title }}
+Aktueller Status: {{ issue.state }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 
-Description:
+Beschreibung:
 {% if issue.description %}
 {{ issue.description }}
 {% else %}
-No description provided.
+Keine Beschreibung vorhanden.
 {% endif %}
 
-Instructions:
+Anweisungen:
 
-1. This is an unattended orchestration session. Never ask a human to perform follow-up actions.
-2. Only stop early for a true blocker (missing required auth/permissions/secrets). If blocked, record it in the workpad and move the issue according to workflow.
-3. Final message must report completed actions and blockers only. Do not include "next steps for user".
+1. Dies ist eine unbeaufsichtigte Orchestrierungssitzung. Frage niemals einen Menschen nach Folgeaktionen.
+2. Stoppe nur bei einem echten Blocker frühzeitig (fehlende erforderliche Authentifizierung/Berechtigungen/Secrets). Wenn du blockiert bist, halte das im Workpad fest und verschiebe das Issue gemäß Workflow.
+3. Die Abschlussnachricht darf nur abgeschlossene Aktionen und Blocker enthalten. Füge keine "next steps for user" hinzu.
 
-Work only in the provided repository copy. Do not touch any other path.
+Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 
-## Prerequisite: Linear MCP or `linear_graphql` tool is available
+## Voraussetzung: Linear MCP oder das Tool `linear_graphql` ist verfügbar
 
-The agent should be able to talk to Linear, either via a configured Linear MCP server or injected `linear_graphql` tool. If none are present, stop and ask the user to configure Linear.
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, stoppe und fordere den Nutzer auf, Linear zu konfigurieren.
 
-## Default posture
+## Standardvorgehen
 
-- Start by determining the ticket's current status, then follow the matching flow for that status.
-- Start every task by opening the tracking workpad comment and bringing it up to date before doing new implementation work.
-- Spend extra effort up front on planning and verification design before implementation.
-- Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
-- Keep ticket metadata current (state, checklist, acceptance criteria, links).
-- Treat a single persistent Linear comment as the source of truth for progress.
-- Use that single workpad comment for all progress and handoff notes; do not post separate "done"/summary comments.
-- Treat any ticket-authored `Validation`, `Test Plan`, or `Testing` section as non-negotiable acceptance input: mirror it in the workpad and execute it before considering the work complete.
-- When meaningful out-of-scope improvements are discovered during execution,
-  file a separate Linear issue instead of expanding scope. The follow-up issue
-  must include a clear title, description, and acceptance criteria, be placed in
-  `Backlog`, be assigned to the same project as the current issue, link the
-  current issue as `related`, and use `blockedBy` when the follow-up depends on
-  the current issue.
-- Move status only when the matching quality bar is met.
-- Operate autonomously end-to-end unless blocked by missing requirements, secrets, or permissions.
-- Use the blocked-access escape hatch only for true external blockers (missing required tools/auth) after exhausting documented fallbacks.
+- Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
+- Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
+- Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
+- Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
+- Halte die Ticket-Metadaten aktuell (Status, Checkliste, Akzeptanzkriterien, Links).
+- Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
+- Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare.
+- Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Akzeptanzvorgabe: spiegle ihn im Workpad wider und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
+- Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Akzeptanzkriterien enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
+- Arbeite autonom von Anfang bis Ende, solange du nicht durch fehlende Anforderungen, Secrets oder Berechtigungen blockiert bist.
+- Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
 
-## Related skills
+## Verwandte Skills
 
-- `symphony-linear`: interact with Linear.
-- `symphony-commit`: produce clean, logical commits during implementation.
-- `symphony-push`: keep remote branch current and publish updates.
-- `symphony-pull`: keep branch updated with latest `origin/main` before handoff.
-- `symphony-land`: when ticket reaches `Merging`, explicitly open and follow `.codex/skills/symphony-land/SKILL.md`, which includes the `symphony-land` loop.
+- `symphony-linear`: mit Linear interagieren.
+- `symphony-commit`: während der Implementierung saubere, logisch aufgebaute Commits erstellen.
+- `symphony-push`: den Remote-Branch aktuell halten und Updates veröffentlichen.
+- `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
+- `symphony-land`: wenn das Ticket `Merging` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
-## Status map
+## Statuszuordnung
 
-- `Backlog` -> out of scope for this workflow; do not modify.
-- `Todo` -> queued; immediately transition to `In Progress` before active work.
-  - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `Human Review`).
-- `In Progress` -> implementation actively underway.
-- `Human Review` -> PR is attached and validated; waiting on human approval.
-- `Merging` -> approved by human; execute the `symphony-land` skill flow (do not call `gh pr merge` directly).
-- `Rework` -> reviewer requested changes; planning + implementation required.
-- `Done` -> terminal state; no further action required.
+- `Backlog` -> außerhalb des Scopes dieses Workflows; nicht ändern.
+- `Todo` -> in der Warteschlange; vor aktiver Arbeit sofort nach `In Progress` verschieben.
+  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, adressieren oder explizit Pushback geben, erneut validieren, nach `Human Review` zurückkehren).
+- `In Progress` -> Implementierung läuft aktiv.
+- `Human Review` -> PR ist angehängt und validiert; wartet auf menschliche Freigabe.
+- `Merging` -> von einem Menschen freigegeben; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
+- `Rework` -> Reviewer hat Änderungen angefordert; Planung und Implementierung sind erforderlich.
+- `Done` -> terminaler Status; keine weitere Aktion erforderlich.
 
-## Step 0: Determine current ticket state and route
+## Schritt 0: Aktuellen Ticket-Status bestimmen und weiterleiten
 
-1. Fetch the issue by explicit ticket ID.
-2. Read the current state.
-3. Route to the matching flow:
-   - `Backlog` -> do not modify issue content/state; stop and wait for human to move it to `Todo`.
-   - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
-     - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
-   - `In Progress` -> continue execution flow from current scratchpad comment.
-   - `Human Review` -> wait and poll for decision/review updates.
-   - `Merging` -> on entry, open and follow `.codex/skills/symphony-land/SKILL.md`; do not call `gh pr merge` directly.
-   - `Rework` -> run rework flow.
-   - `Done` -> do nothing and shut down.
-4. Check whether a PR already exists for the current branch and whether it is closed.
-   - If a branch PR exists and is `CLOSED` or `MERGED`, treat prior branch work as non-reusable for this run.
-   - Create a fresh branch from `origin/main` and restart execution flow as a new attempt.
-5. For `Todo` tickets, do startup sequencing in this exact order:
+1. Hole das Issue über die explizite Ticket-ID.
+2. Lies den aktuellen Status.
+3. Leite in den passenden Ablauf weiter:
+   - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo` setzt.
+   - `Todo` -> sofort nach `In Progress` verschieben, dann sicherstellen, dass ein Bootstrap-Workpad-Kommentar existiert (falls nötig erstellen), dann den Ausführungsablauf starten.
+     - Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
+   - `In Progress` -> Ausführungsablauf vom aktuellen Scratchpad-Kommentar aus fortsetzen.
+   - `Human Review` -> warten und auf Entscheidungen/Review-Updates pollen.
+   - `Merging` -> beim Eintritt `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen; `gh pr merge` nicht direkt aufrufen.
+   - `Rework` -> den Rework-Ablauf ausführen.
+   - `Done` -> nichts tun und beenden.
+4. Prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
+   - Wenn eine Branch-PR existiert und `CLOSED` oder `MERGED` ist, behandle die bisherige Branch-Arbeit für diesen Lauf als nicht wiederverwendbar.
+   - Erstelle einen frischen Branch von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
+5. Für `Todo`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "In Progress")`
-   - find/create `## Codex Workpad` bootstrap comment
-   - only then begin analysis/planning/implementation work.
-6. Add a short comment if state and issue content are inconsistent, then proceed with the safest flow.
+   - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
+   - erst danach Analyse-, Planungs- und Implementierungsarbeit beginnen.
+6. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
 
-## Step 1: Start/continue execution (Todo or In Progress)
+## Schritt 1: Ausführung starten/fortsetzen (`Todo` oder `In Progress`)
 
-1.  Find or create a single persistent scratchpad comment for the issue:
-    - Search existing comments for a marker header: `## Codex Workpad`.
-    - Ignore resolved comments while searching; only active/unresolved comments are eligible to be reused as the live workpad.
-    - If found, reuse that comment; do not create a new workpad comment.
-    - If not found, create one workpad comment and use it for all updates.
-    - Persist the workpad comment ID and only write progress updates to that ID.
-2.  If arriving from `Todo`, do not delay on additional status transitions: the issue should already be `In Progress` before this step begins.
-3.  Immediately reconcile the workpad before new edits:
-    - Check off items that are already done.
-    - Expand/fix the plan so it is comprehensive for current scope.
-    - Ensure `Acceptance Criteria` and `Validation` are current and still make sense for the task.
-4.  Start work by writing/updating a hierarchical plan in the workpad comment.
-5.  Ensure the workpad includes a compact environment stamp at the top as a code fence line:
+1.  Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
+    - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
+    - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
+    - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
+    - Falls nicht vorhanden, erstelle einen Workpad-Kommentar und nutze ihn für alle Updates.
+    - Speichere die ID des Workpad-Kommentars und schreibe Fortschrittsupdates nur in diese ID.
+2.  Wenn du von `Todo` kommst, verzögere nicht mit weiteren Statuswechseln: Das Issue sollte bereits `In Progress` sein, bevor dieser Schritt beginnt.
+3.  Gleiche das Workpad vor neuen Änderungen sofort ab:
+    - Hake bereits erledigte Punkte ab.
+    - Erweitere/korrigiere den Plan so, dass er für den aktuellen Scope vollständig ist.
+    - Stelle sicher, dass `Akzeptanzkriterien` und `Validierung` aktuell sind und weiterhin zur Aufgabe passen.
+4.  Starte die Arbeit, indem du einen hierarchischen Plan im Workpad-Kommentar schreibst bzw. aktualisierst.
+5.  Stelle sicher, dass das Workpad oben einen kompakten Environment-Stamp als Code-Fence-Zeile enthält:
     - Format: `<host>:<abs-workdir>@<short-sha>`
-    - Example: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-    - Do not include metadata already inferable from Linear issue fields (`issue ID`, `status`, `branch`, `PR link`).
-6.  Add explicit acceptance criteria and TODOs in checklist form in the same comment.
-    - If changes are user-facing, include a UI walkthrough acceptance criterion that describes the end-to-end user path to validate.
-    - If changes touch app files or app behavior, add explicit app-specific flow checks to `Acceptance Criteria` in the workpad (for example: launch path, changed interaction path, and expected result path).
-    - If the ticket description/comment context includes `Validation`, `Test Plan`, or `Testing` sections, copy those requirements into the workpad `Acceptance Criteria` and `Validation` sections as required checkboxes (no optional downgrade).
-7.  Run a principal-style self-review of the plan and refine it in the comment.
-8.  Before implementing, capture a concrete reproduction signal and record it in the workpad `Notes` section (command/output, screenshot, or deterministic UI behavior).
-9.  Run the `symphony-pull` skill to sync with latest `origin/main` before any code edits, then record the pull/sync result in the workpad `Notes`.
-    - Include a `symphony-pull skill evidence` note with:
-      - merge source(s),
-      - result (`clean` or `conflicts resolved`),
-      - resulting `HEAD` short SHA.
-10. Compact context and proceed to execution.
+    - Beispiel: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
+    - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`, `PR link`).
+6.  Füge explizite Akzeptanzkriterien und TODOs in Checklistenform in denselben Kommentar ein.
+    - Wenn Änderungen nutzerseitig sichtbar sind, nimm ein UI-Walkthrough-Akzeptanzkriterium auf, das den End-to-End-Nutzerpfad zur Validierung beschreibt.
+    - Wenn Änderungen App-Dateien oder App-Verhalten berühren, füge explizite app-spezifische Ablaufprüfungen in `Akzeptanzkriterien` des Workpads hinzu (zum Beispiel: Startpfad, geänderter Interaktionspfad und erwarteter Ergebnispfad).
+    - Wenn die Ticket-Beschreibung oder der Kommentar-Kontext Abschnitte `Validation`, `Test Plan` oder `Testing` enthält, kopiere diese Anforderungen als verpflichtende Checkboxen in die Bereiche `Akzeptanzkriterien` und `Validierung` des Workpads (keine optionale Abschwächung).
+7.  Führe ein Self-Review des Plans im Stil eines Principal Engineers durch und verfeinere ihn im Kommentar.
+8.  Erfasse vor der Implementierung ein konkretes Reproduktionssignal und halte es im Abschnitt `Verlauf` des Workpads fest (Befehl/Ausgabe, Screenshot oder deterministisches UI-Verhalten).
+9.  Führe vor jeder Code-Änderung den Skill `symphony-pull` aus, um mit dem neuesten `origin/main` zu synchronisieren, und dokumentiere das Pull-/Sync-Ergebnis anschließend im Abschnitt `Verlauf` des Workpads.
+    - Füge eine Notiz `symphony-pull skill evidence` hinzu mit:
+      - Merge-Quelle(n),
+      - Ergebnis (`clean` oder `conflicts resolved`),
+      - resultierendem kurzem `HEAD`-SHA.
+10. Kontext komprimieren und mit der Ausführung fortfahren.
 
-## PR feedback sweep protocol (required)
+## PR-Feedback-Sweep-Protokoll (verpflichtend)
 
-When a ticket has an attached PR, run this protocol before moving to `Human Review`:
+Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Human Review` verschiebst:
 
-1. Identify the PR number from issue links/attachments.
-2. Gather feedback from all channels:
-   - Top-level PR comments (`gh pr view --comments`).
-   - Inline review comments (`gh api repos/<owner>/<repo>/pulls/<pr>/comments`).
-   - Review summaries/states (`gh pr view --json reviews`).
-3. Treat every actionable reviewer comment (human or bot), including inline review comments, as blocking until one of these is true:
-   - code/test/docs updated to address it, or
-   - explicit, justified pushback reply is posted on that thread.
-4. Update the workpad plan/checklist to include each feedback item and its resolution status.
-5. Re-run validation after feedback-driven changes and push updates.
-6. Repeat this sweep until there are no outstanding actionable comments.
+1. Ermittle die PR-Nummer aus Issue-Links/Attachments.
+2. Sammle Feedback aus allen Kanälen:
+   - Top-Level-PR-Kommentare (`gh pr view --comments`).
+   - Inline-Review-Kommentare (`gh api repos/<owner>/<repo>/pulls/<pr>/comments`).
+   - Review-Zusammenfassungen/-Status (`gh pr view --json reviews`).
+3. Behandle jeden umsetzbaren Reviewer-Kommentar (Mensch oder Bot), einschließlich Inline-Review-Kommentaren, als blockierend, bis eine der folgenden Bedingungen erfüllt ist:
+   - Code/Tests/Doku wurden aktualisiert, um ihn zu adressieren, oder
+   - in genau diesem Thread wurde eine explizite, begründete Pushback-Antwort gepostet.
+4. Aktualisiere Plan/Checkliste im Workpad, sodass jeder Feedback-Punkt und sein Auflösungsstatus enthalten sind.
+5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut aus und pushe Updates.
+6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
 
-## Blocked-access escape hatch (required behavior)
+## Blocked-access escape hatch (verpflichtendes Verhalten)
 
-Use this only when completion is blocked by missing required tools or missing auth/permissions that cannot be resolved in-session.
+Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
-- GitHub is **not** a valid blocker by default. Always try fallback strategies first (alternate remote/auth mode, then continue publish/review flow).
-- Do not move to `Human Review` for GitHub access/auth until all fallback strategies have been attempted and documented in the workpad.
-- If a non-GitHub required tool is missing, or required non-GitHub auth is unavailable, move the ticket to `Human Review` with a short blocker brief in the workpad that includes:
-  - what is missing,
-  - why it blocks required acceptance/validation,
-  - exact human action needed to unblock.
-- Keep the brief concise and action-oriented; do not add extra top-level comments outside the workpad.
+- GitHub ist standardmäßig **kein** gültiger Blocker. Probiere immer zuerst Fallback-Strategien aus (alternativer Remote-/Auth-Modus, dann den Publish-/Review-Ablauf fortsetzen).
+- Verschiebe nicht wegen GitHub-Zugriff/Auth nach `Human Review`, bevor nicht alle Fallback-Strategien versucht und im Workpad dokumentiert wurden.
+- Wenn ein erforderliches Nicht-GitHub-Tool fehlt oder erforderliche Nicht-GitHub-Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Human Review`. Dieser Hinweis muss enthalten:
+  - was fehlt,
+  - warum dadurch erforderliche Akzeptanz/Validierung blockiert wird,
+  - welche exakte menschliche Aktion zum Entblocken nötig ist.
+- Halte den Hinweis knapp und handlungsorientiert; füge keine zusätzlichen Top-Level-Kommentare außerhalb des Workpads hinzu.
 
-## Step 2: Execution phase (Todo -> In Progress -> Human Review)
+## Schritt 2: Ausführungsphase (`Todo` -> `In Progress` -> `Human Review`)
 
-1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff `symphony-pull` sync result is already recorded in the workpad before implementation continues.
-2.  If current issue state is `Todo`, move it to `In Progress`; otherwise leave the current state unchanged.
-3.  Load the existing workpad comment and treat it as the active execution checklist.
-    - Edit it liberally whenever reality changes (scope, risks, validation approach, discovered tasks).
-4.  Implement against the hierarchical TODOs and keep the comment current:
-    - Check off completed items.
-    - Add newly discovered items in the appropriate section.
-    - Keep parent/child structure intact as scope evolves.
-    - Update the workpad immediately after each meaningful milestone (for example: reproduction complete, code change landed, validation run, review feedback addressed).
-    - Never leave completed work unchecked in the plan.
-    - For tickets that started as `Todo` with an attached PR, run the full PR feedback sweep protocol immediately after kickoff and before new feature work.
-5.  Run validation/tests required for the scope.
-    - Mandatory gate: execute all ticket-provided `Validation`/`Test Plan`/ `Testing` requirements when present; treat unmet items as incomplete work.
-    - Prefer a targeted proof that directly demonstrates the behavior you changed.
-    - You may make temporary local proof edits to validate assumptions (for example: tweak a local build input for `make`, or hardcode a UI account / response path) when this increases confidence.
-    - Revert every temporary proof edit before commit/push.
-    - Document these temporary proof steps and outcomes in the workpad `Validation`/`Notes` sections so reviewers can follow the evidence.
-    - If app-touching, run `launch-app` validation and capture/upload media via `github-pr-media` before handoff.
-6.  Re-check all acceptance criteria and close any gaps.
-7.  Before every `git push` attempt, run the required validation for your scope and confirm it passes; if it fails, address issues and rerun until green, then commit and push changes.
-8.  Attach PR URL to the issue (prefer attachment; use the workpad comment only if attachment is unavailable).
-    - Ensure the GitHub PR has label `symphony` (add it if missing).
-9.  Merge latest `origin/main` into branch, resolve conflicts, and rerun checks.
-10. Update the workpad comment with final checklist status and validation notes.
-    - Mark completed plan/acceptance/validation checklist items as checked.
-    - Add final handoff notes (commit + validation summary) in the same workpad comment.
-    - Do not include PR URL in the workpad comment; keep PR linkage on the issue via attachment/link fields.
-    - Add a short `### Confusions` section at the bottom when any part of task execution was unclear/confusing, with concise bullets.
-    - Do not post any additional completion summary comment.
-11. Before moving to `Human Review`, poll PR feedback and checks:
-    - Read the PR `Manual QA Plan` comment (when present) and use it to sharpen UI/runtime test coverage for the current change.
-    - Run the full PR feedback sweep protocol.
-    - Confirm PR checks are passing (green) after the latest changes.
-    - Confirm every required ticket-provided validation/test-plan item is explicitly marked complete in the workpad.
-    - Repeat this check-address-verify loop until no outstanding comments remain and checks are fully passing.
-    - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
-12. Only then move issue to `Human Review`.
-    - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `Human Review` with the blocker brief and explicit unblock actions.
-13. For `Todo` tickets that already had a PR attached at kickoff:
-    - Ensure all existing PR feedback was reviewed and resolved, including inline review comments (code changes or explicit, justified pushback response).
-    - Ensure branch was pushed with any required updates.
-    - Then move to `Human Review`.
+1.  Bestimme den aktuellen Repo-Zustand (`branch`, `git status`, `HEAD`) und verifiziere vor der Fortsetzung der Implementierung, dass das Kickoff-Sync-Ergebnis von `symphony-pull` bereits im Workpad dokumentiert ist.
+2.  Wenn der aktuelle Issue-Status `Todo` ist, verschiebe ihn nach `In Progress`; andernfalls lasse den aktuellen Status unverändert.
+3.  Lade den vorhandenen Workpad-Kommentar und behandle ihn als aktive Ausführungs-Checkliste.
+    - Bearbeite ihn großzügig, sobald sich die Realität ändert (Scope, Risiken, Validierungsansatz, entdeckte Aufgaben).
+4.  Implementiere entlang der hierarchischen TODOs und halte den Kommentar aktuell:
+    - Hake erledigte Punkte ab.
+    - Füge neu entdeckte Punkte im passenden Abschnitt hinzu.
+    - Halte die Parent-/Child-Struktur intakt, während sich der Scope weiterentwickelt.
+    - Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein (zum Beispiel: Reproduktion abgeschlossen, Code-Änderung gelandet, Validierung gelaufen, Review-Feedback adressiert).
+    - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
+    - Für Tickets, die als `Todo` mit angehängter PR gestartet sind, führe das vollständige PR-Feedback-Sweep-Protokoll sofort nach dem Kickoff und vor neuer Feature-Arbeit aus.
+5.  Führe die für den Scope erforderlichen Validierungen/Tests aus.
+    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validation`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
+    - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
+    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
+    - Nimm jede temporäre Proof-Änderung vor Commit/Push wieder zurück.
+    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
+    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
+6.  Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
+7.  Führe vor jedem `git push` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist, und committe/pushe erst dann die Änderungen.
+8.  Hänge die PR-URL an das Issue an (bevorzugt als Attachment; nutze den Workpad-Kommentar nur, wenn kein Attachment möglich ist).
+    - Stelle sicher, dass die GitHub-PR das Label `symphony` hat (falls nicht, füge es hinzu).
+9.  Merge das neueste `origin/main` in den Branch, löse Konflikte und lasse die Checks erneut laufen.
+10. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
+    - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
+    - Füge finale Übergabenotizen (Commit + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
+    - Füge keine PR-URL in den Workpad-Kommentar ein; halte die PR-Verknüpfung über Attachment-/Link-Felder am Issue.
+    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
+    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
+11. Bevor du nach `Human Review` verschiebst, prüfe PR-Feedback und Checks per Polling:
+    - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
+    - Führe das vollständige PR-Feedback-Sweep-Protokoll aus.
+    - Bestätige, dass die PR-Checks nach den neuesten Änderungen erfolgreich sind (grün).
+    - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
+    - Wiederhole diesen Check-Address-Verify-Zyklus, bis keine offenen Kommentare mehr bestehen und alle Checks vollständig grün sind.
+    - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
+12. Erst dann nach `Human Review` verschieben.
+    - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Human Review` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
+13. Für `Todo`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
+    - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
+    - Stelle sicher, dass der Branch mit allen erforderlichen Updates gepusht wurde.
+    - Verschiebe erst dann nach `Human Review`.
 
-## Step 3: Human Review and merge handling
+## Schritt 3: `Human Review` und Merge-Abwicklung
 
-1. When the issue is in `Human Review`, do not code or change ticket content.
-2. Poll for updates as needed, including GitHub PR review comments from humans and bots.
-3. If review feedback requires changes, move the issue to `Rework` and follow the rework flow.
-4. If approved, human moves the issue to `Merging`.
-5. When the issue is in `Merging`, open and follow `.codex/skills/symphony-land/SKILL.md`, then run the `symphony-land` skill in a loop until the PR is merged. Do not call `gh pr merge` directly.
-6. After merge is complete, move the issue to `Done`.
+1. Wenn sich das Issue in `Human Review` befindet, weder coden noch den Ticket-Inhalt ändern.
+2. Pollen nach Bedarf auf Updates, einschließlich GitHub-PR-Review-Kommentaren von Menschen und Bots.
+3. Wenn Review-Feedback Änderungen erfordert, das Issue nach `Rework` verschieben und dem Rework-Ablauf folgen.
+4. Bei Freigabe verschiebt ein Mensch das Issue nach `Merging`.
+5. Wenn sich das Issue in `Merging` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+6. Nach abgeschlossenem Merge das Issue nach `Done` verschieben.
 
-## Step 4: Rework handling
+## Schritt 4: Rework-Behandlung
 
-1. Treat `Rework` as a full approach reset, not incremental patching.
-2. Re-read the full issue body and all human comments; explicitly identify what will be done differently this attempt.
-3. Close the existing PR tied to the issue.
-4. Remove the existing `## Codex Workpad` comment from the issue.
-5. Create a fresh branch from `origin/main`.
-6. Start over from the normal kickoff flow:
-   - If current issue state is `Todo`, move it to `In Progress`; otherwise keep the current state.
-   - Create a new bootstrap `## Codex Workpad` comment.
-   - Build a fresh plan/checklist and execute end-to-end.
+1. Behandle `Rework` als vollständigen Reset des Vorgehens, nicht als inkrementelles Patchen.
+2. Lies den kompletten Issue-Body und alle menschlichen Kommentare erneut; identifiziere explizit, was in diesem Versuch anders gemacht wird.
+3. Schließe die bestehende PR, die mit dem Issue verknüpft ist.
+4. Entferne den bestehenden Kommentar `## Codex Workpad` vom Issue.
+5. Erstelle einen frischen Branch von `origin/main`.
+6. Starte erneut mit dem normalen Kickoff-Ablauf:
+   - Wenn der aktuelle Issue-Status `Todo` ist, verschiebe nach `In Progress`; andernfalls behalte den aktuellen Status.
+   - Erstelle einen neuen Bootstrap-Kommentar `## Codex Workpad`.
+   - Erstelle einen frischen Plan/eine frische Checkliste und arbeite sie end-to-end ab.
 
-## Completion bar before Human Review
+## Erfüllungskriterien vor `Human Review`
 
-- Step 1/2 checklist is fully complete and accurately reflected in the single workpad comment.
-- Acceptance criteria and required ticket-provided validation items are complete.
-- Validation/tests are green for the latest commit.
-- PR feedback sweep is complete and no actionable comments remain.
-- PR checks are green, branch is pushed, and PR is linked on the issue.
-- Required PR metadata is present (`symphony` label).
-- If app-touching, runtime validation/media requirements from `App runtime validation (required)` are complete.
+- Die Checkliste aus Schritt 1/2 ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
+- Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
+- Validation/Tests sind für den neuesten Commit grün.
+- Der PR-Feedback-Sweep ist abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
+- Die PR-Checks sind grün, der Branch ist gepusht und die PR ist am Issue verlinkt.
+- Erforderliche PR-Metadaten sind vorhanden (Label `symphony`).
+- Falls die App berührt wird, sind die Runtime-Validierungs-/Media-Anforderungen aus `App runtime validation (required)` abgeschlossen.
 
-## Guardrails
+## Leitplanken
 
-- If the branch PR is already closed/merged, do not reuse that branch or prior implementation state for continuation.
-- For closed/merged branch PRs, create a new branch from `origin/main` and restart from reproduction/planning as if starting fresh.
-- If issue state is `Backlog`, do not modify it; wait for human to move to `Todo`.
-- Do not edit the issue body/description for planning or progress tracking.
-- Use exactly one persistent workpad comment (`## Codex Workpad`) per issue.
-- If comment editing is unavailable in-session, use the update script. Only report blocked if both MCP editing and script-based editing are unavailable.
-- Temporary proof edits are allowed only for local verification and must be reverted before commit.
-- If out-of-scope improvements are found, create a separate Backlog issue rather
-  than expanding current scope, and include a clear
-  title/description/acceptance criteria, same-project assignment, a `related`
-  link to the current issue, and `blockedBy` when the follow-up depends on the
-  current issue.
-- Do not move to `Human Review` unless the `Completion bar before Human Review` is satisfied.
-- In `Human Review`, do not make changes; wait and poll.
-- If state is terminal (`Done`), do nothing and shut down.
-- Keep issue text concise, specific, and reviewer-oriented.
-- If blocked and no workpad exists yet, add one blocker comment describing blocker, impact, and next unblock action.
+- Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
+- Für geschlossene/gemergte Branch-PRs erstelle einen neuen Branch von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
+- Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo` verschiebt.
+- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
+- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
+- Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
+- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor dem Commit rückgängig gemacht werden.
+- Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Verschiebe nicht nach `Human Review`, solange die `Completion bar before Human Review` nicht erfüllt ist.
+- In `Human Review` keine Änderungen vornehmen; warten und pollen.
+- Wenn der Status terminal ist (`Done`), nichts tun und beenden.
+- Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
+- Wenn du blockiert bist und noch kein Workpad existiert, füge einen Blocker-Kommentar hinzu, der Blocker, Auswirkung und nächste Entblockungsaktion beschreibt.
 
-## Workpad template
+## Workpad-Vorlage
 
-Use this exact structure for the persistent workpad comment and keep it updated in place throughout execution:
+Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell:
 
 ````md
 ## Codex Workpad
@@ -315,25 +307,25 @@ Use this exact structure for the persistent workpad comment and keep it updated 
 
 ### Plan
 
-- [ ] 1\. Parent task
-  - [ ] 1.1 Child task
-  - [ ] 1.2 Child task
-- [ ] 2\. Parent task
+- [ ] 1\. Übergeordnete Aufgabe
+  - [ ] 1.1 Teilaufgabe
+  - [ ] 1.2 Teilaufgabe
+- [ ] 2\. Übergeordnete Aufgabe
 
-### Acceptance Criteria
+### Akzeptanzkriterien
 
-- [ ] Criterion 1
-- [ ] Criterion 2
+- [ ] Kriterium 1
+- [ ] Kriterium 2
 
-### Validation
+### Validierung
 
-- [ ] targeted tests: `<command>`
+- [ ] gezielte Tests: `<command>`
 
-### Notes
+### Verlauf
 
-- <short progress note with timestamp>
+- <kurze Fortschrittsnotiz mit Zeitstempel>
 
-### Confusions
+### Unklarheiten
 
-- <only include when something was confusing during execution>
+- <nur einfügen, wenn während der Ausführung etwas unklar war>
 ````
