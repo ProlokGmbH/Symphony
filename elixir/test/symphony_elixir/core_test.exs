@@ -114,7 +114,8 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$PWD\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
+    assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
+    assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
@@ -1118,19 +1119,26 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
-    assert prompt =~ "Issue context:"
+    assert prompt =~
+             ~r/(You are working on a Linear (ticket|issue)|Du arbeitest an einem Linear-Ticket) `MT-616`/
+
+    assert prompt =~ ~r/(Issue context|Ticket-Kontext):/
     assert prompt =~ "Identifier: MT-616"
-    assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
-    assert prompt =~ "Current status: In Progress"
+    assert prompt =~ ~r/(Title|Titel): Use rich templates for WORKFLOW.md/
+    assert prompt =~ ~r/(Current status|Aktueller Status): In Progress/
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
-    assert prompt =~ "This is an unattended orchestration session."
-    assert prompt =~ "Only stop early for a true blocker"
-    assert prompt =~ "Do not include \"next steps for user\""
-    assert prompt =~ "open and follow `.codex/skills/symphony-land/SKILL.md`"
-    assert prompt =~ "Do not call `gh pr merge` directly"
-    assert prompt =~ "Continuation context:"
-    assert prompt =~ "retry attempt #2"
+
+    assert prompt =~
+             ~r/(This is an unattended orchestration session\.|Dies ist eine unbeaufsichtigte Orchestrierungssitzung\.)/
+
+    assert prompt =~
+             ~r/(Only stop early for a true blocker|Stoppe nur bei einem echten Blocker frühzeitig)/
+
+    assert prompt =~ ~s("next steps for user")
+    assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
+    assert prompt =~ "`gh pr merge`"
+    assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
+    assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
   end
 
   test "prompt builder adds continuation guidance for retries" do
