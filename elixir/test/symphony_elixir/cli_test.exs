@@ -13,6 +13,10 @@ defmodule SymphonyElixir.CLITest do
         send(parent, :file_checked)
         true
       end,
+      load_env_files: fn path ->
+        send(parent, {:env_loaded, path})
+        :ok
+      end,
       set_workflow_file_path: fn _path ->
         send(parent, :workflow_set)
         :ok
@@ -33,6 +37,8 @@ defmodule SymphonyElixir.CLITest do
 
     assert :ok = CLI.evaluate(["WORKFLOW.md"], deps)
     assert_received :file_checked
+    assert_received {:env_loaded, env_path}
+    assert env_path == Path.expand(".")
     assert_received :workflow_set
     refute_received :logs_root_set
     refute_received :port_set
