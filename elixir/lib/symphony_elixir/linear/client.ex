@@ -463,10 +463,8 @@ defmodule SymphonyElixir.Linear.Client do
   defp assigned_to_worker?(_assignee, _assignee_filter), do: false
 
   defp assignee_id(%{} = assignee), do: normalize_assignee_match_value(assignee["id"])
-  defp assignee_id(_assignee), do: nil
 
   defp assignee_email(%{} = assignee), do: normalize_assignee_email_value(assignee["email"])
-  defp assignee_email(_assignee), do: nil
 
   defp routing_assignee_filter do
     case Config.settings!().tracker.assignee do
@@ -540,8 +538,6 @@ defmodule SymphonyElixir.Linear.Client do
     ", assignee: {email: {eqIgnoreCase: #{graphql_string_literal(value)}}}"
   end
 
-  defp candidate_query_assignee_filter(_assignee_filter), do: ""
-
   defp graphql_string_literal(value) when is_binary(value), do: Jason.encode!(value)
 
   defp normalize_assignee_config_value(value) when is_binary(value) do
@@ -551,8 +547,6 @@ defmodule SymphonyElixir.Linear.Client do
       normalized -> normalize_assignee_identifier(normalized)
     end
   end
-
-  defp normalize_assignee_config_value(_value), do: nil
 
   defp normalize_assignee_match_value(value) when is_binary(value) do
     normalize_assignee_identifier(value)
@@ -583,8 +577,6 @@ defmodule SymphonyElixir.Linear.Client do
         normalized
     end
   end
-
-  defp normalize_assignee_identifier(_value), do: nil
 
   defp extract_labels(%{"labels" => %{"nodes" => labels}}) when is_list(labels) do
     labels

@@ -284,7 +284,8 @@ Fields:
 Workflow file path precedence:
 
 1. Explicit application/runtime setting (set by CLI startup path).
-2. Default: `WORKFLOW.md` in the current process working directory.
+2. Default: `WORKFLOW.md` in the Symphony installation/project directory, resolved relative to the
+   launched `bin/symphony` path.
 
 Loader behavior:
 
@@ -2050,9 +2051,9 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.7 CLI and Host Lifecycle
 
-- CLI accepts an optional positional workflow path argument (`path-to-WORKFLOW.md`)
-- CLI uses `./WORKFLOW.md` when no workflow path argument is provided
-- CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
+- CLI does not require a positional workflow path argument
+- CLI resolves `WORKFLOW.md` relative to the launched `bin/symphony` path
+- CLI errors when that default `WORKFLOW.md` is missing
 - CLI surfaces startup failure cleanly
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally

@@ -17,14 +17,13 @@ tracker:
 polling:
   interval_ms: 5000
 workspace:
-  root: ~/QuantHub/symphony-worktrees
+  root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:
   after_create: |
     workspace="$PWD"
-    workspace_root="$(dirname "$workspace")"
     issue_key="$(basename "$workspace")"
     branch="symphony/$issue_key"
-    source_repo="$(cd "$workspace_root/../symphony" && pwd -P)"
+    source_repo="$SYMPHONY_PROJECT_ROOT"
     git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"
@@ -34,11 +33,11 @@ hooks:
     else
       git -C "$source_repo" worktree add -b "$branch" "$workspace" origin/main
     fi
-    if command -v mise >/dev/null 2>&1; then
-      cd elixir && mise trust && mise exec -- mix deps.get
+    if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]; then
+      mise trust && mise exec -- mix deps.get
     fi
   before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
+    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$PWD" --source-repo "$SYMPHONY_PROJECT_ROOT"
 agent:
   max_concurrent_agents: 10
   max_turns: 20

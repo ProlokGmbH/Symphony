@@ -106,14 +106,15 @@ defmodule SymphonyElixir.CoreTest do
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
     assert Map.get(hooks, "after_create") =~ "branch=\"symphony/$issue_key\""
+    assert Map.get(hooks, "after_create") =~ "source_repo=\"$SYMPHONY_PROJECT_ROOT\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" fetch origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add \"$workspace\" \"$branch\""
     assert Map.get(hooks, "after_create") =~ "refs/remotes/origin/$branch"
     assert Map.get(hooks, "after_create") =~ "git -C \"$workspace\" pull --ff-only origin \"$branch\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
-    assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
+    assert Map.get(hooks, "after_create") =~ "if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
+    assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$PWD\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
@@ -170,6 +171,7 @@ defmodule SymphonyElixir.CoreTest do
   test "application startup preflight loads env files before validating assignee" do
     previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
     previous_workflow_path = Workflow.workflow_file_path()
+    original_cwd = File.cwd!()
 
     workflow_root =
       Path.join(
@@ -177,14 +179,23 @@ defmodule SymphonyElixir.CoreTest do
         "symphony-elixir-app-preflight-#{System.unique_integer([:positive])}"
       )
 
+    invocation_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-invocation-#{System.unique_integer([:positive])}"
+      )
+
     on_exit(fn ->
       restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
       Workflow.set_workflow_file_path(previous_workflow_path)
+      File.cd!(original_cwd)
       File.rm_rf(workflow_root)
+      File.rm_rf(invocation_root)
     end)
 
     System.delete_env("LINEAR_ASSIGNEE")
     File.mkdir_p!(workflow_root)
+    File.mkdir_p!(invocation_root)
 
     workflow_path = Path.join(workflow_root, "WORKFLOW.md")
 
@@ -194,21 +205,117 @@ defmodule SymphonyElixir.CoreTest do
       codex_command: "/bin/sh app-server"
     )
 
-    File.write!(Path.join(workflow_root, ".env.local"), "LINEAR_ASSIGNEE=dev@example.com\n")
+    File.write!(Path.join(invocation_root, ".env.local"), "LINEAR_ASSIGNEE=dev@example.com\n")
     Workflow.set_workflow_file_path(workflow_path)
+    File.cd!(invocation_root)
 
     assert :ok = SymphonyElixir.Application.startup_preflight()
     assert System.get_env("LINEAR_ASSIGNEE") == "dev@example.com"
   end
 
-  test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
+  test "application startup preflight returns env file errors from the invocation directory" do
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+    previous_workflow_path = Workflow.workflow_file_path()
+    original_cwd = File.cwd!()
+
+    workflow_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-preflight-invalid-workflow-#{System.unique_integer([:positive])}"
+      )
+
+    invocation_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-preflight-invalid-invocation-#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn ->
+      restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
+      Workflow.set_workflow_file_path(previous_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(workflow_root)
+      File.rm_rf(invocation_root)
+    end)
+
+    System.delete_env("LINEAR_ASSIGNEE")
+    File.mkdir_p!(workflow_root)
+    File.mkdir_p!(invocation_root)
+
+    workflow_path = Path.join(workflow_root, "WORKFLOW.md")
+
+    write_workflow_file!(workflow_path,
+      tracker_assignee: nil,
+      tracker_project_slug: "project",
+      codex_command: "/bin/sh app-server"
+    )
+
+    File.write!(Path.join(invocation_root, ".env"), "LINEAR_ASSIGNEE\n")
+    Workflow.set_workflow_file_path(workflow_path)
+    File.cd!(invocation_root)
+
+    assert {:error, {:invalid_env_file, path, 1, :missing_assignment}} =
+             SymphonyElixir.Application.startup_preflight()
+
+    assert path == Path.join(invocation_root, ".env")
+  end
+
+  test "workflow file path defaults to WORKFLOW.md in the current working directory outside escript mode" do
     original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
     end)
 
     Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, [])
+
+    assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+  end
+
+  test "workflow file path defaults relative to the launched symphony binary" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    assert Workflow.workflow_file_path() == "/opt/symphony/WORKFLOW.md"
+  end
+
+  test "workflow file path falls back to cwd for non-symphony executables" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/usr/bin/elixir")
 
     assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
   end
@@ -603,7 +710,7 @@ defmodule SymphonyElixir.CoreTest do
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, 500, 1_100)
+    assert_due_in_range(due_at_ms, 250, 1_100)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do

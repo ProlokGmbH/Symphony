@@ -976,6 +976,42 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.workspace.root == "env:#{workspace_env_var}"
   end
 
+  test "config leaves optional string settings nil when env indirection is missing" do
+    project_slug_env_var = "SYMP_MISSING_PROJECT_SLUG_#{System.unique_integer([:positive])}"
+    previous_project_slug = System.get_env(project_slug_env_var)
+
+    on_exit(fn ->
+      restore_env(project_slug_env_var, previous_project_slug)
+    end)
+
+    System.delete_env(project_slug_env_var)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "$#{project_slug_env_var}"
+    )
+
+    assert Config.settings!().tracker.project_slug == nil
+  end
+
+  test "config resolves built-in project worktrees root from the invocation directory" do
+    original_cwd = File.cwd!()
+    project_root = Path.join(System.tmp_dir!(), "symphony-project-root-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.cd!(project_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: "$SYMPHONY_PROJECT_WORKTREES_ROOT"
+    )
+
+    assert Config.settings!().workspace.root == project_root <> "-worktrees"
+  end
+
   test "config supports per-state max concurrent agent overrides" do
     workflow = """
     ---
@@ -1147,6 +1183,47 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "excludeTmpdirEnvVar" => false,
              "excludeSlashTmp" => false
            }
+  end
+
+  test "workspace hooks receive built-in project and workflow path variables" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-env-#{System.unique_integer([:positive])}"
+      )
+
+    project_root = Path.join(test_root, "project")
+    workspace_root = project_root <> "-worktrees"
+    env_log = Path.join(test_root, "hook-env.log")
+    original_cwd = File.cwd!()
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.cd!(project_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: "$SYMPHONY_PROJECT_WORKTREES_ROOT",
+      hook_after_create: "printf '%s\\n%s\\n%s\\n%s\\n' \"$SYMPHONY_PROJECT_ROOT\" \"$SYMPHONY_PROJECT_WORKTREES_ROOT\" \"$SYMPHONY_WORKFLOW_DIR\" \"$SYMPHONY_WORKFLOW_FILE\" > \"#{env_log}\""
+    )
+
+    issue = %Issue{id: "issue-hook-env", identifier: "MT-HOOK-ENV"}
+
+    assert {:ok, workspace} = Workspace.create_for_issue(issue)
+    assert workspace == Path.join(workspace_root, "MT-HOOK-ENV")
+
+    [logged_project_root, logged_worktrees_root, logged_workflow_dir, logged_workflow_file] =
+      env_log
+      |> File.read!()
+      |> String.split("\n", trim: true)
+
+    assert logged_project_root == project_root
+    assert logged_worktrees_root == workspace_root
+    assert logged_workflow_dir == Path.dirname(Workflow.workflow_file_path())
+    assert logged_workflow_file == Workflow.workflow_file_path()
   end
 
   test "runtime sandbox policy resolution passes explicit policies through unchanged" do

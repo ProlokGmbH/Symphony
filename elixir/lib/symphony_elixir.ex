@@ -18,15 +18,13 @@ defmodule SymphonyElixir.Application do
   """
 
   use Application
-  alias SymphonyElixir.{Config, EnvFile, Workflow}
+  alias SymphonyElixir.{Config, EnvFile}
 
   @spec startup_preflight() :: :ok | {:error, term()}
   def startup_preflight do
-    workflow_path = Workflow.workflow_file_path()
-
-    with :ok <- EnvFile.load(Path.dirname(workflow_path)),
-         :ok <- Config.validate_startup_requirements() do
-      :ok
+    case EnvFile.load(File.cwd!()) do
+      :ok -> Config.validate_startup_requirements()
+      {:error, reason} -> {:error, reason}
     end
   end
 

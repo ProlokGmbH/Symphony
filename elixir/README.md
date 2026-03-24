@@ -32,17 +32,16 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
-3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
+3. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
-5. Customize the copied `WORKFLOW.md` file for your project.
+4. Customize this directory's `WORKFLOW.md` for your project.
    - To get your project's slug, right-click the project and copy its URL. The slug is part of the
      URL.
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
-6. Follow the instructions below to install the required runtime dependencies and start the service.
+5. Follow the instructions below to install the required runtime dependencies and start the service.
 
 ## Prerequisites
 
@@ -64,18 +63,15 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- ./bin/symphony ./WORKFLOW.md
+cd /path/to/your/project
+/path/to/symphony/elixir/bin/symphony
 ```
 
 ## Configuration
 
-Pass a custom workflow file path to `./bin/symphony` when starting the service:
-
-```bash
-./bin/symphony /path/to/custom/WORKFLOW.md
-```
-
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+Symphony always loads `WORKFLOW.md` from the Symphony installation directory, relative to
+`bin/symphony`. When you start the binary from another project directory, Symphony still uses the
+shared workflow from the Symphony repo.
 
 Optional flags:
 
@@ -93,10 +89,11 @@ tracker:
   kind: linear
   project_slug: "..."
 workspace:
-  root: ~/code/workspaces
+  root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:
   after_create: |
-    git clone git@github.com:your-org/your-repo.git .
+    source_repo="$SYMPHONY_PROJECT_ROOT"
+    git -C "$source_repo" worktree add "$PWD" origin/main
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -139,9 +136,14 @@ Notes:
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
 - `tracker.project_slug` resolves `$VAR` references such as `$LINEAR_PROJECT_SLUG`.
 - `tracker.assignee` reads from `LINEAR_ASSIGNEE` when unset or when value is `$LINEAR_ASSIGNEE`.
-- On startup, Symphony also loads `.env` and then optional `.env.local` from the same directory as
-  the selected `WORKFLOW.md`. `.env.local` overrides values loaded from `.env`, while already-set
-  process environment variables still win over both files.
+- Built-in runtime path variables are available in `WORKFLOW.md` config and workspace hooks:
+  - `SYMPHONY_PROJECT_ROOT`: the directory where `symphony` was invoked
+  - `SYMPHONY_PROJECT_WORKTREES_ROOT`: `${SYMPHONY_PROJECT_ROOT}-worktrees`
+  - `SYMPHONY_WORKFLOW_DIR`: the directory containing the shared `WORKFLOW.md`
+  - `SYMPHONY_WORKFLOW_FILE`: the absolute path to the shared `WORKFLOW.md`
+- On startup, Symphony loads `.env` and then optional `.env.local` from the directory where you
+  invoked `symphony`. `.env.local` overrides values loaded from `.env`, while already-set process
+  environment variables still win over both files.
 - `LINEAR_ASSIGNEE` is required at startup. If it is missing, Symphony exits instead of starting.
 - This directory now includes a checked-in [.env](/home/parallels/QuantHub/symphony/elixir/.env)
   for shared repo defaults and a local override template at
@@ -155,13 +157,13 @@ Notes:
 tracker:
   api_key: $LINEAR_API_KEY
 workspace:
-  root: $SYMPHONY_WORKSPACE_ROOT
+  root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:
   after_create: |
     workspace="$PWD"
     issue_key="$(basename "$workspace")"
     branch="symphony/$issue_key"
-    source_repo="$LOCAL_REPO_PATH"
+    source_repo="$SYMPHONY_PROJECT_ROOT"
 
     git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -173,7 +175,7 @@ hooks:
       git -C "$source_repo" worktree add -b "$branch" "$workspace" origin/main
     fi
   before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
+    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$PWD" --source-repo "$SYMPHONY_PROJECT_ROOT"
 codex:
   command: "$CODEX_BIN app-server --model gpt-5.3-codex"
 ```
@@ -197,7 +199,7 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `WORKFLOW.md`: shared workflow contract loaded by the Symphony binary
 - `../.codex/`: repository-local Codex skills and setup helpers
 
 ## Testing

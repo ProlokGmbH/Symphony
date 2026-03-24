@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.EnvFile do
   @moduledoc """
-  Loads `.env` defaults and optional `.env.local` overrides from a workflow directory.
+  Loads `.env` defaults and optional `.env.local` overrides from a startup directory.
   """
 
   @env_files [
@@ -34,16 +34,20 @@ defmodule SymphonyElixir.EnvFile do
   end
 
   defp load_file(path, mode, existing_keys, loaded_keys) do
-    if File.regular?(path) do
-      with {:ok, contents} <- File.read(path) do
-        parse_file(contents, path, loaded_keys, fn key, value, current_loaded_keys ->
-          maybe_put_env(key, value, mode, existing_keys, current_loaded_keys)
-        end)
-      else
-        {:error, reason} -> {:error, {:env_file_read_failed, path, reason}}
-      end
-    else
-      {:ok, loaded_keys}
+    env_putter = &maybe_put_env(&1, &2, mode, existing_keys, &3)
+
+    case File.regular?(path) do
+      true ->
+        case File.read(path) do
+          {:ok, contents} ->
+            parse_file(contents, path, loaded_keys, env_putter)
+
+          {:error, reason} ->
+            {:error, {:env_file_read_failed, path, reason}}
+        end
+
+      false ->
+        {:ok, loaded_keys}
     end
   end
 
@@ -67,46 +71,43 @@ defmodule SymphonyElixir.EnvFile do
     |> String.split(~r/\r\n|\n|\r/, trim: false)
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, loaded_keys}, fn {line, line_number}, {:ok, current_loaded_keys} ->
-      case parse_line(line) do
-        :skip ->
-          {:cont, {:ok, current_loaded_keys}}
-
-        {:ok, key, value} ->
-          case env_putter.(key, value, current_loaded_keys) do
-            {:ok, next_loaded_keys} -> {:cont, {:ok, next_loaded_keys}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-
-        {:error, reason} ->
-          {:halt, {:error, {:invalid_env_file, path, line_number, reason}}}
-      end
+      handle_parsed_line(parse_line(line), path, line_number, current_loaded_keys, env_putter)
     end)
   end
 
   defp parse_line(line) when is_binary(line) do
-    trimmed = String.trim(line)
-
-    cond do
-      trimmed == "" ->
+    case String.trim(line) do
+      "" ->
         :skip
 
-      String.starts_with?(trimmed, "#") ->
+      "#" <> _comment ->
         :skip
 
-      true ->
-        trimmed
-        |> strip_export_prefix()
-        |> split_assignment()
-        |> case do
-          {:ok, key, raw_value} ->
-            with :ok <- validate_key(key),
-                 {:ok, value} <- parse_value(raw_value) do
-              {:ok, key, value}
-            end
+      trimmed ->
+        parse_assignment_line(trimmed)
+    end
+  end
 
-          {:error, reason} ->
-            {:error, reason}
-        end
+  defp handle_parsed_line(:skip, _path, _line_number, current_loaded_keys, _env_putter) do
+    {:cont, {:ok, current_loaded_keys}}
+  end
+
+  defp handle_parsed_line({:ok, key, value}, _path, _line_number, current_loaded_keys, env_putter) do
+    {:ok, next_loaded_keys} = env_putter.(key, value, current_loaded_keys)
+    {:cont, {:ok, next_loaded_keys}}
+  end
+
+  defp handle_parsed_line({:error, reason}, path, line_number, _current_loaded_keys, _env_putter) do
+    {:halt, {:error, {:invalid_env_file, path, line_number, reason}}}
+  end
+
+  defp parse_assignment_line(line) do
+    with {:ok, key, raw_value} <- split_assignment(strip_export_prefix(line)),
+         :ok <- validate_key(key),
+         {:ok, value} <- parse_value(raw_value) do
+      {:ok, key, value}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       mix workspace.before_remove
       mix workspace.before_remove --branch feature/my-branch
       mix workspace.before_remove --repo openai/symphony
+      mix workspace.before_remove --workspace /path/to/worktree --source-repo /path/to/source-repo
   """
 
   @default_repo "openai/symphony"
@@ -21,7 +22,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   def run(args) do
     {opts, _argv, invalid} =
       OptionParser.parse(args,
-        strict: [branch: :string, help: :boolean, repo: :string],
+        strict: [branch: :string, help: :boolean, repo: :string, source_repo: :string, workspace: :string],
         aliases: [h: :help]
       )
 
@@ -33,11 +34,13 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
         Mix.raise("Invalid option(s): #{inspect(invalid)}")
 
       true ->
-        repo = opts[:repo] || @default_repo
-        branch = opts[:branch] || current_branch()
+        workspace = normalize_optional_path(opts[:workspace])
+        source_repo = normalize_optional_path(opts[:source_repo])
+        repo = opts[:repo] || current_repo_slug(workspace) || @default_repo
+        branch = opts[:branch] || current_branch(workspace)
 
         maybe_close_open_pull_requests(repo, branch)
-        maybe_remove_current_worktree()
+        maybe_remove_current_worktree(workspace, source_repo)
     end
   end
 
@@ -113,13 +116,19 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   defp format_output(""), do: ""
   defp format_output(output), do: " output=#{inspect(output)}"
 
-  defp maybe_remove_current_worktree do
-    with {:ok, workspace} <- current_workspace(),
-         {:ok, source_repo} <- current_worktree_source_repo(workspace) do
+  defp maybe_remove_current_worktree(workspace_override, source_repo_override) do
+    with {:ok, workspace} <- current_workspace(workspace_override),
+         {:ok, source_repo} <- current_worktree_source_repo(workspace, source_repo_override) do
+      original_cwd = File.cwd()
+
       case File.cd(source_repo) do
         :ok ->
-          remove_worktree(source_repo, workspace)
-          prune_worktrees(source_repo)
+          try do
+            remove_worktree(source_repo, workspace)
+            prune_worktrees(source_repo)
+          after
+            restore_original_cwd(original_cwd, source_repo)
+          end
 
         {:error, reason} ->
           Mix.shell().error("Failed to change directory to #{source_repo} before removing current Git worktree: #{inspect(reason)}")
@@ -129,7 +138,9 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
     :ok
   end
 
-  defp current_workspace do
+  defp current_workspace(workspace) when is_binary(workspace), do: {:ok, workspace}
+
+  defp current_workspace(nil) do
     case run_command("git", ["rev-parse", "--show-toplevel"]) do
       {:ok, output} ->
         case output |> String.trim() |> normalize_absolute_path() do
@@ -142,7 +153,9 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
     end
   end
 
-  defp current_worktree_source_repo(workspace) do
+  defp current_worktree_source_repo(_workspace, source_repo) when is_binary(source_repo), do: {:ok, source_repo}
+
+  defp current_worktree_source_repo(workspace, nil) do
     with {:ok, common_dir} <- git_absolute_path(["rev-parse", "--git-common-dir"], workspace),
          {:ok, absolute_git_dir} <- git_absolute_path(["rev-parse", "--absolute-git-dir"], workspace),
          true <- absolute_git_dir != common_dir do
@@ -175,6 +188,9 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
     end
   end
 
+  defp normalize_optional_path(nil), do: nil
+  defp normalize_optional_path(path) when is_binary(path), do: Path.expand(path)
+
   defp remove_worktree(source_repo, workspace) do
     case run_command("git", ["-C", source_repo, "worktree", "remove", "--force", workspace]) do
       {:ok, _output} ->
@@ -198,7 +214,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
     end
   end
 
-  defp current_branch do
+  defp current_branch(nil) do
     case run_command("git", ["branch", "--show-current"]) do
       {:ok, output} ->
         case String.trim(output) do
@@ -209,6 +225,58 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       {:error, _reason} ->
         nil
     end
+  end
+
+  defp current_branch(workspace) when is_binary(workspace) do
+    case run_command("git", ["-C", workspace, "branch", "--show-current"]) do
+      {:ok, output} ->
+        case String.trim(output) do
+          "" -> nil
+          branch -> branch
+        end
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp current_repo_slug(nil), do: nil
+
+  defp current_repo_slug(workspace) when is_binary(workspace) do
+    case run_command("git", ["-C", workspace, "remote", "get-url", "origin"]) do
+      {:ok, output} ->
+        output
+        |> String.trim()
+        |> parse_github_repo_slug()
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp parse_github_repo_slug("git@github.com:" <> rest), do: normalize_github_repo_slug(rest)
+  defp parse_github_repo_slug("ssh://git@github.com/" <> rest), do: normalize_github_repo_slug(rest)
+  defp parse_github_repo_slug("https://github.com/" <> rest), do: normalize_github_repo_slug(rest)
+  defp parse_github_repo_slug("http://github.com/" <> rest), do: normalize_github_repo_slug(rest)
+  defp parse_github_repo_slug(_remote_url), do: nil
+
+  defp normalize_github_repo_slug(remote_path) when is_binary(remote_path) do
+    case remote_path |> String.trim_leading("/") |> String.trim_trailing(".git") |> String.split("/", parts: 3) do
+      [owner, repo] when owner != "" and repo != "" -> owner <> "/" <> repo
+      _ -> nil
+    end
+  end
+
+  defp restore_original_cwd({:ok, cwd}, source_repo) when is_binary(cwd) and is_binary(source_repo) do
+    cond do
+      File.dir?(cwd) -> File.cd!(cwd)
+      File.dir?(source_repo) -> File.cd!(source_repo)
+      true -> :ok
+    end
+  end
+
+  defp restore_original_cwd(_original_cwd, source_repo) when is_binary(source_repo) do
+    if File.dir?(source_repo), do: File.cd!(source_repo), else: :ok
   end
 
   defp run_command(command, args) do

@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   import Ecto.Changeset
 
-  alias SymphonyElixir.PathSafety
+  alias SymphonyElixir.{PathSafety, RuntimePaths}
 
   @primary_key false
 
@@ -448,7 +448,7 @@ defmodule SymphonyElixir.Config.Schema do
   defp resolve_env_value(value, fallback) when is_binary(value) do
     case env_reference_name(value) do
       {:ok, env_name} ->
-        case System.get_env(env_name) do
+        case runtime_env_value(env_name) do
           nil -> fallback
           "" -> nil
           env_value -> env_value
@@ -477,10 +477,14 @@ defmodule SymphonyElixir.Config.Schema do
   defp env_reference_name(_value), do: :error
 
   defp resolve_env_token(env_name) do
-    case System.get_env(env_name) do
+    case runtime_env_value(env_name) do
       nil -> :missing
       env_value -> env_value
     end
+  end
+
+  defp runtime_env_value(env_name) when is_binary(env_name) do
+    System.get_env(env_name) || RuntimePaths.resolve_builtin_env(env_name)
   end
 
   defp normalize_secret_value(value) when is_binary(value) do

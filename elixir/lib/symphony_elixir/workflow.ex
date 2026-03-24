@@ -10,7 +10,27 @@ defmodule SymphonyElixir.Workflow do
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
     Application.get_env(:symphony_elixir, :workflow_file_path) ||
-      Path.join(File.cwd!(), @workflow_file_name)
+      default_workflow_file_path()
+  end
+
+  @spec default_workflow_file_path() :: Path.t()
+  def default_workflow_file_path do
+    case escript_script_name() do
+      [] ->
+        Path.join(File.cwd!(), @workflow_file_name)
+
+      script_name ->
+        script_path = List.to_string(script_name)
+
+        if Path.basename(script_path) == "symphony" do
+          script_path
+          |> Path.dirname()
+          |> Path.join("../#{@workflow_file_name}")
+          |> Path.expand()
+        else
+          Path.join(File.cwd!(), @workflow_file_name)
+        end
+    end
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok
@@ -119,5 +139,9 @@ defmodule SymphonyElixir.Workflow do
     end
 
     :ok
+  end
+
+  defp escript_script_name do
+    Application.get_env(:symphony_elixir, :escript_script_name, :escript.script_name())
   end
 end

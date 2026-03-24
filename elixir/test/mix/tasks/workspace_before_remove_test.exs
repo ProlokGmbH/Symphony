@@ -25,6 +25,24 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end
   end
 
+  test "ignores relative workspace and source repo overrides" do
+    with_path([], fn ->
+      output =
+        capture_io(fn ->
+          BeforeRemove.run([
+            "--branch",
+            "feature/relative-overrides",
+            "--workspace",
+            "relative-worktree",
+            "--source-repo",
+            "relative-source"
+          ])
+        end)
+
+      assert output == ""
+    end)
+  end
+
   test "no-ops when branch is unavailable" do
     with_path([], fn ->
       in_temp_dir(fn ->
@@ -302,6 +320,623 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         File.rm_rf!(root)
       end
     )
+  end
+
+  test "supports workspace and source repo overrides with repo auto-detection" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-overrides-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    try do
+      with_fake_binaries(
+        %{
+          "gh" => """
+          #!/bin/sh
+          printf 'gh %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+            printf '101\\n'
+            exit 0
+          fi
+
+          if [ "$1" = "pr" ] && [ "$2" = "close" ] && [ "$3" = "101" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """,
+          "git" => """
+          #!/bin/sh
+          printf 'git %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "remote" ] && [ "$4" = "get-url" ] && [ "$5" = "origin" ]; then
+            printf 'git@github.com:acme/widget.git\\n'
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "branch" ] && [ "$4" = "--show-current" ]; then
+            printf 'feature/derived\\n'
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """
+        },
+        fn log_path ->
+          output =
+            capture_io(fn ->
+              BeforeRemove.run(["--workspace", workspace, "--source-repo", source_repo])
+            end)
+
+          assert output =~ "Closed PR #101 for branch feature/derived"
+          log = File.read!(log_path)
+          assert log =~ "gh pr list --repo acme/widget --head feature/derived --state open --json number --jq .[].number"
+          assert log =~ "gh pr close 101 --repo acme/widget"
+          assert log =~ "git -C #{workspace} remote get-url origin"
+          assert log =~ "git -C #{workspace} branch --show-current"
+          assert log =~ "git -C #{source_repo} worktree remove --force #{workspace}"
+          assert log =~ "git -C #{source_repo} worktree prune"
+        end
+      )
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "skips PR lookup when the overridden workspace branch is blank" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-blank-branch-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    try do
+      with_fake_binaries(
+        %{
+          "git" => """
+          #!/bin/sh
+          printf 'git %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "branch" ] && [ "$4" = "--show-current" ]; then
+            printf '\\n'
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """
+        },
+        fn log_path ->
+          output =
+            capture_io(fn ->
+              BeforeRemove.run(["--workspace", workspace, "--source-repo", source_repo, "--repo", "acme/widget"])
+            end)
+
+          assert output =~ "Removed Git worktree #{workspace}"
+          log = File.read!(log_path)
+          assert log =~ "git -C #{workspace} branch --show-current"
+          refute log =~ "gh "
+        end
+      )
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "skips PR lookup when the overridden workspace branch cannot be read" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-branch-error-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    try do
+      with_fake_binaries(
+        %{
+          "git" => """
+          #!/bin/sh
+          printf 'git %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "branch" ] && [ "$4" = "--show-current" ]; then
+            exit 1
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """
+        },
+        fn log_path ->
+          output =
+            capture_io(fn ->
+              BeforeRemove.run(["--workspace", workspace, "--source-repo", source_repo, "--repo", "acme/widget"])
+            end)
+
+          assert output =~ "Removed Git worktree #{workspace}"
+          log = File.read!(log_path)
+          assert log =~ "git -C #{workspace} branch --show-current"
+          refute log =~ "gh "
+        end
+      )
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "parses supported GitHub remote URL formats and falls back for unsupported ones" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-remote-parse-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    try do
+      with_fake_binaries(
+        %{
+          "gh" => """
+          #!/bin/sh
+          printf 'gh %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """,
+          "git" => """
+          #!/bin/sh
+          printf 'git %s\\n' "$*" >> "$GH_LOG"
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "remote" ] && [ "$4" = "get-url" ] && [ "$5" = "origin" ]; then
+            if [ "$REMOTE_URL" = "__ERROR__" ]; then
+              exit 1
+            fi
+
+            printf '%s\\n' "$REMOTE_URL"
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """
+        },
+        fn log_path ->
+          cases = [
+            {"ssh://git@github.com/acme/ssh-widget.git", "acme/ssh-widget"},
+            {"https://github.com/acme/https-widget.git", "acme/https-widget"},
+            {"http://github.com/acme/http-widget.git", "acme/http-widget"},
+            {"https://github.com/acme/extra/widget.git", "openai/symphony"},
+            {"git@gitlab.com:acme/widget.git", "openai/symphony"},
+            {"__ERROR__", "openai/symphony"}
+          ]
+
+          Enum.each(cases, fn {remote_url, expected_repo} ->
+            File.write!(log_path, "")
+
+            with_env(%{"REMOTE_URL" => remote_url}, fn ->
+              capture_io(fn ->
+                Mix.Task.reenable("workspace.before_remove")
+
+                BeforeRemove.run([
+                  "--workspace",
+                  workspace,
+                  "--source-repo",
+                  source_repo,
+                  "--branch",
+                  "feature/remote-parse"
+                ])
+              end)
+            end)
+
+            log = File.read!(log_path)
+
+            assert log =~
+                     "gh pr list --repo #{expected_repo} --head feature/remote-parse --state open --json number --jq .[].number"
+          end)
+        end
+      )
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "logs an error when the linked worktree source repo cannot be entered" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-cd-failure-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then
+      printf '%s\n' "#{Path.join(source_repo, ".git")}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--absolute-git-dir" ]; then
+      printf '%s\n' "#{Path.join(workspace, ".git")}"
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        error_output =
+          capture_io(:stderr, fn ->
+            BeforeRemove.run(["--branch", "feature/cd-failure"])
+          end)
+
+        assert error_output =~ "Failed to change directory to #{source_repo}"
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "skips worktree removal when the current workspace is not a linked worktree" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-not-linked-#{unique}")
+    workspace = Path.join(root, "wt")
+    git_dir = Path.join(workspace, ".git")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then
+      printf '%s\n' "#{git_dir}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--absolute-git-dir" ]; then
+      printf '%s\n' "#{git_dir}"
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--branch", "feature/not-linked"])
+          end)
+
+        assert output == ""
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "skips worktree removal when git path resolution fails" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-path-failure-#{unique}")
+    workspace = Path.join(root, "wt")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then
+      exit 1
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--branch", "feature/path-failure"])
+          end)
+
+        assert output == ""
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "logs remove worktree failures" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-remove-failure-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+    original_cwd = File.cwd!()
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then
+      printf '%s\n' "#{Path.join(source_repo, ".git")}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--absolute-git-dir" ]; then
+      printf '%s\n' "#{Path.join(workspace, ".git")}"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+      printf 'boom\n' >&2
+      exit 17
+    fi
+
+    if [ "$1" = "-C" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        error_output =
+          capture_io(:stderr, fn ->
+            BeforeRemove.run(["--branch", "feature/remove-failure"])
+          end)
+
+        assert error_output =~ "Failed to remove Git worktree #{workspace}: exit 17"
+        assert error_output =~ "output=\"boom\""
+      end)
+    after
+      File.cd!(original_cwd)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "logs prune worktree failures" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-prune-failure-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+    original_cwd = File.cwd!()
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then
+      printf '%s\n' "#{Path.join(source_repo, ".git")}"
+      exit 0
+    fi
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--absolute-git-dir" ]; then
+      printf '%s\n' "#{Path.join(workspace, ".git")}"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      printf 'stale metadata\n' >&2
+      exit 23
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        error_output =
+          capture_io(:stderr, fn ->
+            BeforeRemove.run(["--branch", "feature/prune-failure"])
+          end)
+
+        assert error_output =~ "Failed to prune Git worktrees in #{source_repo}: exit 23"
+        assert error_output =~ "output=\"stale metadata\""
+      end)
+    after
+      File.cd!(original_cwd)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "restores to source repo when the original working directory is already gone" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-missing-cwd-#{unique}")
+    starting_cwd = Path.join(root, "gone")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+    original_cwd = File.cwd!()
+
+    File.rm_rf!(root)
+    File.mkdir_p!(starting_cwd)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    try do
+      with_fake_binaries(
+        %{
+          "gh" => """
+          #!/bin/sh
+          if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+            rm -rf "#{starting_cwd}"
+            exit 1
+          fi
+
+          exit 99
+          """,
+          "git" => """
+          #!/bin/sh
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+            exit 0
+          fi
+
+          if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+            exit 0
+          fi
+
+          exit 99
+          """
+        },
+        fn _log_path ->
+          File.cd!(starting_cwd)
+
+          capture_io(fn ->
+            BeforeRemove.run([
+              "--branch",
+              "feature/missing-cwd",
+              "--repo",
+              "openai/symphony",
+              "--workspace",
+              workspace,
+              "--source-repo",
+              source_repo
+            ])
+          end)
+
+          assert File.cwd!() == source_repo
+        end
+      )
+    after
+      File.cd!(original_cwd)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "leaves cwd unchanged when both the original directory and source repo disappear" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-missing-all-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+    original_cwd = File.cwd!()
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+      rm -rf "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      rm -rf "#{source_repo}"
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"git" => git_script}, fn _log_path ->
+        File.cd!(workspace)
+
+        capture_io(fn ->
+          BeforeRemove.run([
+            "--branch",
+            "feature/missing-all",
+            "--repo",
+            "openai/symphony",
+            "--workspace",
+            workspace,
+            "--source-repo",
+            source_repo
+          ])
+        end)
+
+        assert {:error, _reason} = File.cwd()
+        File.cd!(original_cwd)
+      end)
+    after
+      File.cd!(original_cwd)
+      File.rm_rf!(root)
+    end
   end
 
   defp with_fake_gh(fun) do
