@@ -86,6 +86,13 @@ Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 Lokale Systemzeit für diesen Turn: {{ runtime.local_time }} ({{ runtime.timezone }})
 
+Git-Branch-Kontrakt:
+
+- Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
+- Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
+- Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
+- Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
+
 Beschreibung:
 {% if issue.description %}
 {{ issue.description }}
@@ -166,7 +173,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `Abgebrochen` -> nichts tun und beenden.
 4. Prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
    - Wenn eine Branch-PR existiert und `CLOSED` oder `MERGED` ist, behandle die bisherige Branch-Arbeit für diesen Lauf als nicht wiederverwendbar.
-   - Erstelle einen frischen Branch von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
+   - Erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
 5. Für `Todo Codex`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "In Arbeit Codex")`
    - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
@@ -313,6 +320,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 3. Schließe die bestehende PR, die mit dem Issue verknüpft ist.
 4. Entferne den bestehenden Kommentar `## Codex Workpad` vom Issue.
 5. Erstelle einen frischen Branch von `origin/main`.
+   - Der Branchname muss exakt `symphony/{{ issue.identifier }}` sein.
 6. Starte erneut mit dem normalen Kickoff-Ablauf:
    - Wenn der aktuelle Issue-Status `Todo Codex` ist, verschiebe nach `In Arbeit Codex`; andernfalls behalte den aktuellen Status.
    - Erstelle einen neuen Bootstrap-Kommentar `## Codex Workpad`.
@@ -330,7 +338,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 ## Leitplanken
 
 - Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
-- Für geschlossene/gemergte Branch-PRs erstelle einen neuen Branch von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
+- Für geschlossene/gemergte Branch-PRs erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
 - Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo Codex` verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).

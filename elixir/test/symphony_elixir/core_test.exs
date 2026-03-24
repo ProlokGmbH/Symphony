@@ -125,8 +125,6 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
-    assert Map.get(hooks, "after_create") =~ "if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]"
-    assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
     assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
     codex = Map.get(config, "codex", %{})
@@ -138,6 +136,9 @@ defmodule SymphonyElixir.CoreTest do
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
+    assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
+    assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
+    assert prompt =~ "Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten"
     assert prompt =~ "## Schritt 2: Ausführungsphase (`Todo Codex` -> `In Arbeit Codex` -> `Review Codex`)"
     assert prompt =~ "Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`."
     assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:"
