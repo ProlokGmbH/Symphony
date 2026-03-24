@@ -13,6 +13,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_state_name "test codex"
   @test_codex_clean_handoff_state_name "Merge Codex"
   @test_codex_changed_handoff_state_name "Review"
+  @merge_codex_state_name "merge codex"
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -87,9 +88,15 @@ defmodule SymphonyElixir.AgentRunner do
 
     with {:ok, initial_workspace_signature} <-
            maybe_capture_initial_workspace_signature(issue, workspace, worker_host),
-         {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+         {:ok, preflight_result} <-
+           maybe_ensure_clean_workspace_before_handoff_phase(
+             issue,
+             issue_state_fetcher,
+             workspace,
+             worker_host,
+             initial_workspace_signature
+           ) do
       turn_context = %{
-        app_session: session,
         workspace: workspace,
         codex_update_recipient: codex_update_recipient,
         opts: opts,
@@ -99,8 +106,30 @@ defmodule SymphonyElixir.AgentRunner do
         max_turns: max_turns
       }
 
+      continue_run_codex_turns(preflight_result, turn_context, issue)
+    end
+  end
+
+  defp continue_run_codex_turns(:stop, _turn_context, _issue), do: :ok
+
+  defp continue_run_codex_turns(:continue, turn_context, issue) when is_map(turn_context) do
+    workspace = turn_context.workspace
+    worker_host = turn_context.worker_host
+
+    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+      run_context = %{
+        app_session: session,
+        workspace: workspace,
+        codex_update_recipient: turn_context.codex_update_recipient,
+        opts: turn_context.opts,
+        issue_state_fetcher: turn_context.issue_state_fetcher,
+        worker_host: worker_host,
+        initial_workspace_signature: turn_context.initial_workspace_signature,
+        max_turns: turn_context.max_turns
+      }
+
       try do
-        do_run_codex_turns(turn_context, issue, 1)
+        do_run_codex_turns(run_context, issue, 1)
       after
         AppServer.stop_session(session)
       end
@@ -308,6 +337,54 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
+  defp maybe_ensure_clean_workspace_before_handoff_phase(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host,
+         initial_workspace_signature
+       ) do
+    cond do
+      test_codex_state?(issue.state) and is_binary(initial_workspace_signature) ->
+        maybe_redirect_dirty_workspace_to_review(
+          issue,
+          issue_state_fetcher,
+          initial_workspace_signature
+        )
+
+      merge_codex_state?(issue.state) ->
+        with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
+          maybe_redirect_dirty_workspace_to_review(issue, issue_state_fetcher, workspace_signature)
+        end
+
+      true ->
+        {:ok, :continue}
+    end
+  end
+
+  defp maybe_redirect_dirty_workspace_to_review(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace_signature
+       )
+       when is_binary(workspace_signature) do
+    if workspace_signature == "" do
+      {:ok, :continue}
+    else
+      case transition_issue_state(
+             issue,
+             issue_state_fetcher,
+             @review_handoff_state_name,
+             :dirty_workspace_handoff_state_update_failed,
+             "redirected issue with dirty workspace before #{issue.state}",
+             :stop
+           ) do
+        {:ok, _refreshed_issue, :stop} -> {:ok, :stop}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
   defp transition_issue_state(
          %Issue{} = issue,
          issue_state_fetcher,
@@ -376,6 +453,12 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp test_codex_state?(_state_name), do: false
+
+  defp merge_codex_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @merge_codex_state_name
+  end
+
+  defp merge_codex_state?(_state_name), do: false
 
   defp selected_worker_host(nil, []), do: nil
 

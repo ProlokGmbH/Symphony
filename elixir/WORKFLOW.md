@@ -146,10 +146,10 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `In Arbeit Codex` -> Implementierung läuft aktiv.
   - Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`.
 - `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und den dort definierten repository-spezifischen Review-/Fix-Zyklus ausführen; danach nach `Review` verschieben.
-- `Test Codex` -> `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten repository-spezifischen Test-/Fix-Zyklus ausführen; ohne Codeänderungen danach nach `Merge Codex`, mit Codeänderungen zurück nach `Review`.
+- `Test Codex` -> vor dem Skill-Lauf prüfen, dass der Workspace keine offenen Git-Änderungen aus dem manuellen Review-/Commit-Schritt enthält; falls doch, sofort nach `Review` zurückschieben. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den repository-spezifischen Test-/Fix-Zyklus ausführen; ohne Codeänderungen danach nach `Merge Codex`, mit Codeänderungen zurück nach `Review`.
 - `Abbruch Codex` -> laufende Arbeit sofort abbrechen, Git-Worktree entfernen, vorhandene PR und/oder Remote-Branch löschen und das Issue anschließend nach `Abgebrochen` verschieben.
 - `Review` -> außerhalb des aktiven Codex-Scopes; nichts tun und warten, bis ein Mensch das Issue nach manuellem Review entweder nach `Test Codex`, `Merge Codex` oder `Neustart Codex` verschiebt.
-- `Merge Codex` -> final freigegeben; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
+- `Merge Codex` -> vor dem Merge-Ablauf prüfen, dass der Workspace keine offenen Git-Änderungen aus dem manuellen Review-/Commit-Schritt enthält; falls doch, sofort nach `Review` zurückschieben. Nur mit sauberem Workspace den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
 - `Neustart Codex` -> Reviewer hat Änderungen angefordert; Planung und Implementierung sind erforderlich.
 - `Fertig` -> terminaler Status; keine weitere Aktion erforderlich.
 - `Abgebrochen` -> terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich.
@@ -290,11 +290,13 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 ## Schritt 4: `Test Codex`
 
-1. Wenn sich das Issue in `Test Codex` befindet, öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
-2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge Codex`.
-4. Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Review`, damit der Entwickler die Änderungen erneut begutachten kann.
-5. Falls ein `Test Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Test Codex` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
+1. Wenn sich das Issue in `Test Codex` befindet, prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
+2. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Test-Skill in diesem Fall nicht starten.
+3. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten Ablauf ausführen.
+4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+5. Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge Codex`.
+6. Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Review`, damit der Entwickler die Änderungen erneut begutachten kann.
+7. Falls ein `Test Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Test Codex` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
 
 ## Schritt 5: `Abbruch Codex`
 
@@ -307,11 +309,13 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 1. Wenn sich das Issue in `Review` befindet, weder coden noch den Ticket-Inhalt ändern.
 2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
-3. Nach dem manuellen Review kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test Codex` verschieben.
+3. Nach dem manuellen Review kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test Codex` verschieben oder nach abgeschlossenem manuellem Commit direkt nach `Merge Codex`.
 4. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
 5. Wenn Review-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Neustart Codex`.
-6. Wenn sich das Issue in `Merge Codex` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-7. Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
+6. Wenn sich das Issue in `Merge Codex` befindet, prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
+7. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
+8. Nur mit sauberem Workspace `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+9. Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
 
 ## Schritt 7: Neustart-Behandlung
 
