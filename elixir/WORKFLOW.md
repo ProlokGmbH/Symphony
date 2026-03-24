@@ -91,6 +91,7 @@ Git-Branch-Kontrakt:
 - Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
 - Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
 - Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
+- Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
 - Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
 
 Beschreibung:

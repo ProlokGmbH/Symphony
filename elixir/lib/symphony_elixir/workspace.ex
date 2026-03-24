@@ -204,6 +204,17 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec current_branch(Path.t(), worker_host()) :: {:ok, String.t()} | {:error, term()}
+  def current_branch(workspace, worker_host \\ nil) when is_binary(workspace) do
+    case worker_host do
+      nil ->
+        local_current_branch(workspace)
+
+      worker_host when is_binary(worker_host) ->
+        remote_current_branch(workspace, worker_host)
+    end
+  end
+
   defp local_git_status_snapshot(workspace) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
@@ -244,6 +255,59 @@ defmodule SymphonyElixir.Workspace do
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
+  end
+
+  defp local_current_branch(workspace) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case System.cmd("git", ["branch", "--show-current"],
+             cd: workspace,
+             env: Enum.into(RuntimePaths.builtin_env(), []),
+             stderr_to_stdout: true
+           ) do
+        {output, 0} ->
+          parse_current_branch_output(output, :local)
+
+        {output, status} ->
+          {:error, {:workspace_git_branch_failed, :local, status, output}}
+      end
+    end
+  end
+
+  defp remote_current_branch(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case run_remote_command(
+             worker_host,
+             remote_current_branch_script(workspace),
+             Config.settings!().hooks.timeout_ms
+           ) do
+        {:ok, {output, 0}} ->
+          parse_current_branch_output(output, worker_host)
+
+        {:ok, {output, status}} ->
+          {:error, {:workspace_git_branch_failed, worker_host, status, output}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp remote_current_branch_script(workspace) when is_binary(workspace) do
+    [
+      remote_hook_env_exports(),
+      "cd #{shell_escape(workspace)}",
+      "git branch --show-current"
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp parse_current_branch_output(output, location) do
+    case output |> IO.iodata_to_binary() |> String.trim() do
+      "" -> {:error, {:workspace_git_branch_missing, location}}
+      branch_name -> {:ok, branch_name}
+    end
   end
 
   defp workspace_path_for_issue(safe_id, nil) when is_binary(safe_id) do

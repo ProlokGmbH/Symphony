@@ -1779,6 +1779,94 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner syncs the current workspace branch name to the tracker before running Codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-branch-sync-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-branch-sync"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-branch-sync"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: ~s(git -C "#{template_repo}" worktree add -b "symphony/MT-BRANCH-SYNC" "$PWD" main),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      state_fetcher = fn [_issue_id] ->
+        {:ok,
+         [
+           %Issue{
+             id: "issue-branch-sync",
+             identifier: "MT-BRANCH-SYNC",
+             title: "Branch sync",
+             description: "Sync tracker branch name from workspace",
+             state: "Review"
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-branch-sync",
+        identifier: "MT-BRANCH-SYNC",
+        title: "Branch sync",
+        description: "Sync tracker branch name from workspace",
+        state: "In Arbeit Codex",
+        url: "https://example.org/issues/MT-BRANCH-SYNC",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_branch_update, "issue-branch-sync", "symphony/MT-BRANCH-SYNC"}
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner moves Review Codex issues to Review after a clean review turn" do
     test_root =
       Path.join(

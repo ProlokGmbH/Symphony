@@ -194,12 +194,15 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Fertig")
+    assert :ok = SymphonyElixir.Tracker.update_issue_branch_name("issue-1", "symphony/MT-1")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Fertig"}
+    assert_receive {:memory_tracker_branch_update, "issue-1", "symphony/MT-1"}
 
     Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
+    assert :ok = Memory.update_issue_branch_name("issue-1", "symphony/quiet")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
     assert SymphonyElixir.Tracker.adapter() == Adapter
@@ -317,6 +320,40 @@ defmodule SymphonyElixir.ExtensionsTest do
     )
 
     assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+    )
+
+    assert :ok = Adapter.update_issue_branch_name("issue-1", "symphony/MT-1")
+
+    assert_receive {:graphql_called, update_branch_query, %{issueId: "issue-1", branchName: "symphony/MT-1"}}
+
+    assert update_branch_query =~ "issueUpdate"
+    assert update_branch_query =~ "branchName"
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
+    )
+
+    assert {:error, :issue_branch_name_update_failed} =
+             Adapter.update_issue_branch_name("issue-1", "symphony/Broken")
+
+    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
+
+    assert {:error, :boom} = Adapter.update_issue_branch_name("issue-1", "symphony/Boom")
+
+    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
+
+    assert {:error, :issue_branch_name_update_failed} =
+             Adapter.update_issue_branch_name("issue-1", "symphony/Weird")
+
+    Process.put({FakeLinearClient, :graphql_result}, :unexpected)
+
+    assert {:error, :issue_branch_name_update_failed} =
+             Adapter.update_issue_branch_name("issue-1", "symphony/Odd")
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

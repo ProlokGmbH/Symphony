@@ -40,7 +40,8 @@ defmodule SymphonyElixir.AgentRunner do
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
         try do
-          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
+          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
+               :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
             run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
           end
         after
@@ -430,6 +431,23 @@ defmodule SymphonyElixir.AgentRunner do
       Workspace.git_status_snapshot(workspace, worker_host)
     else
       {:ok, nil}
+    end
+  end
+
+  defp maybe_sync_issue_branch_name(%Issue{id: issue_id}, _workspace, _worker_host)
+       when not is_binary(issue_id),
+       do: :ok
+
+  defp maybe_sync_issue_branch_name(%Issue{} = issue, workspace, worker_host)
+       when is_binary(workspace) do
+    with {:ok, branch_name} <- Workspace.current_branch(workspace, worker_host),
+         :ok <- Tracker.update_issue_branch_name(issue.id, branch_name) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to sync Linear branch name for #{issue_context(issue)}: #{inspect(reason)}")
+
+        :ok
     end
   end
 
