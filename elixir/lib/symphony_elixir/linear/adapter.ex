@@ -23,6 +23,14 @@ defmodule SymphonyElixir.Linear.Adapter do
   }
   """
 
+  @update_branch_name_mutation """
+  mutation SymphonyUpdateIssueBranchName($issueId: String!, $branchName: String!) {
+    issueUpdate(id: $issueId, input: {branchName: $branchName}) {
+      success
+    }
+  }
+  """
+
   @state_lookup_query """
   query SymphonyResolveStateId($issueId: String!, $stateName: String!) {
     issue(id: $issueId) {
@@ -70,6 +78,23 @@ defmodule SymphonyElixir.Linear.Adapter do
       false -> {:error, :issue_update_failed}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :issue_update_failed}
+    end
+  end
+
+  @spec update_issue_branch_name(String.t(), String.t()) :: :ok | {:error, term()}
+  def update_issue_branch_name(issue_id, branch_name)
+      when is_binary(issue_id) and is_binary(branch_name) do
+    with {:ok, response} <-
+           client_module().graphql(@update_branch_name_mutation, %{
+             issueId: issue_id,
+             branchName: branch_name
+           }),
+         true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
+      :ok
+    else
+      false -> {:error, :issue_branch_name_update_failed}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :issue_branch_name_update_failed}
     end
   end
 

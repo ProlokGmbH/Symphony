@@ -125,14 +125,20 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
-    assert Map.get(hooks, "after_create") =~ "if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]"
-    assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
     assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
+    codex = Map.get(config, "codex", %{})
+    assert is_map(codex)
+    assert Map.get(codex, "command") =~ "git rev-parse --path-format=absolute --git-common-dir"
+    assert Map.get(codex, "command") =~ "\"$source_repo/.venv/bin/activate\""
+    assert Map.get(codex, "command") =~ "exec codex --config shell_environment_policy.inherit=all"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
+    assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
+    assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
+    assert prompt =~ "Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten"
     assert prompt =~ "## Schritt 2: Ausführungsphase (`Todo Codex` -> `In Arbeit Codex` -> `Review Codex`)"
     assert prompt =~ "Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`."
     assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:"
@@ -1773,6 +1779,94 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner syncs the current workspace branch name to the tracker before running Codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-branch-sync-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-branch-sync"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-branch-sync"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: ~s(git -C "#{template_repo}" worktree add -b "symphony/MT-BRANCH-SYNC" "$PWD" main),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      state_fetcher = fn [_issue_id] ->
+        {:ok,
+         [
+           %Issue{
+             id: "issue-branch-sync",
+             identifier: "MT-BRANCH-SYNC",
+             title: "Branch sync",
+             description: "Sync tracker branch name from workspace",
+             state: "Review"
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-branch-sync",
+        identifier: "MT-BRANCH-SYNC",
+        title: "Branch sync",
+        description: "Sync tracker branch name from workspace",
+        state: "In Arbeit Codex",
+        url: "https://example.org/issues/MT-BRANCH-SYNC",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_branch_update, "issue-branch-sync", "symphony/MT-BRANCH-SYNC"}
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner moves Review Codex issues to Review after a clean review turn" do
     test_root =
       Path.join(
@@ -2057,6 +2151,212 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Review"}
       assert "Review" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner moves Test Codex issues back to Review before running Codex when the workspace is dirty" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-test-dirty-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-TEST-DIRTY")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'RAN\\n' >> "$trace_file"
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-dirty"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-dirty"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-test-dirty-preflight",
+             identifier: "MT-TEST-DIRTY",
+             title: "Test preflight dirty workspace",
+             description: "Return to review before testing when manual commit is missing",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-test-dirty-preflight",
+        identifier: "MT-TEST-DIRTY",
+        title: "Test preflight dirty workspace",
+        description: "Return to review before testing when manual commit is missing",
+        state: "Test Codex",
+        url: "https://example.org/issues/MT-TEST-DIRTY",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Review"}
+      assert "Review" == Agent.get(state_agent, & &1)
+      refute File.exists?(trace_file)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner moves Merge Codex issues back to Review before running Codex when the workspace is dirty" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-merge-dirty-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-MERGE-DIRTY")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'RAN\\n' >> "$trace_file"
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-merge-dirty"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-merge-dirty"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Merge Codex" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-merge-dirty-preflight",
+             identifier: "MT-MERGE-DIRTY",
+             title: "Merge preflight dirty workspace",
+             description: "Return to review before merge when manual commit is missing",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-merge-dirty-preflight",
+        identifier: "MT-MERGE-DIRTY",
+        title: "Merge preflight dirty workspace",
+        description: "Return to review before merge when manual commit is missing",
+        state: "Merge Codex",
+        url: "https://example.org/issues/MT-MERGE-DIRTY",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Review"}
+      assert "Review" == Agent.get(state_agent, & &1)
+      refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
