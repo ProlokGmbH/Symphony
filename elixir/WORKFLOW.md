@@ -30,11 +30,15 @@ hooks:
     git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"
-      if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-        git -C "$workspace" pull --ff-only origin "$branch"
-      fi
+    elif git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      git -C "$source_repo" worktree add --track -b "$branch" "$workspace" "origin/$branch"
     else
       git -C "$source_repo" worktree add -b "$branch" "$workspace" origin/main
+    fi
+    git -C "$source_repo" config "branch.$branch.remote" origin
+    git -C "$source_repo" config "branch.$branch.merge" "refs/heads/$branch"
+    if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      git -C "$workspace" pull --ff-only origin "$branch"
     fi
     if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]; then
       mise trust && mise exec -- mix deps.get

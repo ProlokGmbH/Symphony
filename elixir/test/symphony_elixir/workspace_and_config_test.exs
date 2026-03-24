@@ -40,6 +40,78 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "current WORKFLOW after_create hook pushes new worktree branches to origin branches of the same name" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-worktree-tracking-#{System.unique_integer([:positive])}"
+      )
+
+    current_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    try do
+      assert {:ok, %{config: %{"hooks" => %{"after_create" => after_create}}}} =
+               Workflow.load(current_workflow_path)
+
+      remote_repo = Path.join(test_root, "remote.git")
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      workflow_dir = Path.join(test_root, "workflow")
+      workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
+
+      File.mkdir_p!(workflow_dir)
+
+      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+
+      File.write!(Path.join(source_repo, "README.md"), "base\n")
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
+
+      write_workflow_file!(workflow_file,
+        workspace_root: workspace_root,
+        hook_after_create: after_create
+      )
+
+      Workflow.set_workflow_file_path(workflow_file)
+
+      assert {:ok, workspace} =
+               File.cd!(source_repo, fn ->
+                 Workspace.create_for_issue("MT-TRACK")
+               end)
+
+      assert {"origin\n", 0} =
+               System.cmd("git", ["-C", source_repo, "config", "--get", "branch.symphony/MT-TRACK.remote"])
+
+      assert {"refs/heads/symphony/MT-TRACK\n", 0} =
+               System.cmd("git", [
+                 "-C",
+                 source_repo,
+                 "config",
+                 "--get",
+                 "branch.symphony/MT-TRACK.merge"
+               ])
+
+      File.write!(Path.join(workspace, "README.md"), "base\nchange\n")
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "change"], stderr_to_stdout: true)
+
+      assert {push_output, 0} = System.cmd("git", ["-C", workspace, "push"], stderr_to_stdout: true)
+      assert push_output =~ "symphony/MT-TRACK -> symphony/MT-TRACK"
+
+      assert {remote_branch, 0} =
+               System.cmd("git", ["-C", source_repo, "ls-remote", "--heads", "origin", "symphony/MT-TRACK"])
+
+      assert remote_branch =~ "refs/heads/symphony/MT-TRACK"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(
