@@ -129,6 +129,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
     assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
+    codex = Map.get(config, "codex", %{})
+    assert is_map(codex)
+    assert Map.get(codex, "command") =~ "git rev-parse --path-format=absolute --git-common-dir"
+    assert Map.get(codex, "command") =~ "\"$source_repo/.venv/bin/activate\""
+    assert Map.get(codex, "command") =~ "exec codex --config shell_environment_policy.inherit=all"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())

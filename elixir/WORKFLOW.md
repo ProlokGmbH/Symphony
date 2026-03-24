@@ -41,9 +41,6 @@ hooks:
     if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       git -C "$workspace" pull --ff-only origin "$branch"
     fi
-    if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]; then
-      mise trust && mise exec -- mix deps.get
-    fi
   before_remove: |
     # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
@@ -52,7 +49,18 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=high --model gpt-5.4 app-server
+  command: >-
+    bash -lc '
+      common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+      if [ -n "$common_dir" ]; then
+        source_repo="$(cd "$common_dir/.." && pwd -P)"
+        if [ -f "$source_repo/.venv/bin/activate" ]; then
+          . "$source_repo/.venv/bin/activate"
+        fi
+      fi
+
+      exec codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=high --model gpt-5.4 app-server
+    '
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
