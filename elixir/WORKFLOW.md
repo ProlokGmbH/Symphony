@@ -38,7 +38,8 @@ hooks:
     fi
   before_remove: |
     # Closes open PRs, deletes the matching remote branch, and removes the linked worktree.
-    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$PWD" --source-repo "$SYMPHONY_PROJECT_ROOT"
+    workspace="$PWD"
+    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$workspace" --source-repo "$SYMPHONY_PROJECT_ROOT"
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -105,8 +106,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 ## Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
-- `symphony-commit`: während der Implementierung saubere, logisch aufgebaute Commits erstellen.
-- `symphony-push`: den Remote-Branch aktuell halten und Updates veröffentlichen.
+- `symphony-push`: nach dem manuellen Commit den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
 - `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
 - `symphony-land`: wenn das Ticket `Merging` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
@@ -114,10 +114,10 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 - `Backlog` -> außerhalb des Scopes dieses Workflows; nicht ändern.
 - `Todo` -> in der Warteschlange; vor aktiver Arbeit sofort nach `In Progress` verschieben.
-  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, adressieren oder explizit Pushback geben, erneut validieren, nach `Human Review` zurückkehren).
+  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren, nach `Human Review` zurückkehren).
 - `In Progress` -> Implementierung läuft aktiv.
-- `Human Review` -> PR ist angehängt und validiert; wartet auf menschliche Freigabe.
-- `Merging` -> von einem Menschen freigegeben; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
+- `Human Review` -> lokaler, ungecommiteter und validierter Arbeitsstand ist bereit; der Entwickler reviewt und committet manuell. Pushes und PR-Updates können danach weiterhin erfolgen.
+- `Merging` -> von einem Menschen freigegeben und mit PR verbunden; den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
 - `Rework` -> Reviewer hat Änderungen angefordert; Planung und Implementierung sind erforderlich.
 - `Done` -> terminaler Status; keine weitere Aktion erforderlich.
 
@@ -130,7 +130,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `Todo` -> sofort nach `In Progress` verschieben, dann sicherstellen, dass ein Bootstrap-Workpad-Kommentar existiert (falls nötig erstellen), dann den Ausführungsablauf starten.
      - Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
    - `In Progress` -> Ausführungsablauf vom aktuellen Scratchpad-Kommentar aus fortsetzen.
-   - `Human Review` -> warten und auf Entscheidungen/Review-Updates pollen.
+   - `Human Review` -> nicht coden; auf Entscheidungen, manuelle Commits und gegebenenfalls nachgelagerte Push-/PR-Updates sowie Review-Rückmeldungen pollen.
    - `Merging` -> beim Eintritt `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen; `gh pr merge` nicht direkt aufrufen.
    - `Rework` -> den Rework-Ablauf ausführen.
    - `Done` -> nichts tun und beenden.
@@ -187,15 +187,15 @@ Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, 
    - Code/Tests/Doku wurden aktualisiert, um ihn zu adressieren, oder
    - in genau diesem Thread wurde eine explizite, begründete Pushback-Antwort gepostet.
 4. Aktualisiere Plan/Checkliste im Workpad, sodass jeder Feedback-Punkt und sein Auflösungsstatus enthalten sind.
-5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut aus und pushe Updates.
+5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für den manuellen Commit in `Human Review` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
 6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
 
 ## Blocked-access escape hatch (verpflichtendes Verhalten)
 
 Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
-- GitHub ist standardmäßig **kein** gültiger Blocker. Probiere immer zuerst Fallback-Strategien aus (alternativer Remote-/Auth-Modus, dann den Publish-/Review-Ablauf fortsetzen).
-- Verschiebe nicht wegen GitHub-Zugriff/Auth nach `Human Review`, bevor nicht alle Fallback-Strategien versucht und im Workpad dokumentiert wurden.
+- GitHub ist vor `Human Review` standardmäßig **kein** gültiger Blocker. Automatische Commits gehören nicht in diesen Ablauf.
+- Verschiebe nicht wegen GitHub-Zugriff/Auth nach `Human Review`; der Entwickler übernimmt dort den manuellen Commit-Schritt. Pushes und PR-Aktualisierungen können anschließend weiterhin erfolgen.
 - Wenn ein erforderliches Nicht-GitHub-Tool fehlt oder erforderliche Nicht-GitHub-Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Human Review`. Dieser Hinweis muss enthalten:
   - was fehlt,
   - warum dadurch erforderliche Akzeptanz/Validierung blockiert wird,
@@ -219,42 +219,39 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
     - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validation`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
     - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
     - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
-    - Nimm jede temporäre Proof-Änderung vor Commit/Push wieder zurück.
+    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `Human Review` wieder zurück.
     - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
     - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
 6.  Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
-7.  Führe vor jedem `git push` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist, und committe/pushe erst dann die Änderungen.
-8.  Hänge die PR-URL an das Issue an (bevorzugt als Attachment; nutze den Workpad-Kommentar nur, wenn kein Attachment möglich ist).
-    - Stelle sicher, dass die GitHub-PR das Label `symphony` hat (falls nicht, füge es hinzu).
-9.  Merge das neueste `origin/main` in den Branch, löse Konflikte und lasse die Checks erneut laufen.
-10. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
+7.  Führe vor der Übergabe nach `Human Review` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
+8.  Führe keine automatischen Commits aus. Alle Commits werden ausschließlich durch den Entwickler im Status `Human Review` erstellt.
+9.  Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
     - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
-    - Füge finale Übergabenotizen (Commit + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
-    - Füge keine PR-URL in den Workpad-Kommentar ein; halte die PR-Verknüpfung über Attachment-/Link-Felder am Issue.
+    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
+    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den manuellen Review-/Commit-Schritt übergeben wird.
     - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
     - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-11. Bevor du nach `Human Review` verschiebst, prüfe PR-Feedback und Checks per Polling:
+10. Bevor du nach `Human Review` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
     - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
-    - Führe das vollständige PR-Feedback-Sweep-Protokoll aus.
-    - Bestätige, dass die PR-Checks nach den neuesten Änderungen erfolgreich sind (grün).
+    - Führe in diesem Fall das vollständige PR-Feedback-Sweep-Protokoll aus.
     - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
-    - Wiederhole diesen Check-Address-Verify-Zyklus, bis keine offenen Kommentare mehr bestehen und alle Checks vollständig grün sind.
     - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
-12. Erst dann nach `Human Review` verschieben.
+11. Erst dann nach `Human Review` verschieben.
     - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Human Review` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
-13. Für `Todo`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
+12. Für `Todo`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
     - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
-    - Stelle sicher, dass der Branch mit allen erforderlichen Updates gepusht wurde.
     - Verschiebe erst dann nach `Human Review`.
 
 ## Schritt 3: `Human Review` und Merge-Abwicklung
 
 1. Wenn sich das Issue in `Human Review` befindet, weder coden noch den Ticket-Inhalt ändern.
-2. Pollen nach Bedarf auf Updates, einschließlich GitHub-PR-Review-Kommentaren von Menschen und Bots.
-3. Wenn Review-Feedback Änderungen erfordert, das Issue nach `Rework` verschieben und dem Rework-Ablauf folgen.
-4. Bei Freigabe verschiebt ein Mensch das Issue nach `Merging`.
-5. Wenn sich das Issue in `Merging` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-6. Nach abgeschlossenem Merge das Issue nach `Done` verschieben.
+2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
+3. Falls nach dem manuellen Commit noch kein Push oder PR-Update erfolgt ist, kann dieser Schritt anschließend weiterhin stattfinden.
+4. Pollen nach Bedarf auf Updates, einschließlich manueller Statuswechsel und GitHub-PR-Review-Kommentaren von Menschen und Bots.
+5. Wenn Review-Feedback Änderungen erfordert, das Issue nach `Rework` verschieben und dem Rework-Ablauf folgen.
+6. Bei Freigabe verschiebt ein Mensch das Issue nach `Merging`.
+7. Wenn sich das Issue in `Merging` befindet, `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+8. Nach abgeschlossenem Merge das Issue nach `Done` verschieben.
 
 ## Schritt 4: Rework-Behandlung
 
@@ -272,10 +269,9 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 - Die Checkliste aus Schritt 1/2 ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
 - Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
-- Validation/Tests sind für den neuesten Commit grün.
-- Der PR-Feedback-Sweep ist abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
-- Die PR-Checks sind grün, der Branch ist gepusht und die PR ist am Issue verlinkt.
-- Erforderliche PR-Metadaten sind vorhanden (Label `symphony`).
+- Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
+- Falls bereits eine PR existiert, ist der PR-Feedback-Sweep abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
+- Das Workpad dokumentiert den finalen ungecommitten Übergabestand und die bestandene lokale Validierung explizit.
 - Falls die App berührt wird, sind die Runtime-Validierungs-/Media-Anforderungen aus `App runtime validation (required)` abgeschlossen.
 
 ## Leitplanken
@@ -286,10 +282,11 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor dem Commit rückgängig gemacht werden.
+- Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Human Review` erstellt.
+- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `Human Review` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `Human Review`, solange die `Completion bar before Human Review` nicht erfüllt ist.
-- In `Human Review` keine Änderungen vornehmen; warten und pollen.
+- In `Human Review` keine weiteren Codeänderungen vornehmen; auf manuellen Commit sowie gegebenenfalls nachgelagerte Push-/PR-Updates warten und pollen.
 - Wenn der Status terminal ist (`Done`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
 - Wenn du blockiert bist und noch kein Workpad existiert, füge einen Blocker-Kommentar hinzu, der Blocker, Auswirkung und nächste Entblockungsaktion beschreibt.
