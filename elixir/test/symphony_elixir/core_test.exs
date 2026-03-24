@@ -972,6 +972,27 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "updated=2026-02-26T18:07:03Z"
   end
 
+  test "prompt builder renders runtime local time context for workflow prompts" do
+    workflow_prompt = "local={{ runtime.local_time }} tz={{ runtime.timezone }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698",
+      title: "Local timestamps in workpad history",
+      description: "Prompt should expose local runtime time",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert [_, local_time] = Regex.run(~r/local=([^ ]+)/, prompt)
+    assert local_time =~ ~r/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/
+    assert prompt =~ "tz="
+  end
+
   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
 
@@ -1133,6 +1154,10 @@ defmodule SymphonyElixir.CoreTest do
 
     assert prompt =~
              ~r/(Only stop early for a true blocker|Stoppe nur bei einem echten Blocker frühzeitig)/
+
+    assert prompt =~ ~r/(Local system time for this turn|Lokale Systemzeit für diesen Turn):/
+    assert prompt =~ ~r/(local system time|lokale Systemzeit)/
+    assert prompt =~ ~r/(keine UTC- oder `Z`-Zeitstempel|do not use UTC or `Z` timestamps)/
 
     assert prompt =~ ~s("next steps for user")
     assert prompt =~ ".codex/skills/symphony-land/SKILL.md"

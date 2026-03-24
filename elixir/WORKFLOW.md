@@ -94,6 +94,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
+- Verwende für neue Zeitstempel im Abschnitt `Verlauf` immer lokale Systemzeit; schreibe dort keine UTC- oder `Z`-Zeitstempel.
 - Halte die Ticket-Metadaten aktuell (Status, Checkliste, Akzeptanzkriterien, Links).
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
 - Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare.
@@ -320,7 +321,7 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ### Verlauf
 
-- <kurze Fortschrittsnotiz mit Zeitstempel>
+- <kurze Fortschrittsnotiz mit Zeitstempel in lokaler Zeit>
 
 ### Unklarheiten
 
