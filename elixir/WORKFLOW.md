@@ -127,8 +127,9 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - Alle nicht-terminalen Stati ohne `Codex` im Namen sind außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben.
 - `Backlog` -> außerhalb des Scopes dieses Workflows; nicht ändern.
 - `Todo Codex` -> in der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit Codex` verschieben.
-  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren, nach `Review` zurückkehren).
+  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `Review Codex` weiterreichen; erst nach abgeschlossenem `Review Codex`-Lauf geht es nach `Review`).
 - `In Arbeit Codex` -> Implementierung läuft aktiv.
+  - Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`.
 - `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und den dort definierten repository-spezifischen Review-/Fix-Zyklus ausführen; danach nach `Review` verschieben.
 - `Test Codex` -> `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten repository-spezifischen Test-/Fix-Zyklus ausführen; ohne Codeänderungen danach nach `Merge Codex`, mit Codeänderungen zurück nach `Review`.
 - `Abbruch Codex` -> laufende Arbeit sofort abbrechen, Git-Worktree entfernen, vorhandene PR und/oder Remote-Branch löschen und das Issue anschließend nach `Abgebrochen` verschieben.
@@ -197,7 +198,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 ## PR-Feedback-Sweep-Protokoll (verpflichtend)
 
-Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review` verschiebst:
+Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:
 
 1. Ermittle die PR-Nummer aus Issue-Links/Attachments.
 2. Sammle Feedback aus allen Kanälen:
@@ -208,7 +209,7 @@ Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, 
    - Code/Tests/Doku wurden aktualisiert, um ihn zu adressieren, oder
    - in genau diesem Thread wurde eine explizite, begründete Pushback-Antwort gepostet.
 4. Aktualisiere Plan/Checkliste im Workpad, sodass jeder Feedback-Punkt und sein Auflösungsstatus enthalten sind.
-5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für den manuellen Commit in `Review` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
+5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für `Review Codex` und den anschließenden manuellen Commit in `Review` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
 6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
 
 ## Blocked-access escape hatch (verpflichtendes Verhalten)
@@ -258,6 +259,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
     - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
     - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
 11. Erst dann nach `Review Codex` verschieben.
+    - Ein direkter Übergang von `In Arbeit Codex` nach `Review` ist nur über den blocked-access escape hatch zulässig.
     - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Review` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
 12. Für `Todo Codex`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
     - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
@@ -268,6 +270,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 1. Wenn sich das Issue in `Review Codex` befindet, öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
 3. Verschiebe das Issue erst danach nach `Review`.
+   - Nur dieser Schritt verschiebt regulär von `Review Codex` nach `Review`.
 4. Falls ein `Review Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Review Codex` steht, übernimmt Symphony den Statuswechsel nach `Review` als Fallback automatisch.
 
 ## Schritt 4: `Test Codex`

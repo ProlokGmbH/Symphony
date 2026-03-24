@@ -133,6 +133,11 @@ defmodule SymphonyElixir.CoreTest do
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
+    assert prompt =~ "## Schritt 2: Ausführungsphase (`Todo Codex` -> `In Arbeit Codex` -> `Review Codex`)"
+    assert prompt =~ "Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`."
+    assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:"
+    assert prompt =~ "Ein direkter Übergang von `In Arbeit Codex` nach `Review` ist nur über den blocked-access escape hatch zulässig."
+    assert prompt =~ "Nur dieser Schritt verschiebt regulär von `Review Codex` nach `Review`."
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
