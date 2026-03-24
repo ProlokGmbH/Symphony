@@ -43,6 +43,16 @@ defmodule SymphonyElixir.Config.Schema do
     import Ecto.Changeset
 
     @primary_key false
+    @default_active_states [
+      "Todo Codex",
+      "In Arbeit Codex",
+      "Review Codex",
+      "Abbruch Codex",
+      "Merge Codex",
+      "Neustart Codex"
+    ]
+
+    @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
 
     embedded_schema do
       field(:kind, :string)
@@ -50,8 +60,8 @@ defmodule SymphonyElixir.Config.Schema do
       field(:api_key, :string)
       field(:project_slug, :string)
       field(:assignee, :string)
-      field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
-      field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+      field(:active_states, {:array, :string}, default: @default_active_states)
+      field(:terminal_states, {:array, :string}, default: @default_terminal_states)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -370,7 +380,8 @@ defmodule SymphonyElixir.Config.Schema do
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
         project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE")),
+        active_states: filter_codex_managed_states(settings.tracker.active_states)
     }
 
     workspace = %{
@@ -385,6 +396,15 @@ defmodule SymphonyElixir.Config.Schema do
     }
 
     %{settings | tracker: tracker, workspace: workspace, codex: codex}
+  end
+
+  defp filter_codex_managed_states(states) when is_list(states) do
+    Enum.filter(states, fn state ->
+      state
+      |> String.trim()
+      |> String.downcase()
+      |> String.contains?("codex")
+    end)
   end
 
   defp normalize_keys(value) when is_map(value) do

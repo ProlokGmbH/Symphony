@@ -193,9 +193,9 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
-    assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
+    assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Fertig")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
-    assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
+    assert_receive {:memory_tracker_state_update, "issue-1", "Fertig"}
 
     Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
@@ -257,8 +257,8 @@ defmodule SymphonyElixir.ExtensionsTest do
       ]
     )
 
-    assert :ok = Adapter.update_issue_state("issue-1", "Done")
-    assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
+    assert :ok = Adapter.update_issue_state("issue-1", "Fertig")
+    assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Fertig"}}
     assert state_lookup_query =~ "states"
 
     assert_receive {:graphql_called, update_issue_query, %{issueId: "issue-1", stateId: "state-1"}}

@@ -14,6 +14,8 @@ defmodule SymphonyElixir.Orchestrator do
   @failure_retry_base_ms 10_000
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
+  @cancel_state_name "abbruch codex"
+  @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -346,6 +348,11 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp reconcile_issue_state(%Issue{} = issue, state, active_states, terminal_states) do
     cond do
+      cancel_issue_state?(issue.state) ->
+        Logger.info("Issue moved to cancel state: #{issue_context(issue)} state=#{issue.state}; aborting workflow and cleaning workspace")
+
+        cancel_issue_workflow(state, issue)
+
       terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
 
@@ -523,10 +530,15 @@ defmodule SymphonyElixir.Orchestrator do
     issues
     |> sort_issues_for_dispatch()
     |> Enum.reduce(state, fn issue, state_acc ->
-      if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-        dispatch_issue(state_acc, issue)
-      else
-        state_acc
+      cond do
+        cancel_issue_state?(issue.state) ->
+          cancel_issue_workflow(state_acc, issue)
+
+        should_dispatch_issue?(issue, state_acc, active_states, terminal_states) ->
+          dispatch_issue(state_acc, issue)
+
+        true ->
+          state_acc
       end
     end)
   end
@@ -601,6 +613,7 @@ defmodule SymphonyElixir.Orchestrator do
        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
     issue_routable_to_worker?(issue) and
       active_issue_state?(state_name, active_states) and
+      !cancel_issue_state?(state_name) and
       !terminal_issue_state?(state_name, terminal_states)
   end
 
@@ -617,7 +630,7 @@ defmodule SymphonyElixir.Orchestrator do
          terminal_states
        )
        when is_binary(issue_state) and is_list(blockers) do
-    normalize_issue_state(issue_state) == "todo" and
+    todo_issue_state?(issue_state) and
       Enum.any?(blockers, fn
         %{state: blocker_state} when is_binary(blocker_state) ->
           !terminal_issue_state?(blocker_state, terminal_states)
@@ -628,6 +641,16 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+
+  defp todo_issue_state?(state_name) when is_binary(state_name) do
+    String.starts_with?(normalize_issue_state(state_name), "todo")
+  end
+
+  defp cancel_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @cancel_state_name
+  end
+
+  defp cancel_issue_state?(_state_name), do: false
 
   defp terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
     MapSet.member?(terminal_states, normalize_issue_state(state_name))
@@ -850,6 +873,11 @@ defmodule SymphonyElixir.Orchestrator do
     terminal_states = terminal_state_set()
 
     cond do
+      cancel_issue_state?(issue.state) ->
+        Logger.info("Issue state is cancel requested: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; aborting workflow and cleaning workspace")
+
+        {:noreply, cancel_issue_workflow(state, issue, metadata[:worker_host])}
+
       terminal_issue_state?(issue.state, terminal_states) ->
         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
 
@@ -878,6 +906,40 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
+
+  defp cancel_issue_workflow(%State{} = state, %Issue{} = issue, cleanup_worker_host \\ nil) do
+    state =
+      case Map.get(state.running, issue.id) do
+        %{identifier: _identifier} ->
+          state
+          |> terminate_running_issue(issue.id, true)
+          |> clear_issue_tracking(issue.id)
+
+        _ ->
+          cleanup_issue_workspace(issue.identifier, cleanup_worker_host)
+          clear_issue_tracking(state, issue.id)
+      end
+
+    case Tracker.update_issue_state(issue.id, @canceled_terminal_state_name) do
+      :ok ->
+        Logger.info("Issue cancel cleanup completed: #{issue_context(issue)} next_state=#{@canceled_terminal_state_name}")
+
+      {:error, reason} ->
+        Logger.warning("Issue cancel cleanup completed but state transition failed: #{issue_context(issue)} next_state=#{@canceled_terminal_state_name} reason=#{inspect(reason)}")
+    end
+
+    state
+  end
+
+  defp clear_issue_tracking(%State{} = state, issue_id) when is_binary(issue_id) do
+    %{
+      state
+      | running: Map.delete(state.running, issue_id),
+        claimed: MapSet.delete(state.claimed, issue_id),
+        completed: MapSet.delete(state.completed, issue_id),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
+  end
 
   defp run_terminal_workspace_cleanup do
     case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states) do

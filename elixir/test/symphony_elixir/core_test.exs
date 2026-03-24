@@ -13,8 +13,17 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
-    assert config.tracker.active_states == ["Todo", "In Progress"]
-    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+
+    assert config.tracker.active_states == [
+             "Todo Codex",
+             "In Arbeit Codex",
+             "Review Codex",
+             "Abbruch Codex",
+             "Merge Codex",
+             "Neustart Codex"
+           ]
+
+    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
     assert config.tracker.assignee == "dev@example.com"
     assert config.agent.max_turns == 20
 
@@ -398,7 +407,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -418,7 +427,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "Todo", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "Todo Codex", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -461,7 +470,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -481,7 +490,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -494,7 +503,7 @@ defmodule SymphonyElixir.CoreTest do
         id: issue_id,
         identifier: issue_identifier,
         state: "Closed",
-        title: "Done",
+        title: "Fertig",
         description: "Completed",
         labels: []
       }
@@ -506,6 +515,152 @@ defmodule SymphonyElixir.CoreTest do
       refute Process.alive?(agent_pid)
       refute File.exists?(workspace)
     after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "cancel issue state stops running agent, cleans workspace, and moves issue to Abgebrochen" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-cancel-reconcile-#{System.unique_integer([:positive])}"
+      )
+
+    previous_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    issue_id = "issue-cancel"
+    issue_identifier = "MT-556-C"
+    workspace = Path.join(test_root, issue_identifier)
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: test_root,
+        tracker_active_states: [
+          "Todo Codex",
+          "In Arbeit Codex",
+          "Review Codex",
+          "Abbruch Codex",
+          "Neustart Codex"
+        ],
+        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+      File.mkdir_p!(test_root)
+      File.mkdir_p!(workspace)
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      agent_ref = Process.monitor(agent_pid)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
+            started_at: DateTime.utc_now()
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: "Abbruch Codex",
+        title: "Abort work",
+        description: "User canceled the workflow",
+        labels: []
+      }
+
+      updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+      refute Map.has_key?(updated_state.running, issue_id)
+      refute MapSet.member?(updated_state.claimed, issue_id)
+      assert_receive {:DOWN, ^agent_ref, :process, ^agent_pid, _reason}
+      refute Process.alive?(agent_pid)
+      refute File.exists?(workspace)
+      assert_receive {:memory_tracker_state_update, ^issue_id, "Abgebrochen"}
+    after
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "cancel issue from polling cleans workspace and moves issue to Abgebrochen without dispatch" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-cancel-poll-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    issue_id = "issue-cancel-poll"
+    issue_identifier = "MT-556-P"
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: test_root,
+        tracker_active_states: [
+          "Todo Codex",
+          "In Arbeit Codex",
+          "Review Codex",
+          "Abbruch Codex",
+          "Neustart Codex"
+        ],
+        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"],
+        poll_interval_ms: 30_000
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        state: "Abbruch Codex",
+        title: "Abort idle work",
+        description: "Workspace should be cleaned without dispatch",
+        labels: []
+      }
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+
+      orchestrator_name = Module.concat(__MODULE__, :CancelPollingOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        restore_app_env(:memory_tracker_issues, previous_memory_issues)
+        restore_app_env(:memory_tracker_recipient, previous_recipient)
+
+        if Process.alive?(pid) do
+          Process.exit(pid, :normal)
+        end
+      end)
+
+      File.mkdir_p!(Path.join(test_root, issue_identifier))
+
+      send(pid, :tick)
+      assert_receive {:memory_tracker_state_update, ^issue_id, "Abgebrochen"}, 1_000
+      Process.sleep(100)
+
+      refute File.exists?(Path.join(test_root, issue_identifier))
+      state = :sys.get_state(pid)
+      refute Map.has_key?(state.running, issue_id)
+      refute MapSet.member?(state.claimed, issue_id)
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
       File.rm_rf(test_root)
     end
   end
@@ -525,7 +680,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: test_root,
-        tracker_active_states: ["Todo", "In Progress", "In Review"],
+        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
         poll_interval_ms: 30_000
       )
@@ -563,7 +718,7 @@ defmodule SymphonyElixir.CoreTest do
         pid: agent_pid,
         ref: nil,
         identifier: issue_identifier,
-        issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
+        issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
         started_at: DateTime.utc_now()
       }
 
@@ -600,7 +755,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-557",
-            state: "Todo"
+            state: "Todo Codex"
           },
           started_at: DateTime.utc_now()
         }
@@ -613,7 +768,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-557",
-      state: "In Progress",
+      state: "In Arbeit Codex",
       title: "Active state refresh",
       description: "State should be refreshed",
       labels: []
@@ -624,7 +779,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert Map.has_key?(updated_state.running, issue_id)
     assert MapSet.member?(updated_state.claimed, issue_id)
-    assert updated_entry.issue.state == "In Progress"
+    assert updated_entry.issue.state == "In Arbeit Codex"
   end
 
   test "reconcile stops running issue when it is reassigned away from this worker" do
@@ -646,7 +801,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-561",
-            state: "In Progress",
+            state: "In Arbeit Codex",
             assigned_to_worker: true
           },
           started_at: DateTime.utc_now()
@@ -660,7 +815,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-561",
-      state: "In Progress",
+      state: "In Arbeit Codex",
       title: "Reassigned active issue",
       description: "Worker should stop",
       labels: [],
@@ -692,7 +847,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-558",
-      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -733,7 +888,7 @@ defmodule SymphonyElixir.CoreTest do
       ref: ref,
       identifier: "MT-559",
       retry_attempt: 2,
-      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -772,7 +927,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-560",
-      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Progress"},
+      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Arbeit Codex"},
       started_at: DateTime.utc_now()
     }
 
@@ -991,6 +1146,44 @@ defmodule SymphonyElixir.CoreTest do
     assert [_, local_time] = Regex.run(~r/local=([^ ]+)/, prompt)
     assert local_time =~ ~r/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/
     assert prompt =~ "tz="
+  end
+
+  test "prompt builder uses trimmed TZ environment values in runtime context" do
+    previous_tz = System.get_env("TZ")
+    on_exit(fn -> restore_env("TZ", previous_tz) end)
+
+    System.put_env("TZ", "  Europe/Paris  ")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "tz={{ runtime.timezone }}")
+
+    issue = %Issue{
+      identifier: "MT-698A",
+      title: "Trim timezone",
+      description: "Prompt should trim TZ",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698A",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "tz=Europe/Paris"
+  end
+
+  test "prompt builder falls back to system-local when TZ is blank" do
+    previous_tz = System.get_env("TZ")
+    on_exit(fn -> restore_env("TZ", previous_tz) end)
+
+    System.put_env("TZ", "   ")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "tz={{ runtime.timezone }}")
+
+    issue = %Issue{
+      identifier: "MT-698B",
+      title: "Blank timezone",
+      description: "Prompt should handle blank TZ",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698B",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "tz=system-local"
   end
 
   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
@@ -1339,7 +1532,7 @@ defmodule SymphonyElixir.CoreTest do
                AgentRunner.run(
                  issue,
                  test_pid,
-                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Fertig"}]} end
                )
 
       assert_receive {:codex_worker_update, "issue-live-updates",
@@ -1499,9 +1692,9 @@ defmodule SymphonyElixir.CoreTest do
 
         state =
           if attempt == 1 do
-            "In Progress"
+            "In Arbeit Codex"
           else
-            "Done"
+            "Fertig"
           end
 
         {:ok,
@@ -1521,7 +1714,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-247",
         title: "Continue until done",
         description: "Still active after first turn",
-        state: "In Progress",
+        state: "In Arbeit Codex",
         url: "https://example.org/issues/MT-247",
         labels: []
       }
@@ -1628,7 +1821,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-248",
              title: "Stop at max turns",
              description: "Still active",
-             state: "In Progress"
+             state: "In Arbeit Codex"
            }
          ]}
       end
@@ -1638,7 +1831,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-248",
         title: "Stop at max turns",
         description: "Still active",
-        state: "In Progress",
+        state: "In Arbeit Codex",
         url: "https://example.org/issues/MT-248",
         labels: []
       }

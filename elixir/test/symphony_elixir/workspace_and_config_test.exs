@@ -336,7 +336,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
             "issue" => %{
               "id" => "issue-3",
               "identifier" => "MT-3",
-              "state" => %{"name" => "Done"}
+              "state" => %{"name" => "Fertig"}
             }
           }
         ]
@@ -538,8 +538,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-1",
       identifier: "MT-1001",
       title: "Blocked work",
-      state: "Todo",
-      blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "In Progress"}]
+      state: "Todo Codex",
+      blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "In Arbeit Codex"}]
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
@@ -560,7 +560,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "assigned-away-1",
       identifier: "MT-1007",
       title: "Owned elsewhere",
-      state: "Todo",
+      state: "Todo Codex",
       assigned_to_worker: false
     }
 
@@ -580,7 +580,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "ready-1",
       identifier: "MT-1003",
       title: "Ready work",
-      state: "Todo",
+      state: "Todo Codex",
       blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
     }
 
@@ -592,7 +592,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-2",
       identifier: "MT-1005",
       title: "Stale blocked work",
-      state: "Todo",
+      state: "Todo Codex",
       blocked_by: []
     }
 
@@ -600,8 +600,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       id: "blocked-2",
       identifier: "MT-1005",
       title: "Stale blocked work",
-      state: "Todo",
-      blocked_by: [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+      state: "Todo Codex",
+      blocked_by: [%{id: "blocker-3", identifier: "MT-1006", state: "In Arbeit Codex"}]
     }
 
     fetcher = fn ["blocked-2"] -> {:ok, [refreshed_issue]} end
@@ -610,7 +610,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
 
     assert skipped_issue.identifier == "MT-1005"
-    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+    assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Arbeit Codex"}]
   end
 
   test "workspace remove returns error information for missing directory" do
@@ -775,6 +775,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.agent.max_concurrent_agents == 10
     assert config.codex.command == "codex app-server"
 
+    assert config.tracker.active_states == [
+             "Todo Codex",
+             "In Arbeit Codex",
+             "Review Codex",
+             "Abbruch Codex",
+             "Merge Codex",
+             "Neustart Codex"
+           ]
+
+    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
+
     assert config.codex.approval_policy == %{
              "reject" => %{
                "sandbox_approval" => true,
@@ -865,7 +876,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       poll_interval_ms: %{bad: true},
       workspace_root: 123,
       max_retry_backoff_ms: 0,
-      max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Done" => "bad"},
+      max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Fertig" => "bad"},
       hook_timeout_ms: 0,
       observability_enabled: "maybe",
       observability_refresh_ms: %{bad: true},
@@ -1036,6 +1047,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 2)
     assert :ok = Config.validate!()
     assert Config.settings!().worker.max_concurrent_agents_per_host == 2
+  end
+
+  test "config ignores active states without Codex in the name" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo", "Review", "Review Codex", "Abbruch Codex", "Fertig"]
+    )
+
+    assert Config.settings!().tracker.active_states == ["Review Codex", "Abbruch Codex"]
   end
 
   test "schema helpers cover custom type and state limit validation" do
