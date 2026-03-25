@@ -126,12 +126,7 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
     assert Map.get(hooks, "after_create") =~ "cp \"$source_repo/.env.local\" \"$workspace/.env.local\""
-    assert Map.get(hooks, "on_worktree_commit") =~ "mix workspace.on_worktree_commit"
-    assert Map.get(hooks, "on_worktree_commit") =~ "--source-repo \"$SYMPHONY_PROJECT_ROOT\""
-    assert Map.get(hooks, "on_worktree_commit") =~ "--workspace \"$SYMPHONY_WORKSPACE\""
-    assert Map.get(hooks, "on_worktree_commit") =~ "--branch \"$SYMPHONY_BRANCH_NAME\""
-    assert Map.get(hooks, "on_worktree_commit") =~ "--old-head \"$SYMPHONY_PREV_HEAD_SHA\""
-    assert Map.get(hooks, "on_worktree_commit") =~ "--new-head \"$SYMPHONY_HEAD_SHA\""
+    refute Map.has_key?(hooks, "on_worktree_commit")
     assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
     assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
     codex = Map.get(config, "codex", %{})

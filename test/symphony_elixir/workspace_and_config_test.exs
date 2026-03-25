@@ -68,7 +68,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
 
       File.write!(Path.join(source_repo, "README.md"), "base\n")
+      write_minimal_mix_project!(source_repo, :worktree_tracking)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mix.exs"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mise.toml"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
@@ -141,8 +144,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
 
       File.write!(Path.join(source_repo, "README.md"), "base\n")
+      write_minimal_mix_project!(source_repo, :worktree_env_local)
       File.write!(Path.join(source_repo, ".env.local"), env_local_contents)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mix.exs"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mise.toml"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
@@ -1558,5 +1564,33 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp write_minimal_mix_project!(repo_root, app_name) when is_binary(repo_root) and is_atom(app_name) do
+    File.write!(
+      Path.join(repo_root, "mix.exs"),
+      """
+      defmodule #{Macro.camelize(Atom.to_string(app_name))}.MixProject do
+        use Mix.Project
+
+        def project do
+          [
+            app: #{inspect(app_name)},
+            version: "0.1.0",
+            deps: []
+          ]
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(repo_root, "mise.toml"),
+      """
+      [tools]
+      erlang = "28"
+      elixir = "1.19.5-otp-28"
+      """
+    )
   end
 end

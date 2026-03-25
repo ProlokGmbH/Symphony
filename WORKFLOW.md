@@ -43,10 +43,10 @@ hooks:
     fi
     if [ -f "$source_repo/.env.local" ]; then
       cp "$source_repo/.env.local" "$workspace/.env.local"
-      chmod 600 "$workspace/.env.local" 2>/dev/null || true
     fi
-  on_worktree_commit: |
-    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.on_worktree_commit --source-repo "$SYMPHONY_PROJECT_ROOT" --workspace "$SYMPHONY_WORKSPACE" --branch "$SYMPHONY_BRANCH_NAME" --old-head "$SYMPHONY_PREV_HEAD_SHA" --new-head "$SYMPHONY_HEAD_SHA"
+    if command -v mise >/dev/null 2>&1; then
+      mise trust && mise exec -- mix deps.get
+    fi    
   before_remove: |
     # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
