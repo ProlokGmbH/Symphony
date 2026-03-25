@@ -714,6 +714,29 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "completed issue in the same active state is not dispatched again until the state changes" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      completed_states: %{"ready-2" => "in arbeit"},
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    same_state_issue = %Issue{
+      id: "ready-2",
+      identifier: "MT-1008",
+      title: "Bootstrap already done",
+      state: "In Arbeit"
+    }
+
+    changed_state_issue = %{same_state_issue | state: "Review Codex"}
+
+    refute Orchestrator.should_dispatch_issue_for_test(same_state_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(changed_state_issue, state)
+  end
+
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
     stale_issue = %Issue{
       id: "blocked-2",
@@ -904,6 +927,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert config.tracker.active_states == [
              "Todo Codex",
+             "In Arbeit",
              "In Arbeit Codex",
              "Review Codex",
              "Test Codex",
@@ -1177,12 +1201,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.settings!().worker.max_concurrent_agents_per_host == 2
   end
 
-  test "config ignores active states without Codex in the name" do
+  test "config keeps In Arbeit as the only non-Codex managed active state" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["Todo", "Review", "Review Codex", "Abbruch Codex", "Fertig"]
+      tracker_active_states: ["Todo", "In Arbeit", "Review", "Review Codex", "Abbruch Codex", "Fertig"]
     )
 
-    assert Config.settings!().tracker.active_states == ["Review Codex", "Abbruch Codex"]
+    assert Config.settings!().tracker.active_states == ["In Arbeit", "Review Codex", "Abbruch Codex"]
   end
 
   test "schema helpers cover custom type and state limit validation" do

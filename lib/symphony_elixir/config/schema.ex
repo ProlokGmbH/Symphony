@@ -45,6 +45,7 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     @default_active_states [
       "Todo Codex",
+      "In Arbeit",
       "In Arbeit Codex",
       "Review Codex",
       "Test Codex",
@@ -387,7 +388,7 @@ defmodule SymphonyElixir.Config.Schema do
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
         project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE")),
-        active_states: filter_codex_managed_states(settings.tracker.active_states)
+        active_states: filter_managed_states(settings.tracker.active_states)
     }
 
     workspace = %{
@@ -404,12 +405,14 @@ defmodule SymphonyElixir.Config.Schema do
     %{settings | tracker: tracker, workspace: workspace, codex: codex}
   end
 
-  defp filter_codex_managed_states(states) when is_list(states) do
+  defp filter_managed_states(states) when is_list(states) do
     Enum.filter(states, fn state ->
-      state
-      |> String.trim()
-      |> String.downcase()
-      |> String.contains?("codex")
+      normalized_state =
+        state
+        |> String.trim()
+        |> String.downcase()
+
+      String.contains?(normalized_state, "codex") or normalized_state == "in arbeit"
     end)
   end
 

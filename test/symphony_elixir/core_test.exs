@@ -16,6 +16,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert config.tracker.active_states == [
              "Todo Codex",
+             "In Arbeit",
              "In Arbeit Codex",
              "Review Codex",
              "Test Codex",
@@ -1459,12 +1460,17 @@ defmodule SymphonyElixir.CoreTest do
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
 
-      if is_pid(workflow_store_pid) and is_nil(Process.whereis(SymphonyElixir.WorkflowStore)) do
+      if is_pid(workflow_store_pid) and
+           is_pid(Process.whereis(SymphonyElixir.Supervisor)) and
+           is_nil(Process.whereis(SymphonyElixir.WorkflowStore)) do
         Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
       end
     end)
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+    if is_pid(Process.whereis(SymphonyElixir.Supervisor)) do
+      assert :ok =
+               Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+    end
 
     Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
 
@@ -1711,6 +1717,94 @@ defmodule SymphonyElixir.CoreTest do
                      500
 
       assert session_id == "thread-live-turn-live"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips Codex bootstrap in In Arbeit when a workpad marker already exists" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-bootstrap-#{System.unique_integer([:positive])}"
+      )
+
+    current_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    try do
+      assert {:ok, %{config: %{"hooks" => %{"after_create" => after_create}}}} =
+               Workflow.load(current_workflow_path)
+
+      remote_repo = Path.join(test_root, "remote.git")
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      workflow_dir = Path.join(test_root, "workflow")
+      workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+
+      File.mkdir_p!(workflow_dir)
+
+      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      File.write!(Path.join(source_repo, "README.md"), "bootstrap\n")
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
+
+      write_workflow_file!(workflow_file,
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: after_create,
+        codex_command: "sh -lc 'touch #{codex_stamp}'"
+      )
+
+      Workflow.set_workflow_file_path(workflow_file)
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-bootstrap-1" => ["## Codex Workpad\n\nexisting body"]
+      })
+
+      issue = %Issue{
+        id: "issue-bootstrap-1",
+        identifier: "MT-BOOT",
+        title: "Bootstrap only",
+        description: "Prepare worktree and workpad",
+        state: "In Arbeit",
+        url: "https://example.org/issues/MT-BOOT",
+        labels: ["backend"]
+      }
+
+      assert :ok =
+               File.cd!(source_repo, fn ->
+                 AgentRunner.run(issue)
+               end)
+
+      workspace = Path.join(workspace_root, "MT-BOOT")
+
+      assert File.dir?(workspace)
+
+      assert {"symphony/MT-BOOT\n", 0} =
+               System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
+
+      assert {worktree_list, 0} =
+               System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
+
+      assert worktree_list =~ workspace
+
+      assert_receive {:memory_tracker_branch_update, "issue-bootstrap-1", "symphony/MT-BOOT"}
+      refute_receive {:memory_tracker_comment, "issue-bootstrap-1", _body}, 100
+      refute File.exists?(codex_stamp)
+
+      assert :ok =
+               File.cd!(source_repo, fn ->
+                 AgentRunner.run(issue)
+               end)
+
+      refute File.exists?(codex_stamp)
     after
       File.rm_rf(test_root)
     end

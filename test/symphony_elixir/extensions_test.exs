@@ -5,7 +5,7 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.LiveViewTest
 
   alias SymphonyElixir.Linear.Adapter
-  alias SymphonyElixir.Tracker.Memory
+  alias SymphonyElixir.{Tracker.Memory, Workpad}
 
   @endpoint SymphonyElixirWeb.Endpoint
 
@@ -23,6 +23,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     def fetch_issue_states_by_ids(issue_ids) do
       send(self(), {:fetch_issue_states_by_ids_called, issue_ids})
       {:ok, issue_ids}
+    end
+
+    def fetch_issue_comment_bodies(issue_id) do
+      send(self(), {:fetch_issue_comment_bodies_called, issue_id})
+      Process.get({__MODULE__, :issue_comment_bodies_result})
     end
 
     def graphql(query, variables) do
@@ -192,10 +197,14 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
+    assert {:ok, false} = SymphonyElixir.Tracker.workpad_exists?("issue-1")
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
+    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "## Codex Workpad\n\nbody")
+    assert {:ok, true} = SymphonyElixir.Tracker.workpad_exists?("issue-1")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Fertig")
     assert :ok = SymphonyElixir.Tracker.update_issue_branch_name("issue-1", "symphony/MT-1")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
+    assert_receive {:memory_tracker_comment, "issue-1", "## Codex Workpad\n\nbody"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Fertig"}
     assert_receive {:memory_tracker_branch_update, "issue-1", "symphony/MT-1"}
 
@@ -206,6 +215,14 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
     assert SymphonyElixir.Tracker.adapter() == Adapter
+  end
+
+  test "workpad helper matches only the exact marker header" do
+    assert Workpad.marker() == "## Codex Workpad"
+    assert Workpad.comment_matches?("## Codex Workpad\n\nbody")
+    assert Workpad.comment_matches?("prefix\n## Codex Workpad\nsuffix")
+    refute Workpad.comment_matches?("## Codex Workpad extra")
+    refute Workpad.comment_matches?(nil)
   end
 
   test "linear adapter delegates reads and validates mutation responses" do
@@ -219,6 +236,14 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert {:ok, ["issue-1"]} = Adapter.fetch_issue_states_by_ids(["issue-1"])
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
+
+    Process.put(
+      {FakeLinearClient, :issue_comment_bodies_result},
+      {:ok, ["not it", "## Codex Workpad\n\npresent"]}
+    )
+
+    assert {:ok, true} = Adapter.workpad_exists?("issue-1")
+    assert_receive {:fetch_issue_comment_bodies_called, "issue-1"}
 
     Process.put(
       {FakeLinearClient, :graphql_result},

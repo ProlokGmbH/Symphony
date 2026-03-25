@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Linear.Adapter do
 
   @behaviour SymphonyElixir.Tracker
 
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.{Linear.Client, Workpad}
 
   @create_comment_mutation """
   mutation SymphonyCreateComment($issueId: String!, $body: String!) {
@@ -63,6 +63,13 @@ defmodule SymphonyElixir.Linear.Adapter do
       false -> {:error, :comment_create_failed}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :comment_create_failed}
+    end
+  end
+
+  @spec workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
+  def workpad_exists?(issue_id) when is_binary(issue_id) do
+    with {:ok, comments} <- client_module().fetch_issue_comment_bodies(issue_id) do
+      {:ok, Enum.any?(comments, &Workpad.comment_matches?/1)}
     end
   end
 

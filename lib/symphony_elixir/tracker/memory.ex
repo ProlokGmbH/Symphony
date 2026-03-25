@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   @behaviour SymphonyElixir.Tracker
 
-  alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.{Linear.Issue, Workpad}
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -37,8 +37,14 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
+    store_comment(issue_id, body)
     send_event({:memory_tracker_comment, issue_id, body})
     :ok
+  end
+
+  @spec workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
+  def workpad_exists?(issue_id) do
+    {:ok, has_workpad_comment?(issue_id)}
   end
 
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
@@ -57,8 +63,27 @@ defmodule SymphonyElixir.Tracker.Memory do
     Application.get_env(:symphony_elixir, :memory_tracker_issues, [])
   end
 
+  defp configured_comments do
+    Application.get_env(:symphony_elixir, :memory_tracker_comments, %{})
+  end
+
   defp issue_entries do
     Enum.filter(configured_issues(), &match?(%Issue{}, &1))
+  end
+
+  defp has_workpad_comment?(issue_id) when is_binary(issue_id) do
+    configured_comments()
+    |> Map.get(issue_id, [])
+    |> Enum.any?(&Workpad.comment_matches?/1)
+  end
+
+  defp store_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
+    comments =
+      configured_comments()
+      |> Map.update(issue_id, [body], &[body | &1])
+
+    Application.put_env(:symphony_elixir, :memory_tracker_comments, comments)
+    :ok
   end
 
   defp send_event(message) do
