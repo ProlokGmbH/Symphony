@@ -16,6 +16,7 @@ defmodule SymphonyElixir.Orchestrator do
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch codex"
   @canceled_terminal_state_name "Abgebrochen"
+  @workspace_bootstrap_state_name "in arbeit"
   @empty_codex_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -37,6 +38,7 @@ defmodule SymphonyElixir.Orchestrator do
       :tick_token,
       running: %{},
       completed: MapSet.new(),
+      completed_states: %{},
       claimed: MapSet.new(),
       retry_attempts: %{},
       codex_totals: nil,
@@ -135,16 +137,7 @@ defmodule SymphonyElixir.Orchestrator do
         state =
           case reason do
             :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
+              handle_normal_issue_completion(state, issue_id, session_id, running_entry)
 
             _ ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
@@ -228,9 +221,14 @@ defmodule SymphonyElixir.Orchestrator do
     state = reconcile_running_issues(state)
 
     with :ok <- Config.validate!(),
-         {:ok, issues} <- Tracker.fetch_candidate_issues(),
-         true <- available_slots(state) > 0 do
-      choose_issues(issues, state)
+         {:ok, issues} <- Tracker.fetch_candidate_issues() do
+      state = retain_visible_completed_states(state, issues)
+
+      if available_slots(state) > 0 do
+        choose_issues(state, issues)
+      else
+        state
+      end
     else
       {:error, :missing_linear_api_token} ->
         Logger.error("Linear API token missing in WORKFLOW.md")
@@ -268,9 +266,6 @@ defmodule SymphonyElixir.Orchestrator do
 
       {:error, reason} ->
         Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
-        state
-
-      false ->
         state
     end
   end
@@ -513,18 +508,24 @@ defmodule SymphonyElixir.Orchestrator do
   defp last_activity_timestamp(_running_entry), do: nil
 
   defp terminate_task(pid) when is_pid(pid) do
-    case Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, pid) do
-      :ok ->
-        :ok
+    case Process.whereis(SymphonyElixir.TaskSupervisor) do
+      task_supervisor when is_pid(task_supervisor) ->
+        case Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, pid) do
+          :ok ->
+            :ok
 
-      {:error, :not_found} ->
+          {:error, :not_found} ->
+            Process.exit(pid, :shutdown)
+        end
+
+      _ ->
         Process.exit(pid, :shutdown)
     end
   end
 
   defp terminate_task(_pid), do: :ok
 
-  defp choose_issues(issues, state) do
+  defp choose_issues(state, issues) do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
 
@@ -566,12 +567,13 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp should_dispatch_issue?(
          %Issue{} = issue,
-         %State{running: running, claimed: claimed} = state,
+         %State{running: running, claimed: claimed, completed_states: completed_states} = state,
          active_states,
          terminal_states
        ) do
     candidate_issue?(issue, active_states, terminal_states) and
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
+      !completed_in_current_state?(issue, completed_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
@@ -786,10 +788,11 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
 
-  defp complete_issue(%State{} = state, issue_id) do
+  defp complete_issue(%State{} = state, issue_id, issue_state) do
     %{
       state
       | completed: MapSet.put(state.completed, issue_id),
+        completed_states: put_completed_state(state.completed_states, issue_id, issue_state),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
@@ -938,6 +941,7 @@ defmodule SymphonyElixir.Orchestrator do
       | running: Map.delete(state.running, issue_id),
         claimed: MapSet.delete(state.claimed, issue_id),
         completed: MapSet.delete(state.completed, issue_id),
+        completed_states: Map.delete(state.completed_states, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
@@ -986,6 +990,80 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp release_issue_claim(%State{} = state, issue_id) do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+  end
+
+  defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
+       when is_binary(issue_id) and is_map(running_entry) do
+    if schedule_continuation_after_completion?(running_entry) do
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+      state
+      |> complete_issue(issue_id, running_entry.issue.state)
+      |> schedule_issue_retry(issue_id, 1, %{
+        identifier: running_entry.identifier,
+        delay_type: :continuation,
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
+      })
+    else
+      Logger.info("Bootstrap task completed for issue_id=#{issue_id} session_id=#{session_id}; suppressing continuation until state changes")
+      complete_issue(state, issue_id, running_entry.issue.state)
+    end
+  end
+
+  defp completed_in_current_state?(%Issue{id: issue_id, state: issue_state}, completed_states)
+       when is_binary(issue_id) and is_binary(issue_state) and is_map(completed_states) do
+    Map.get(completed_states, issue_id) == normalize_issue_state(issue_state)
+  end
+
+  defp completed_in_current_state?(_issue, _completed_states), do: false
+
+  defp put_completed_state(completed_states, issue_id, issue_state)
+       when is_map(completed_states) and is_binary(issue_id) and is_binary(issue_state) do
+    Map.put(completed_states, issue_id, normalize_issue_state(issue_state))
+  end
+
+  defp put_completed_state(completed_states, _issue_id, _issue_state) when is_map(completed_states),
+    do: completed_states
+
+  defp retain_visible_completed_states(%State{} = state, issues) when is_list(issues) do
+    visible_issue_ids =
+      issues
+      |> Enum.flat_map(fn
+        %Issue{id: issue_id} when is_binary(issue_id) -> [issue_id]
+        _ -> []
+      end)
+      |> MapSet.new()
+
+    completed_states =
+      Enum.reduce(state.completed_states, %{}, fn {issue_id, normalized_state}, acc ->
+        if MapSet.member?(visible_issue_ids, issue_id) do
+          Map.put(acc, issue_id, normalized_state)
+        else
+          acc
+        end
+      end)
+
+    completed =
+      Enum.reduce(state.completed, MapSet.new(), fn issue_id, acc ->
+        if MapSet.member?(visible_issue_ids, issue_id) do
+          MapSet.put(acc, issue_id)
+        else
+          acc
+        end
+      end)
+
+    %{state | completed_states: completed_states, completed: completed}
+  end
+
+  defp schedule_continuation_after_completion?(running_entry) when is_map(running_entry) do
+    case Map.get(running_entry, :issue) do
+      %Issue{state: state_name} when is_binary(state_name) ->
+        normalize_issue_state(state_name) != @workspace_bootstrap_state_name
+
+      _ ->
+        true
+    end
   end
 
   defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do

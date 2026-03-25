@@ -14,6 +14,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_clean_handoff_state_name "Merge Codex"
   @test_codex_changed_handoff_state_name "Review"
   @merge_codex_state_name "merge codex"
+  @workspace_bootstrap_state_name "in arbeit"
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -39,13 +40,17 @@ defmodule SymphonyElixir.AgentRunner do
       {:ok, workspace} ->
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
-        try do
-          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
-               :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+        if workspace_bootstrap_state?(issue.state) do
+          bootstrap_issue_workspace(issue, workspace, codex_update_recipient, opts, worker_host)
+        else
+          try do
+            with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
+                 :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
+              run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+            end
+          after
+            Workspace.run_after_run_hook(workspace, issue, worker_host)
           end
-        after
-          Workspace.run_after_run_hook(workspace, issue, worker_host)
         end
 
       {:error, reason} ->
@@ -451,6 +456,51 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
+  defp bootstrap_issue_workspace(
+         %Issue{} = issue,
+         workspace,
+         codex_update_recipient,
+         opts,
+         worker_host
+       )
+       when is_binary(workspace) do
+    with :ok <- Workspace.ensure_expected_worktree(workspace, issue, worker_host),
+         :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host),
+         {:ok, workpad_exists?} <- workpad_exists_for_issue(issue) do
+      if workpad_exists? do
+        :ok
+      else
+        run_workpad_bootstrap_turn(workspace, issue, codex_update_recipient, opts, worker_host)
+      end
+    end
+  end
+
+  defp run_workpad_bootstrap_turn(workspace, issue, codex_update_recipient, opts, worker_host)
+       when is_binary(workspace) do
+    result =
+      with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
+        case AppServer.run(
+               workspace,
+               PromptBuilder.build_prompt(issue, opts),
+               issue,
+               worker_host: worker_host,
+               on_message: codex_message_handler(codex_update_recipient, issue)
+             ) do
+          {:ok, _turn_session} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+      end
+
+    Workspace.run_after_run_hook(workspace, issue, worker_host)
+    result
+  end
+
+  defp workpad_exists_for_issue(%Issue{id: issue_id}) when is_binary(issue_id) do
+    Tracker.workpad_exists?(issue_id)
+  end
+
+  defp workpad_exists_for_issue(%Issue{}), do: {:ok, false}
+
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
 
@@ -477,6 +527,12 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp merge_codex_state?(_state_name), do: false
+
+  defp workspace_bootstrap_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @workspace_bootstrap_state_name
+  end
+
+  defp workspace_bootstrap_state?(_state_name), do: false
 
   defp selected_worker_host(nil, []), do: nil
 

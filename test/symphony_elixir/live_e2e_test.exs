@@ -165,7 +165,7 @@ defmodule SymphonyElixir.LiveE2ETest do
     |> Enum.reject(&(&1["type"] in ["completed", "canceled"]))
     |> Enum.map(& &1["name"])
     |> case do
-      [] -> ["Todo Codex", "In Arbeit Codex", "Review Codex", "Test Codex", "Abbruch Codex", "Merge Codex", "Neustart Codex"]
+      [] -> ["Todo Codex", "In Arbeit", "In Arbeit Codex", "Review Codex", "Test Codex", "Abbruch Codex", "Merge Codex", "Neustart Codex"]
       names -> names
     end
   end

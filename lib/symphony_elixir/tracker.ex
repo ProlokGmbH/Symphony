@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Tracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_branch_name(String.t(), String.t()) :: :ok | {:error, term()}
 
@@ -30,6 +31,11 @@ defmodule SymphonyElixir.Tracker do
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     adapter().create_comment(issue_id, body)
+  end
+
+  @spec workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
+  def workpad_exists?(issue_id) do
+    adapter().workpad_exists?(issue_id)
   end
 
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}

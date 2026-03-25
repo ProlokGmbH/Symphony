@@ -31,6 +31,23 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec ensure_expected_worktree(Path.t(), map() | String.t() | nil, worker_host()) ::
+          :ok | {:error, term()}
+  def ensure_expected_worktree(workspace, issue_or_identifier, worker_host \\ nil)
+      when is_binary(workspace) do
+    issue_context = issue_context(issue_or_identifier)
+    expected_branch = "symphony/#{issue_context.issue_identifier}"
+
+    with :ok <- validate_workspace_path(workspace, worker_host),
+         {:ok, branch_name} <- ensure_expected_branch(workspace, expected_branch, issue_context, worker_host) do
+      if branch_name == expected_branch do
+        :ok
+      else
+        {:error, {:unexpected_workspace_branch, workspace, branch_name, expected_branch}}
+      end
+    end
+  end
+
   defp ensure_workspace(workspace, nil) do
     cond do
       File.dir?(workspace) ->
@@ -193,6 +210,22 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec run_after_create_hook(Path.t(), map() | String.t() | nil, worker_host()) ::
+          :ok | {:error, term()}
+  def run_after_create_hook(workspace, issue_or_identifier, worker_host \\ nil)
+      when is_binary(workspace) do
+    issue_context = issue_context(issue_or_identifier)
+    hooks = Config.settings!().hooks
+
+    case hooks.after_create do
+      nil ->
+        :ok
+
+      command ->
+        run_hook(command, workspace, issue_context, "after_create", worker_host)
+    end
+  end
+
   @spec git_status_snapshot(Path.t(), worker_host()) :: {:ok, String.t()} | {:error, term()}
   def git_status_snapshot(workspace, worker_host \\ nil) when is_binary(workspace) do
     case worker_host do
@@ -307,6 +340,20 @@ defmodule SymphonyElixir.Workspace do
     case output |> IO.iodata_to_binary() |> String.trim() do
       "" -> {:error, {:workspace_git_branch_missing, location}}
       branch_name -> {:ok, branch_name}
+    end
+  end
+
+  defp ensure_expected_branch(workspace, _expected_branch, issue_context, worker_host)
+       when is_binary(workspace) do
+    case current_branch(workspace, worker_host) do
+      {:ok, branch_name} ->
+        {:ok, branch_name}
+
+      {:error, _reason} ->
+        case run_after_create_hook(workspace, issue_context, worker_host) do
+          :ok -> current_branch(workspace, worker_host)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
