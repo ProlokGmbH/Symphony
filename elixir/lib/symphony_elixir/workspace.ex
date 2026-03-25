@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Workspace do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, PathSafety, RuntimePaths, SSH}
+  alias SymphonyElixir.{Config, HookRunner, PathSafety, RuntimePaths, SSH}
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
 
@@ -409,30 +409,19 @@ defmodule SymphonyElixir.Workspace do
   defp ignore_hook_failure({:error, _reason}), do: :ok
 
   defp run_hook(command, workspace, issue_context, hook_name, nil) do
-    timeout_ms = Config.settings!().hooks.timeout_ms
-
-    Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
-
-    task =
-      Task.async(fn ->
-        System.cmd("sh", ["-lc", command],
-          cd: workspace,
-          env: Enum.into(RuntimePaths.builtin_env(), []),
-          stderr_to_stdout: true
-        )
-      end)
-
-    case Task.yield(task, timeout_ms) do
-      {:ok, cmd_result} ->
-        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
-
-      nil ->
-        Task.shutdown(task, :brutal_kill)
-
-        Logger.warning("Workspace hook timed out hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
-
-        {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
-    end
+    HookRunner.run_local(
+      command,
+      workspace,
+      hook_name,
+      env: RuntimePaths.builtin_env(),
+      timeout_ms: Config.settings!().hooks.timeout_ms,
+      log_context: %{
+        issue_id: issue_context.issue_id,
+        issue_identifier: issue_context.issue_identifier,
+        workspace: workspace,
+        worker_host: "local"
+      }
+    )
   end
 
   defp run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do

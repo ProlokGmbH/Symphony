@@ -41,6 +41,8 @@ hooks:
     if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       git -C "$workspace" pull --ff-only origin "$branch"
     fi
+  on_worktree_commit: |
+    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.on_worktree_commit --source-repo "$SYMPHONY_PROJECT_ROOT" --workspace "$SYMPHONY_WORKSPACE" --branch "$SYMPHONY_BRANCH_NAME" --old-head "$SYMPHONY_PREV_HEAD_SHA" --new-head "$SYMPHONY_HEAD_SHA"
   before_remove: |
     # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
