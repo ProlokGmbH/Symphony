@@ -26,6 +26,9 @@ erl_crash.dump
 # Elixir language server and tooling.
 /.elixir_ls/
 /.fetch/
+/.mix-home/
+/.mix-archives/
+/.hex/
 
 # Editor / OS temporary files.
 .DS_Store
