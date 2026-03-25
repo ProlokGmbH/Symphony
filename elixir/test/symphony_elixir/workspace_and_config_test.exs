@@ -112,6 +112,61 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "current WORKFLOW after_create hook copies .env.local into new worktrees" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-worktree-env-local-#{System.unique_integer([:positive])}"
+      )
+
+    current_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    try do
+      assert {:ok, %{config: %{"hooks" => %{"after_create" => after_create}}}} =
+               Workflow.load(current_workflow_path)
+
+      remote_repo = Path.join(test_root, "remote.git")
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      workflow_dir = Path.join(test_root, "workflow")
+      workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
+      env_local_contents = "SELF_HOSTED=1\nLINEAR_ASSIGNEE=dev@example.com\n"
+
+      File.mkdir_p!(workflow_dir)
+
+      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+
+      File.write!(Path.join(source_repo, "README.md"), "base\n")
+      File.write!(Path.join(source_repo, ".env.local"), env_local_contents)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
+
+      write_workflow_file!(workflow_file,
+        workspace_root: workspace_root,
+        hook_after_create: after_create
+      )
+
+      Workflow.set_workflow_file_path(workflow_file)
+
+      assert {:ok, workspace} =
+               File.cd!(source_repo, fn ->
+                 Workspace.create_for_issue("MT-ENV")
+               end)
+
+      assert File.read!(Path.join(workspace, ".env.local")) == env_local_contents
+
+      File.write!(Path.join(source_repo, ".env.local"), "SELF_HOSTED=2\n")
+      assert File.read!(Path.join(workspace, ".env.local")) == env_local_contents
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(
