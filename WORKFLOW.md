@@ -244,13 +244,7 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
    - Wenn die Ticket-Beschreibung oder der Kommentar-Kontext Abschnitte `Validation`, `Test Plan` oder `Testing` enthält, kopiere diese Anforderungen als verpflichtende Checkboxen in die Bereiche `Akzeptanzkriterien` und `Validierung` des Workpads (keine optionale Abschwächung).
 6. Führe ein Self-Review des Plans im Stil eines Principal Engineers durch und verfeinere ihn im Kommentar.
 7. Erfasse vor der Implementierung ein konkretes Reproduktionssignal und halte es im Abschnitt `Verlauf` des Workpads fest (Befehl/Ausgabe, Screenshot oder deterministisches UI-Verhalten).
-8. Führe vor jeder Code-Änderung den Skill `symphony-pull` aus, um mit dem neuesten `origin/main` zu synchronisieren, und dokumentiere das Pull-/Sync-Ergebnis anschließend im Abschnitt `Verlauf` des Workpads.
-   - Füge eine Notiz `symphony-pull skill evidence` hinzu mit:
-     - Merge-Quelle(n),
-     - Ergebnis (`clean` oder `conflicts resolved`),
-     - resultierendem kurzem `HEAD`-SHA.
 9. Kontext komprimieren und mit der Ausführung fortfahren.
-10. Bestimme den aktuellen Repo-Zustand (`branch`, `git status`, `HEAD`) und verifiziere vor der Fortsetzung der Implementierung, dass das Kickoff-Sync-Ergebnis von `symphony-pull` bereits im Workpad dokumentiert ist.
 11. Lade den vorhandenen Workpad-Kommentar und behandle ihn als aktive Ausführungs-Checkliste.
     - Bearbeite ihn großzügig, sobald sich die Realität ändert (Scope, Risiken, Validierungsansatz, entdeckte Aufgaben).
 12. Implementiere entlang der hierarchischen TODOs und halte den Kommentar aktuell:

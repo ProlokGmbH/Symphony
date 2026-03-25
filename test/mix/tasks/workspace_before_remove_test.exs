@@ -7,6 +7,16 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
 
   setup do
     Mix.Task.reenable("workspace.before_remove")
+    temp_cwd = temp_root("workspace-before-remove-cwd")
+    original_cwd = File.cwd!()
+    File.mkdir_p!(temp_cwd)
+    File.cd!(temp_cwd)
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf!(temp_cwd)
+    end)
+
     :ok
   end
 
@@ -129,6 +139,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
 
       assert output =~ "Closed PR #101 for branch feature/workpad"
       assert error_output =~ "Failed to close PR #102 for branch feature/workpad"
+      refute output =~ "Removed Git worktree"
 
       log = File.read!(log_path)
 
@@ -1820,5 +1831,10 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
       end
 
     {output, error_output}
+  end
+
+  defp temp_root(prefix) do
+    unique = System.unique_integer([:positive, :monotonic])
+    Path.join(System.tmp_dir!(), "#{prefix}-#{unique}")
   end
 end
