@@ -167,15 +167,12 @@ defmodule SymphonyElixir.Workflow do
   end
 
   defp self_hosting_workflow_candidate(directory) when is_binary(directory) do
-    [directory, Path.join(directory, "elixir")]
-    |> Enum.find_value(fn candidate ->
-      workflow_path = Path.join(candidate, @workflow_file_name)
-      mix_path = Path.join(candidate, "mix.exs")
+    workflow_path = Path.join(directory, @workflow_file_name)
+    mix_path = Path.join(directory, "mix.exs")
 
-      if File.regular?(workflow_path) and symphony_mix_project?(mix_path) do
-        workflow_path
-      end
-    end)
+    if File.regular?(workflow_path) and symphony_mix_project?(mix_path) do
+      workflow_path
+    end
   end
 
   defp symphony_mix_project?(path) when is_binary(path) do

@@ -5,7 +5,7 @@ SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
 SKILLS_DIR="$SCRIPT_DIR/.codex/skills"
 USER_SKILLS_DIR="$HOME/.codex/skills"
-ELIXIR_DIR="$SCRIPT_DIR/elixir"
+PROJECT_DIR="$SCRIPT_DIR"
 
 mkdir -p "$USER_SKILLS_DIR"
 
@@ -43,5 +43,5 @@ if ! command -v mise >/dev/null 2>&1; then
   exit 127
 fi
 
-eval "$(mise env -C "$ELIXIR_DIR" -s bash)"
-exec "$ELIXIR_DIR/bin/symphony" "$@"
+eval "$(mise env -C "$PROJECT_DIR" -s bash)"
+exec "$PROJECT_DIR/bin/symphony" "$@"
