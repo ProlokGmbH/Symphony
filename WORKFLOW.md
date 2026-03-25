@@ -57,17 +57,13 @@ agent:
   max_turns: 20
 codex:
   command: >-
-    bash -lc '
-      common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-      if [ -n "$common_dir" ]; then
-        source_repo="$(cd "$common_dir/.." && pwd -P)"
-        if [ -f "$source_repo/.venv/bin/activate" ]; then
-          . "$source_repo/.venv/bin/activate"
-        fi
-      fi
-
-      exec codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=high --model gpt-5.4 app-server
-    '
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [ -z "$common_dir" ]; then
+      echo "Unable to determine git common dir for symphony-codex" >&2
+      exit 1
+    fi
+    source_repo="$(cd "$common_dir/.." && pwd -P)"
+    exec "$source_repo/symphony-codex" --observer
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:

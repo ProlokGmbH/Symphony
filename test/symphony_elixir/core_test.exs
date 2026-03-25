@@ -138,8 +138,7 @@ defmodule SymphonyElixir.CoreTest do
     codex = Map.get(config, "codex", %{})
     assert is_map(codex)
     assert Map.get(codex, "command") =~ "git rev-parse --path-format=absolute --git-common-dir"
-    assert Map.get(codex, "command") =~ "\"$source_repo/.venv/bin/activate\""
-    assert Map.get(codex, "command") =~ "exec codex --config shell_environment_policy.inherit=all"
+    assert Map.get(codex, "command") =~ "exec \"$source_repo/symphony-codex\" --observer"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
