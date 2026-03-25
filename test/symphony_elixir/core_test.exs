@@ -433,11 +433,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
   end
 
-  test "workflow file path prefers the Symphony elixir workflow when launched from the repo root" do
+  test "workflow file path prefers the Symphony workflow when launched from the repo root" do
     original_workflow_path = Workflow.workflow_file_path()
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
     original_cwd = File.cwd!()
-    repo_root = Path.expand("..", File.cwd!())
+    repo_root = File.cwd!()
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
@@ -454,7 +454,7 @@ defmodule SymphonyElixir.CoreTest do
     Workflow.clear_workflow_file_path()
     Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
 
-    assert Workflow.workflow_file_path() == Path.join(repo_root, "elixir/WORKFLOW.md")
+    assert Workflow.workflow_file_path() == Path.join(repo_root, "WORKFLOW.md")
   end
 
   test "workflow file path falls back to cwd for non-symphony executables" do
