@@ -76,7 +76,7 @@ Fortsetzungskontext:
 - Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
 - Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
 - Beende den Turn nicht, solange das Issue in einem aktiven Status bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert.
-  {% endif %}
+{% endif %}
 
 Ticket-Kontext:
 Identifier: {{ issue.identifier }}
@@ -86,14 +86,6 @@ Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 Lokale Systemzeit für diesen Turn: {{ runtime.local_time }} ({{ runtime.timezone }})
 
-Git-Branch-Kontrakt:
-
-- Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
-- Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
-- Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
-- Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
-- Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
-
 Beschreibung:
 {% if issue.description %}
 {{ issue.description }}
@@ -101,20 +93,13 @@ Beschreibung:
 Keine Beschreibung vorhanden.
 {% endif %}
 
-Anweisungen:
+## Zweck und Grundregeln
 
 1. Dies ist eine unbeaufsichtigte Orchestrierungssitzung. Frage niemals einen Menschen nach Folgeaktionen.
 2. Stoppe nur bei einem echten Blocker frühzeitig (fehlende erforderliche Authentifizierung/Berechtigungen/Secrets). Wenn du blockiert bist, halte das im Workpad fest und verschiebe das Issue gemäß Workflow.
 3. Die Abschlussnachricht darf nur abgeschlossene Aktionen und Blocker enthalten. Füge keine "next steps for user" hinzu.
 
-Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
-
-## Voraussetzung: Linear MCP oder das Tool `linear_graphql` ist verfügbar
-
-Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, stoppe und fordere den Nutzer auf, Linear zu konfigurieren.
-
-## Standardvorgehen
-
+- Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
@@ -123,13 +108,24 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - Halte die Ticket-Metadaten aktuell (Status, Checkliste, Akzeptanzkriterien, Links).
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
 - Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare.
-- Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Akzeptanzvorgabe: spiegle ihn im Workpad wider und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
-- Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Akzeptanzkriterien enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
 - Arbeite autonom von Anfang bis Ende, solange du nicht durch fehlende Anforderungen, Secrets oder Berechtigungen blockiert bist.
-- Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
 
-## Verwandte Skills
+## Voraussetzungen und globale Kontrakte
+
+### Linear-Zugriff
+
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, stoppe und fordere den Nutzer auf, Linear zu konfigurieren.
+
+### Git-Branch-Kontrakt
+
+- Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
+- Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
+- Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
+- Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
+- Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
+
+### Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach dem manuellen Commit den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
@@ -138,81 +134,326 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `symphony-test`: wenn das Ticket `Test Codex` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
 - `symphony-land`: wenn das Ticket `Merge Codex` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
-## Statuszuordnung
+### Globale Arbeitsregeln
 
-- Alle nicht-terminalen Stati ohne `Codex` im Namen sind außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben.
-- `Backlog` -> außerhalb des Scopes dieses Workflows; nicht ändern.
-- `Todo Codex` -> in der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit Codex` verschieben.
-  - Sonderfall: Wenn bereits eine PR angehängt ist, als Feedback-/Rework-Schleife behandeln (vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `Review Codex` weiterreichen; erst nach abgeschlossenem `Review Codex`-Lauf geht es nach `Review`).
-- `In Arbeit Codex` -> Implementierung läuft aktiv.
-  - Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`.
-- `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und den dort definierten repository-spezifischen Review-/Fix-Zyklus ausführen; danach nach `Review` verschieben.
-- `Test Codex` -> vor dem Skill-Lauf prüfen, dass der Workspace keine offenen Git-Änderungen aus dem manuellen Review-/Commit-Schritt enthält; falls doch, sofort nach `Review` zurückschieben. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den repository-spezifischen Test-/Fix-Zyklus ausführen; ohne Codeänderungen danach nach `Merge Codex`, mit Codeänderungen zurück nach `Review`.
-- `Abbruch Codex` -> laufende Arbeit sofort abbrechen, Git-Worktree entfernen, vorhandene PR und/oder Remote-Branch löschen und das Issue anschließend nach `Abgebrochen` verschieben.
-- `Review` -> außerhalb des aktiven Codex-Scopes; nichts tun und warten, bis ein Mensch das Issue nach manuellem Review entweder nach `Test Codex`, `Merge Codex` oder `Neustart Codex` verschiebt.
-- `Merge Codex` -> vor dem Merge-Ablauf prüfen, dass der Workspace keine offenen Git-Änderungen aus dem manuellen Review-/Commit-Schritt enthält; falls doch, sofort nach `Review` zurückschieben. Nur mit sauberem Workspace den `symphony-land`-Skill-Ablauf ausführen (`gh pr merge` nicht direkt aufrufen).
-- `Neustart Codex` -> Reviewer hat Änderungen angefordert; Planung und Implementierung sind erforderlich.
-- `Fertig` -> terminaler Status; keine weitere Aktion erforderlich.
-- `Abgebrochen` -> terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich.
+- Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Akzeptanzvorgabe: spiegle ihn im Workpad wider und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
+- Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Akzeptanzkriterien enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
 
-## Schritt 0: Aktuellen Ticket-Status bestimmen und weiterleiten
+## Statusübersicht
+
+| Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
+| --- | --- | --- | --- |
+| `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo Codex` |
+| Nicht-terminale Stati ohne `Codex` im Namen | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen Codex-Status |
+| `Todo Codex` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit Codex` verschieben. | `In Arbeit Codex` |
+| `In Arbeit Codex` | Ja | Implementierung läuft aktiv. | `Review Codex` |
+| `Review Codex` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Review` |
+| `Test Codex` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge Codex` oder `Review` |
+| `Review` | Nein | Außerhalb des aktiven Codex-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Test Codex`, `Merge Codex` oder `Neustart Codex` |
+| `Merge Codex` | Ja | Merge-Ablauf mit `symphony-land` ausführen. | `Fertig` |
+| `Neustart Codex` | Ja | Reviewer hat Änderungen angefordert; vollständigen Neustart ausführen. | `In Arbeit Codex` |
+| `Abbruch Codex` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
+| `Fertig` | Nein | Terminaler Status; keine weitere Aktion erforderlich. | - |
+| `Abgebrochen` | Nein | Terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich. | - |
+
+## Einstieg und Routing
 
 1. Hole das Issue über die explizite Ticket-ID.
 2. Lies den aktuellen Status.
-3. Leite in den passenden Ablauf weiter:
+3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
+4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo Codex` setzt.
    - Jeder nicht-terminale Status ohne `Codex` im Namen (zum Beispiel `Review`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen Codex-Status verschiebt.
-   - `Todo Codex` -> sofort nach `In Arbeit Codex` verschieben, dann sicherstellen, dass ein Bootstrap-Workpad-Kommentar existiert (falls nötig erstellen), dann den Ausführungsablauf starten.
-     - Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
-   - `In Arbeit Codex` -> Ausführungsablauf vom aktuellen Scratchpad-Kommentar aus fortsetzen.
-   - `Review Codex` -> `.codex/skills/symphony-review/SKILL.md` öffnen und befolgen.
-   - `Test Codex` -> `.codex/skills/symphony-test/SKILL.md` öffnen und befolgen.
-   - `Abbruch Codex` -> Abbruch-Ablauf ausführen.
-   - `Merge Codex` -> beim Eintritt `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen; `gh pr merge` nicht direkt aufrufen.
-   - `Neustart Codex` -> den Neustart-Ablauf ausführen.
+   - `Todo Codex` -> Ablauf `Todo Codex` ausführen.
+   - `In Arbeit Codex` -> Ablauf `In Arbeit Codex` ausführen.
+   - `Review Codex` -> Ablauf `Review Codex` ausführen.
+   - `Test Codex` -> Ablauf `Test Codex` ausführen.
+   - `Abbruch Codex` -> Ablauf `Abbruch Codex` ausführen.
+   - `Merge Codex` -> Ablauf `Merge Codex` ausführen.
+   - `Neustart Codex` -> Ablauf `Neustart Codex` ausführen.
    - `Fertig` -> nichts tun und beenden.
    - `Abgebrochen` -> nichts tun und beenden.
-4. Prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
+5. Bevor du einen aktiven Ausführungsablauf fortsetzt, prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
    - Wenn eine Branch-PR existiert und `CLOSED` oder `MERGED` ist, behandle die bisherige Branch-Arbeit für diesen Lauf als nicht wiederverwendbar.
    - Erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
-5. Für `Todo Codex`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
+
+## Ablauf für `Todo Codex`
+
+### Ziel
+
+Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den regulären Ausführungsablauf sauber starten.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Todo Codex`.
+
+### Ablauf
+
+1. Für `Todo Codex`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "In Arbeit Codex")`
    - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
    - erst danach Analyse-, Planungs- und Implementierungsarbeit beginnen.
-6. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
+2. Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
 
-## Schritt 1: Ausführung starten/fortsetzen (`Todo Codex` oder `In Arbeit Codex`)
+### Abschluss und nächster Status
 
-1.  Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
-    - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
-    - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
-    - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
-    - Falls nicht vorhanden, erstelle einen Workpad-Kommentar und nutze ihn für alle Updates.
-    - Speichere die ID des Workpad-Kommentars und schreibe Fortschrittsupdates nur in diese ID.
-2.  Wenn du von `Todo Codex` kommst, verzögere nicht mit weiteren Statuswechseln: Das Issue sollte bereits `In Arbeit Codex` sein, bevor dieser Schritt beginnt.
-3.  Gleiche das Workpad vor neuen Änderungen sofort ab:
-    - Hake bereits erledigte Punkte ab.
-    - Erweitere/korrigiere den Plan so, dass er für den aktuellen Scope vollständig ist.
-    - Stelle sicher, dass `Akzeptanzkriterien` und `Validierung` aktuell sind und weiterhin zur Aufgabe passen.
-4.  Starte die Arbeit, indem du einen hierarchischen Plan im Workpad-Kommentar schreibst bzw. aktualisierst.
-5.  Stelle sicher, dass das Workpad oben einen kompakten Environment-Stamp als Code-Fence-Zeile enthält:
-    - Format: `<host>:<abs-workdir>@<short-sha>`
-    - Beispiel: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-    - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`, `PR link`).
-6.  Füge explizite Akzeptanzkriterien und TODOs in Checklistenform in denselben Kommentar ein.
-    - Wenn Änderungen nutzerseitig sichtbar sind, nimm ein UI-Walkthrough-Akzeptanzkriterium auf, das den End-to-End-Nutzerpfad zur Validierung beschreibt.
-    - Wenn Änderungen App-Dateien oder App-Verhalten berühren, füge explizite app-spezifische Ablaufprüfungen in `Akzeptanzkriterien` des Workpads hinzu (zum Beispiel: Startpfad, geänderter Interaktionspfad und erwarteter Ergebnispfad).
-    - Wenn die Ticket-Beschreibung oder der Kommentar-Kontext Abschnitte `Validation`, `Test Plan` oder `Testing` enthält, kopiere diese Anforderungen als verpflichtende Checkboxen in die Bereiche `Akzeptanzkriterien` und `Validierung` des Workpads (keine optionale Abschwächung).
-7.  Führe ein Self-Review des Plans im Stil eines Principal Engineers durch und verfeinere ihn im Kommentar.
-8.  Erfasse vor der Implementierung ein konkretes Reproduktionssignal und halte es im Abschnitt `Verlauf` des Workpads fest (Befehl/Ausgabe, Screenshot oder deterministisches UI-Verhalten).
-9.  Führe vor jeder Code-Änderung den Skill `symphony-pull` aus, um mit dem neuesten `origin/main` zu synchronisieren, und dokumentiere das Pull-/Sync-Ergebnis anschließend im Abschnitt `Verlauf` des Workpads.
-    - Füge eine Notiz `symphony-pull skill evidence` hinzu mit:
-      - Merge-Quelle(n),
-      - Ergebnis (`clean` oder `conflicts resolved`),
-      - resultierendem kurzem `HEAD`-SHA.
-10. Kontext komprimieren und mit der Ausführung fortfahren.
+- Nach der unmittelbaren Statusänderung und dem Workpad-Bootstrap geht der Ablauf in `In Arbeit Codex` über.
 
-## PR-Feedback-Sweep-Protokoll (verpflichtend)
+### Sonderfälle
+
+- Wenn bereits eine PR angehängt ist, behandle das Ticket als Feedback-/Rework-Schleife: vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `Review Codex` weiterreichen; erst nach abgeschlossenem `Review Codex`-Lauf geht es nach `Review`.
+
+## Ablauf für `In Arbeit Codex`
+
+### Ziel
+
+Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `Review Codex`.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `In Arbeit Codex`, oder kommt unmittelbar aus `Todo Codex`.
+- Wenn du von `Todo Codex` kommst, verzögere nicht mit weiteren Statuswechseln: Das Issue sollte bereits `In Arbeit Codex` sein, bevor dieser Schritt beginnt.
+
+### Ablauf
+
+1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
+   - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
+   - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
+   - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
+   - Falls nicht vorhanden, erstelle einen Workpad-Kommentar und nutze ihn für alle Updates.
+   - Speichere die ID des Workpad-Kommentars und schreibe Fortschrittsupdates nur in diese ID.
+2. Gleiche das Workpad vor neuen Änderungen sofort ab:
+   - Hake bereits erledigte Punkte ab.
+   - Erweitere/korrigiere den Plan so, dass er für den aktuellen Scope vollständig ist.
+   - Stelle sicher, dass `Akzeptanzkriterien` und `Validierung` aktuell sind und weiterhin zur Aufgabe passen.
+3. Starte die Arbeit, indem du einen hierarchischen Plan im Workpad-Kommentar schreibst bzw. aktualisierst.
+4. Stelle sicher, dass das Workpad oben einen kompakten Environment-Stamp als Code-Fence-Zeile enthält:
+   - Format: `<host>:<abs-workdir>@<short-sha>`
+   - Beispiel: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
+   - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`, `PR link`).
+5. Füge explizite Akzeptanzkriterien und TODOs in Checklistenform in denselben Kommentar ein.
+   - Wenn Änderungen nutzerseitig sichtbar sind, nimm ein UI-Walkthrough-Akzeptanzkriterium auf, das den End-to-End-Nutzerpfad zur Validierung beschreibt.
+   - Wenn Änderungen App-Dateien oder App-Verhalten berühren, füge explizite app-spezifische Ablaufprüfungen in `Akzeptanzkriterien` des Workpads hinzu (zum Beispiel: Startpfad, geänderter Interaktionspfad und erwarteter Ergebnispfad).
+   - Wenn die Ticket-Beschreibung oder der Kommentar-Kontext Abschnitte `Validation`, `Test Plan` oder `Testing` enthält, kopiere diese Anforderungen als verpflichtende Checkboxen in die Bereiche `Akzeptanzkriterien` und `Validierung` des Workpads (keine optionale Abschwächung).
+6. Führe ein Self-Review des Plans im Stil eines Principal Engineers durch und verfeinere ihn im Kommentar.
+7. Erfasse vor der Implementierung ein konkretes Reproduktionssignal und halte es im Abschnitt `Verlauf` des Workpads fest (Befehl/Ausgabe, Screenshot oder deterministisches UI-Verhalten).
+8. Führe vor jeder Code-Änderung den Skill `symphony-pull` aus, um mit dem neuesten `origin/main` zu synchronisieren, und dokumentiere das Pull-/Sync-Ergebnis anschließend im Abschnitt `Verlauf` des Workpads.
+   - Füge eine Notiz `symphony-pull skill evidence` hinzu mit:
+     - Merge-Quelle(n),
+     - Ergebnis (`clean` oder `conflicts resolved`),
+     - resultierendem kurzem `HEAD`-SHA.
+9. Kontext komprimieren und mit der Ausführung fortfahren.
+10. Bestimme den aktuellen Repo-Zustand (`branch`, `git status`, `HEAD`) und verifiziere vor der Fortsetzung der Implementierung, dass das Kickoff-Sync-Ergebnis von `symphony-pull` bereits im Workpad dokumentiert ist.
+11. Lade den vorhandenen Workpad-Kommentar und behandle ihn als aktive Ausführungs-Checkliste.
+    - Bearbeite ihn großzügig, sobald sich die Realität ändert (Scope, Risiken, Validierungsansatz, entdeckte Aufgaben).
+12. Implementiere entlang der hierarchischen TODOs und halte den Kommentar aktuell:
+    - Hake erledigte Punkte ab.
+    - Füge neu entdeckte Punkte im passenden Abschnitt hinzu.
+    - Halte die Parent-/Child-Struktur intakt, während sich der Scope weiterentwickelt.
+    - Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein (zum Beispiel: Reproduktion abgeschlossen, Code-Änderung gelandet, Validierung gelaufen, Review-Feedback adressiert).
+    - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
+    - Für Tickets, die als `Todo Codex` mit angehängter PR gestartet sind, führe das vollständige PR-Feedback-Sweep-Protokoll sofort nach dem Kickoff und vor neuer Feature-Arbeit aus.
+13. Führe die für den Scope erforderlichen Validierungen/Tests aus.
+    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
+    - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
+    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
+    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `Review Codex` wieder zurück.
+    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
+    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
+14. Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
+15. Führe vor der Übergabe nach `Review Codex` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
+16. Führe keine automatischen Commits aus. Alle Commits werden ausschließlich durch den Entwickler im Status `Review` erstellt.
+17. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
+    - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
+    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
+    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `Review Codex`- und anschließenden manuellen Review-/Commit-Schritt übergeben wird.
+    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
+    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
+18. Bevor du nach `Review Codex` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
+    - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
+    - Führe in diesem Fall das vollständige PR-Feedback-Sweep-Protokoll aus.
+    - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
+    - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
+
+### Abschluss und nächster Status
+
+- Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`.
+- Erst dann nach `Review Codex` verschieben.
+  - Ein direkter Übergang von `In Arbeit Codex` nach `Review` ist nur über den blocked-access escape hatch zulässig.
+  - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Review` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
+- Für `Todo Codex`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
+  - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
+  - Verschiebe erst dann nach `Review Codex`.
+- Vor dem Wechsel nach `Review Codex` müssen alle folgenden Bedingungen erfüllt sein:
+  - Die Checkliste aus diesem Ablauf ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
+  - Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
+  - Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
+  - Falls bereits eine PR existiert, ist der PR-Feedback-Sweep abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
+  - Das Workpad dokumentiert den finalen ungecommitten Übergabestand und die bestandene lokale Validierung explizit.
+  - Falls die App berührt wird, sind die Runtime-Validierungs-/Media-Anforderungen aus `App runtime validation (required)` abgeschlossen.
+
+### Sonderfälle
+
+- Wenn du blockiert bist und noch kein Workpad existiert, füge einen Blocker-Kommentar hinzu, der Blocker, Auswirkung und nächste Entblockungsaktion beschreibt.
+
+## Ablauf für `Review Codex`
+
+### Ziel
+
+Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das Issue danach in den menschlichen Review übergeben.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Review Codex`.
+
+### Ablauf
+
+1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
+
+### Abschluss und nächster Status
+
+- Verschiebe das Issue erst danach nach `Review`.
+  - Nur dieser Schritt verschiebt regulär von `Review Codex` nach `Review`.
+
+### Sonderfälle
+
+- Falls ein `Review Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Review Codex` steht, übernimmt Symphony den Statuswechsel nach `Review` als Fallback automatisch.
+
+## Ablauf für `Test Codex`
+
+### Ziel
+
+Den repository-spezifischen Test-/Fix-Zyklus auf einem sauberen Workspace ausführen und anhand des Ergebnisses den nächsten Status bestimmen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Test Codex`.
+- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
+
+### Ablauf
+
+1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Test-Skill in diesem Fall nicht starten.
+2. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten Ablauf ausführen.
+3. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+
+### Abschluss und nächster Status
+
+- Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge Codex`.
+- Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Review`, damit der Entwickler die Änderungen erneut begutachten kann.
+
+### Sonderfälle
+
+- Falls ein `Test Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Test Codex` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
+
+## Ablauf für `Review`
+
+### Ziel
+
+Den manuellen Review- und Commit-Schritt vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Review`.
+
+### Ablauf
+
+1. Weder coden noch den Ticket-Inhalt ändern.
+2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
+3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
+
+### Abschluss und nächster Status
+
+- Nach dem manuellen Review kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test Codex` verschieben oder nach abgeschlossenem manuellem Commit direkt nach `Merge Codex`.
+- Wenn Review-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Neustart Codex`.
+
+### Sonderfälle
+
+- Keine.
+
+## Ablauf für `Merge Codex`
+
+### Ziel
+
+Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen und das Issue danach nach `Fertig` verschieben.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Merge Codex`.
+- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
+
+### Ablauf
+
+1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
+2. Nur mit sauberem Workspace `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+
+### Abschluss und nächster Status
+
+- Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
+
+### Sonderfälle
+
+- Keine.
+
+## Ablauf für `Neustart Codex`
+
+### Ziel
+
+Einen vollständigen Reset des Vorgehens durchführen und die Bearbeitung anschließend sauber neu beginnen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Neustart Codex`.
+
+### Ablauf
+
+1. Behandle `Neustart Codex` als vollständigen Reset des Vorgehens, nicht als inkrementelles Patchen.
+2. Lies den kompletten Issue-Body und alle menschlichen Kommentare erneut; identifiziere explizit, was in diesem Versuch anders gemacht wird.
+3. Schließe die bestehende PR, die mit dem Issue verknüpft ist.
+4. Entferne den bestehenden Kommentar `## Codex Workpad` vom Issue.
+5. Erstelle einen frischen Branch von `origin/main`.
+   - Der Branchname muss exakt `symphony/{{ issue.identifier }}` sein.
+6. Starte erneut mit dem normalen Kickoff-Ablauf:
+   - Wenn der aktuelle Issue-Status `Todo Codex` ist, verschiebe nach `In Arbeit Codex`; andernfalls behalte den aktuellen Status.
+   - Erstelle einen neuen Bootstrap-Kommentar `## Codex Workpad`.
+   - Erstelle einen frischen Plan/eine frische Checkliste und arbeite sie end-to-end ab.
+
+### Abschluss und nächster Status
+
+- Nach dem Reset beginnt die Bearbeitung wieder im regulären Kickoff-Ablauf und läuft in Richtung `In Arbeit Codex`.
+
+### Sonderfälle
+
+- Keine.
+
+## Ablauf für `Abbruch Codex`
+
+### Ziel
+
+Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber abbrechen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Abbruch Codex`.
+
+### Ablauf
+
+1. Brich laufende Arbeit sofort ab.
+2. Entferne den zugehörigen Git-Worktree.
+3. Lösche eine eventuell vorhandene PR und/oder den Remote-Branch über den bestehenden Cleanup-Ablauf.
+
+### Abschluss und nächster Status
+
+- Verschiebe das Issue danach nach `Abgebrochen`.
+
+### Sonderfälle
+
+- Keine.
+
+## Verpflichtende Sonderprotokolle
+
+### PR-Feedback-Sweep-Protokoll
 
 Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:
 
@@ -228,7 +469,7 @@ Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, 
 5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für `Review Codex` und den anschließenden manuellen Commit in `Review` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
 6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
 
-## Blocked-access escape hatch (verpflichtendes Verhalten)
+### Blocked-access escape hatch
 
 Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
@@ -240,128 +481,12 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
 - Halte den Hinweis knapp und handlungsorientiert; füge keine zusätzlichen Top-Level-Kommentare außerhalb des Workpads hinzu.
 
-## Schritt 2: Ausführungsphase (`Todo Codex` -> `In Arbeit Codex` -> `Review Codex`)
-
-1.  Bestimme den aktuellen Repo-Zustand (`branch`, `git status`, `HEAD`) und verifiziere vor der Fortsetzung der Implementierung, dass das Kickoff-Sync-Ergebnis von `symphony-pull` bereits im Workpad dokumentiert ist.
-2.  Wenn der aktuelle Issue-Status `Todo Codex` ist, verschiebe ihn nach `In Arbeit Codex`; andernfalls lasse den aktuellen Status unverändert.
-3.  Lade den vorhandenen Workpad-Kommentar und behandle ihn als aktive Ausführungs-Checkliste.
-    - Bearbeite ihn großzügig, sobald sich die Realität ändert (Scope, Risiken, Validierungsansatz, entdeckte Aufgaben).
-4.  Implementiere entlang der hierarchischen TODOs und halte den Kommentar aktuell:
-    - Hake erledigte Punkte ab.
-    - Füge neu entdeckte Punkte im passenden Abschnitt hinzu.
-    - Halte die Parent-/Child-Struktur intakt, während sich der Scope weiterentwickelt.
-    - Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein (zum Beispiel: Reproduktion abgeschlossen, Code-Änderung gelandet, Validierung gelaufen, Review-Feedback adressiert).
-    - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
-    - Für Tickets, die als `Todo Codex` mit angehängter PR gestartet sind, führe das vollständige PR-Feedback-Sweep-Protokoll sofort nach dem Kickoff und vor neuer Feature-Arbeit aus.
-5.  Führe die für den Scope erforderlichen Validierungen/Tests aus.
-    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
-    - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
-    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
-    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `Review Codex` wieder zurück.
-    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
-    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
-6.  Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
-7.  Führe vor der Übergabe nach `Review Codex` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
-8.  Führe keine automatischen Commits aus. Alle Commits werden ausschließlich durch den Entwickler im Status `Review` erstellt.
-9.  Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
-    - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
-    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
-    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `Review Codex`- und anschließenden manuellen Review-/Commit-Schritt übergeben wird.
-    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
-    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-10. Bevor du nach `Review Codex` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
-    - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
-    - Führe in diesem Fall das vollständige PR-Feedback-Sweep-Protokoll aus.
-    - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
-    - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
-11. Erst dann nach `Review Codex` verschieben.
-    - Ein direkter Übergang von `In Arbeit Codex` nach `Review` ist nur über den blocked-access escape hatch zulässig.
-    - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Review` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
-12. Für `Todo Codex`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
-    - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
-    - Verschiebe erst dann nach `Review Codex`.
-
-## Schritt 3: `Review Codex`
-
-1. Wenn sich das Issue in `Review Codex` befindet, öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
-2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-3. Verschiebe das Issue erst danach nach `Review`.
-   - Nur dieser Schritt verschiebt regulär von `Review Codex` nach `Review`.
-4. Falls ein `Review Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Review Codex` steht, übernimmt Symphony den Statuswechsel nach `Review` als Fallback automatisch.
-
-## Schritt 4: `Test Codex`
-
-1. Wenn sich das Issue in `Test Codex` befindet, prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
-2. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Test-Skill in diesem Fall nicht starten.
-3. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten Ablauf ausführen.
-4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-5. Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge Codex`.
-6. Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Review`, damit der Entwickler die Änderungen erneut begutachten kann.
-7. Falls ein `Test Codex`-Lauf sauber endet, das Issue aber fälschlich noch in `Test Codex` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
-
-## Schritt 5: `Abbruch Codex`
-
-1. Wenn sich das Issue in `Abbruch Codex` befindet, brich laufende Arbeit sofort ab.
-2. Entferne den zugehörigen Git-Worktree.
-3. Lösche eine eventuell vorhandene PR und/oder den Remote-Branch über den bestehenden Cleanup-Ablauf.
-4. Verschiebe das Issue danach nach `Abgebrochen`.
-
-## Schritt 6: `Review` und Merge-Abwicklung
-
-1. Wenn sich das Issue in `Review` befindet, weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
-3. Nach dem manuellen Review kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test Codex` verschieben oder nach abgeschlossenem manuellem Commit direkt nach `Merge Codex`.
-4. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
-5. Wenn Review-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Neustart Codex`.
-6. Wenn sich das Issue in `Merge Codex` befindet, prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Review`-Schritt mehr vorhanden sind.
-7. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Review`, damit der manuelle Commit-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
-8. Nur mit sauberem Workspace `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-9. Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
-
-## Schritt 7: Neustart-Behandlung
-
-1. Behandle `Neustart Codex` als vollständigen Reset des Vorgehens, nicht als inkrementelles Patchen.
-2. Lies den kompletten Issue-Body und alle menschlichen Kommentare erneut; identifiziere explizit, was in diesem Versuch anders gemacht wird.
-3. Schließe die bestehende PR, die mit dem Issue verknüpft ist.
-4. Entferne den bestehenden Kommentar `## Codex Workpad` vom Issue.
-5. Erstelle einen frischen Branch von `origin/main`.
-   - Der Branchname muss exakt `symphony/{{ issue.identifier }}` sein.
-6. Starte erneut mit dem normalen Kickoff-Ablauf:
-   - Wenn der aktuelle Issue-Status `Todo Codex` ist, verschiebe nach `In Arbeit Codex`; andernfalls behalte den aktuellen Status.
-   - Erstelle einen neuen Bootstrap-Kommentar `## Codex Workpad`.
-   - Erstelle einen frischen Plan/eine frische Checkliste und arbeite sie end-to-end ab.
-
-## Erfüllungskriterien vor `Review Codex`
-
-- Die Checkliste aus Schritt 1/2 ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
-- Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
-- Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
-- Falls bereits eine PR existiert, ist der PR-Feedback-Sweep abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
-- Das Workpad dokumentiert den finalen ungecommitten Übergabestand und die bestandene lokale Validierung explizit.
-- Falls die App berührt wird, sind die Runtime-Validierungs-/Media-Anforderungen aus `App runtime validation (required)` abgeschlossen.
-
-## Leitplanken
-
-- Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
-- Für geschlossene/gemergte Branch-PRs erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
-- Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo Codex` verschiebt.
-- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
-- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
-- Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Review` erstellt.
-- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `Review Codex` rückgängig gemacht werden.
-- Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
-- Verschiebe nicht nach `Review Codex`, solange die `Completion bar before Review Codex` nicht erfüllt ist.
-- In `Review` keine weiteren Codeänderungen vornehmen; auf manuellen Commit sowie gegebenenfalls nachgelagerte Push-/PR-Updates warten. Kein regelmäßiges Polling.
-- Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
-- Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
-- Wenn du blockiert bist und noch kein Workpad existiert, füge einen Blocker-Kommentar hinzu, der Blocker, Auswirkung und nächste Entblockungsaktion beschreibt.
-
-## Workpad-Vorlage
+## Workpad-Standard
 
 Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
-Im Abschnitt `### Review` werden die Schritte aus `.symphony/review_codex.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`:
-Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`:
+
+- Im Abschnitt `### Review` werden die Schritte aus `.symphony/review_codex.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
 
 ````md
 ## Codex Workpad
@@ -402,3 +527,19 @@ Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfa
 
 - <nur einfügen, wenn während der Ausführung etwas unklar war>
 ````
+
+## Leitplanken und Verbote
+
+- Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
+- Für geschlossene/gemergte Branch-PRs erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
+- Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo Codex` verschiebt.
+- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
+- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
+- Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
+- Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Review` erstellt.
+- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `Review Codex` rückgängig gemacht werden.
+- Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Verschiebe nicht nach `Review Codex`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit Codex` nicht erfüllt sind.
+- In `Review` keine weiteren Codeänderungen vornehmen; auf manuellen Commit sowie gegebenenfalls nachgelagerte Push-/PR-Updates warten. Kein regelmäßiges Polling.
+- Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
+- Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
