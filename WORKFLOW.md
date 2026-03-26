@@ -127,7 +127,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 ### Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
-- `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
+- `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
 - `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
 - `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
 - `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
@@ -150,8 +150,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit (AI)` verschieben. | `In Arbeit (AI)` |
 | `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe` |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig. | `Test (AI)` |
-| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig. | `Merge (AI)` |
+| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor der Übergabe veröffentlicht. | `Test (AI)` |
+| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor `Merge (AI)` veröffentlicht. | `Merge (AI)` |
 | `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `In Arbeit (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind in diesem Status zulässig. | `Review` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
@@ -367,7 +367,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendi
 
 1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche den aktualisierten Stand anschließend mit `symphony-push`.
+3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; veröffentliche den aktualisierten Stand anschließend mit `symphony-push`, damit Branch und PR auf dem aktuellen Stand sind oder erstmals angelegt und am aktiven Linear-Issue angehängt werden.
 
 ### Abschluss und nächster Status
 
@@ -392,7 +392,7 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes 
 
 1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche den aktualisierten Stand anschließend mit `symphony-push`.
+3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Merge (AI)` ein landbarer Branch mit PR existiert und diese PR am aktiven Linear-Issue hängt.
 
 ### Abschluss und nächster Status
 

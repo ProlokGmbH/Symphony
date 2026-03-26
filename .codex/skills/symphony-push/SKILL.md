@@ -22,11 +22,25 @@ description:
 
 - `symphony-pull`: use this when push is rejected or sync is not clean (non-fast-forward,
   merge conflict risk, or stale branch).
+- `symphony-linear`: use this to attach a newly created GitHub PR to the active
+  Linear issue when the branch did not already have a linked PR.
+
+## Linear Issue Context
+
+- When this skill runs inside a Symphony issue workflow, use the active Linear
+  issue from the current task context.
+- If you already have the internal Linear `issueId`, reuse it directly.
+- Otherwise resolve it with `symphony-linear` before attaching the PR:
+  - query `issue(id: $key) { id attachments { nodes { url } } }` using the
+    current issue key from the task context (for example `PRO-45`).
+  - compare the PR URL from `gh pr view --json url -q .url` against the returned
+    attachment URLs.
+  - only call `attachmentLinkGitHubPR` when that PR URL is not already attached.
 
 ## Steps
 
 1. Identify current branch and confirm remote state.
-2. Run local validation (`make -C elixir all`) before pushing.
+2. Run local validation (`make all`) before pushing.
 3. Push branch to `origin` with upstream tracking if needed, using whatever
    remote URL is already configured.
 4. If push is not clean/rejected:
@@ -44,7 +58,11 @@ description:
    - Write a proper PR title that clearly describes the change outcome
    - For branch updates, explicitly reconsider whether current PR title still
      matches the latest scope; update it if it no longer does.
-6. Write/update PR body explicitly using `.github/pull_request_template.md`:
+6. When the PR was newly created or the current issue is still missing that PR
+   as an attachment, use `symphony-linear` to resolve the internal Linear
+   `issueId`, inspect existing attachments, and then link the PR URL back to
+   the active Linear issue with `attachmentLinkGitHubPR`.
+7. Write/update PR body explicitly using `.github/pull_request_template.md`:
    - Fill every section with concrete content for this change.
    - Replace all placeholder comments (`<!-- ... -->`).
    - Keep bullets/checkboxes where template expects them.
@@ -52,8 +70,8 @@ description:
      scope (all intended work on the branch), not just the newest commits,
      including newly added work, removed work, or changed approach.
    - Do not reuse stale description text from earlier iterations.
-7. Validate PR body with `mix pr_body.check` and fix all reported issues.
-8. Reply with the PR URL from `gh pr view`.
+8. Validate PR body with `mix pr_body.check` and fix all reported issues.
+9. Reply with the PR URL from `gh pr view`.
 
 ## Commands
 
@@ -62,7 +80,7 @@ description:
 branch=$(git branch --show-current)
 
 # Minimal validation gate
-make -C elixir all
+make all
 
 # Initial push: respect the current origin remote.
 git push -u origin HEAD
@@ -93,6 +111,35 @@ else
   gh pr edit --title "$pr_title"
 fi
 
+pr_url=$(gh pr view --json url -q .url)
+
+# Resolve the active Linear issue and inspect existing attachments first:
+#
+# query IssueWithAttachments($key: String!) {
+#   issue(id: $key) {
+#     id
+#     attachments {
+#       nodes {
+#         url
+#       }
+#     }
+#   }
+# }
+#
+# If this PR was newly created for the active Linear issue or the attachment is
+# missing from that attachment list, use symphony-linear to link it back:
+#
+# mutation AttachGitHubPR($issueId: String!, $url: String!, $title: String) {
+#   attachmentLinkGitHubPR(
+#     issueId: $issueId
+#     url: $url
+#     title: $title
+#     linkKind: links
+#   ) {
+#     success
+#   }
+# }
+
 # Write/edit PR body to match .github/pull_request_template.md before validation.
 # Example workflow:
 # 1) open the template and draft body content for this PR
@@ -105,7 +152,7 @@ mix pr_body.check --file "$tmp_pr_body"
 rm -f "$tmp_pr_body"
 
 # Show PR URL for the reply
-gh pr view --json url -q .url
+printf '%s\n' "$pr_url"
 ```
 
 ## Notes
