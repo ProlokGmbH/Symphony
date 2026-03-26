@@ -275,34 +275,25 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp maybe_finalize_active_codex_issue(
-         %Issue{} = issue,
+         %Issue{id: issue_id} = issue,
          issue_state_fetcher,
          workspace,
          worker_host,
          initial_workspace_signature
-       ) do
-    cond do
-      prereview_codex_state?(issue.state) and is_binary(issue.id) ->
+       )
+       when is_binary(issue_id) do
+    case codex_issue_finalize_mode(issue.state) do
+      {:transition, handoff_state_name, error_event, log_label} ->
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          @prereview_handoff_state_name,
-          :prereview_handoff_state_update_failed,
-          "completed prereview issue",
+          handoff_state_name,
+          error_event,
+          log_label,
           :stop
         )
 
-      review_codex_state?(issue.state) and is_binary(issue.id) ->
-        transition_issue_state(
-          issue,
-          issue_state_fetcher,
-          @review_handoff_state_name,
-          :review_handoff_state_update_failed,
-          "completed review issue",
-          :stop
-        )
-
-      test_codex_state?(issue.state) and is_binary(issue.id) ->
+      :test ->
         maybe_finalize_test_codex_issue(
           issue,
           issue_state_fetcher,
@@ -311,18 +302,36 @@ defmodule SymphonyElixir.AgentRunner do
           initial_workspace_signature
         )
 
-      merge_codex_state?(issue.state) and is_binary(issue.id) ->
-        transition_issue_state(
-          issue,
-          issue_state_fetcher,
-          @merge_handoff_state_name,
-          :merge_handoff_state_update_failed,
-          "completed merge issue",
-          :stop
-        )
+      :normal ->
+        {:ok, issue, :normal}
+    end
+  end
+
+  defp maybe_finalize_active_codex_issue(
+         %Issue{} = issue,
+         _issue_state_fetcher,
+         _workspace,
+         _worker_host,
+         _initial_workspace_signature
+       ),
+       do: {:ok, issue, :normal}
+
+  defp codex_issue_finalize_mode(state) do
+    cond do
+      prereview_codex_state?(state) ->
+        {:transition, @prereview_handoff_state_name, :prereview_handoff_state_update_failed, "completed prereview issue"}
+
+      review_codex_state?(state) ->
+        {:transition, @review_handoff_state_name, :review_handoff_state_update_failed, "completed review issue"}
+
+      test_codex_state?(state) ->
+        :test
+
+      merge_codex_state?(state) ->
+        {:transition, @merge_handoff_state_name, :merge_handoff_state_update_failed, "completed merge issue"}
 
       true ->
-        {:ok, issue, :normal}
+        :normal
     end
   end
 
