@@ -1,6 +1,6 @@
 ## Codex Test
 
-Führe die folgenden Schritte im Rahmen des `Test Codex` Workflow-Schritts aus:
+Führe die folgenden Schritte im Rahmen des `Test (AI)` Workflow-Schritts aus:
 
 1. `mix test --cover`
 2. `mix test`

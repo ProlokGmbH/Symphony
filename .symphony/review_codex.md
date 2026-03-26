@@ -1,6 +1,6 @@
 ## Codex Review
 
-Führe die folgenden Schritte im Rahmen des `Review Codex` Workflow-Schritts aus:
+Führe die folgenden Schritte im Rahmen des `Review (AI)` Workflow-Schritts aus:
 
 1. `mix build`
 2. `mix format`

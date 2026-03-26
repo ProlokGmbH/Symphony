@@ -44,14 +44,13 @@ defmodule SymphonyElixir.Config.Schema do
 
     @primary_key false
     @default_active_states [
-      "Todo Codex",
+      "Todo (AI)",
       "In Arbeit",
-      "In Arbeit Codex",
-      "Review Codex",
-      "Test Codex",
-      "Abbruch Codex",
-      "Merge Codex",
-      "Neustart Codex"
+      "In Arbeit (AI)",
+      "Review (AI)",
+      "Test (AI)",
+      "Abbruch (AI)",
+      "Merge (AI)"
     ]
 
     @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
@@ -412,7 +411,7 @@ defmodule SymphonyElixir.Config.Schema do
         |> String.trim()
         |> String.downcase()
 
-      String.contains?(normalized_state, "codex") or normalized_state == "in arbeit"
+      String.contains?(normalized_state, "(ai)") or normalized_state == "in arbeit"
     end)
   end
 

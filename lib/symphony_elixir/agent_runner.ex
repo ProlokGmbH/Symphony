@@ -8,12 +8,12 @@ defmodule SymphonyElixir.AgentRunner do
   alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
 
   @type worker_host :: String.t() | nil
-  @review_codex_state_name "review codex"
-  @review_handoff_state_name "Review"
-  @test_codex_state_name "test codex"
-  @test_codex_clean_handoff_state_name "Merge Codex"
-  @test_codex_changed_handoff_state_name "Review"
-  @merge_codex_state_name "merge codex"
+  @review_codex_state_name "review (ai)"
+  @review_handoff_state_name "Freigabe"
+  @test_codex_state_name "test (ai)"
+  @test_codex_clean_handoff_state_name "Merge (AI)"
+  @test_codex_changed_handoff_state_name "Freigabe"
+  @merge_codex_state_name "merge (ai)"
   @workspace_bootstrap_state_name "in arbeit"
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()

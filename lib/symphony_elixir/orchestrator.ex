@@ -14,7 +14,7 @@ defmodule SymphonyElixir.Orchestrator do
   @failure_retry_base_ms 10_000
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
-  @cancel_state_name "abbruch codex"
+  @cancel_state_name "abbruch (ai)"
   @canceled_terminal_state_name "Abgebrochen"
   @workspace_bootstrap_state_name "in arbeit"
   @empty_codex_totals %{
