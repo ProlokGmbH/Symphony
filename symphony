@@ -5,12 +5,23 @@ SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
 SKILLS_DIR="$SCRIPT_DIR/.codex/skills"
 USER_SKILLS_DIR="$HOME/.codex/skills"
+USER_BIN_DIR="$HOME/.local/bin"
 PROJECT_DIR="$SCRIPT_DIR"
+CODEX_LINK_PATH="$USER_BIN_DIR/symphony-codex"
+CODEX_TARGET_PATH="$PROJECT_DIR/symphony-codex"
 
 mkdir -p "$USER_SKILLS_DIR"
+mkdir -p "$USER_BIN_DIR"
+
+if [ -e "$CODEX_LINK_PATH" ] && [ ! -L "$CODEX_LINK_PATH" ]; then
+  echo "symphony: $CODEX_LINK_PATH exists and is not a symlink" >&2
+  exit 1
+fi
+
+ln -sfnT "$CODEX_TARGET_PATH" "$CODEX_LINK_PATH"
 
 shopt -s nullglob
-for skill_dir in "$SKILLS_DIR"/symphony-*; do
+for skill_dir in "$SKILLS_DIR"/symphony-* "$SKILLS_DIR"/review "$SKILLS_DIR"/test; do
   if [ ! -d "$skill_dir" ]; then
     continue
   fi
@@ -26,7 +37,7 @@ for skill_dir in "$SKILLS_DIR"/symphony-*; do
   ln -sfnT "$skill_dir" "$target_path"
 done
 
-for user_skill in "$USER_SKILLS_DIR"/symphony-*; do
+for user_skill in "$USER_SKILLS_DIR"/symphony-* "$USER_SKILLS_DIR"/review "$USER_SKILLS_DIR"/test; do
   if [ ! -L "$user_skill" ]; then
     continue
   fi

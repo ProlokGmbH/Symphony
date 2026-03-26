@@ -5,6 +5,7 @@ tracker:
   assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo Codex
+    - In Arbeit
     - In Arbeit Codex
     - Review Codex
     - Test Codex
@@ -54,17 +55,13 @@ agent:
   max_turns: 20
 codex:
   command: >-
-    bash -lc '
-      common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-      if [ -n "$common_dir" ]; then
-        source_repo="$(cd "$common_dir/.." && pwd -P)"
-        if [ -f "$source_repo/.venv/bin/activate" ]; then
-          . "$source_repo/.venv/bin/activate"
-        fi
-      fi
-
-      exec codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=high --model gpt-5.4 app-server
-    '
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)";
+    if [ -z "$common_dir" ]; then
+      echo "Unable to determine git common dir for symphony-codex" >&2;
+      exit 1;
+    fi;
+    source_repo="$(cd "$common_dir/.." && pwd -P)";
+    exec "$source_repo/symphony-codex" --observer
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
@@ -79,7 +76,7 @@ Fortsetzungskontext:
 - Dies ist Wiederholungsversuch Nr. {{ attempt }}, weil sich das Ticket weiterhin in einem aktiven Status befindet.
 - Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
 - Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
-- Beende den Turn nicht, solange das Issue in einem aktiven Status bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert.
+- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert. Ausnahme: Für `In Arbeit` endet der Turn regulär nach erfolgreichem Bootstrap von Worktree und leerem Workpad.
 {% endif %}
 
 Ticket-Kontext:
@@ -105,6 +102,7 @@ Keine Beschreibung vorhanden.
 
 - Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
+- Betrachte grundsätzlich nur Statuswerte mit `Codex` im Namen als automatische Arbeitsstatus. Die einzige Ausnahme ist `In Arbeit`; dort darfst du ausschließlich den Bootstrap von Git-Worktree und leerem Workpad ausführen.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
@@ -149,7 +147,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo Codex` |
-| Nicht-terminale Stati ohne `Codex` im Namen | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen Codex-Status |
+| Nicht-terminale Stati ohne `Codex` im Namen, außer `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen Codex-Status |
+| `In Arbeit` | Ja | Ausnahme vom Codex-Namensschema: beim Eintritt den kanonischen Git-Worktree unterhalb des konfigurierten Workspace-Roots sicherstellen und genau ein leeres `## Codex Workpad` erfassen. Keine weitere automatische Bearbeitung starten. | Warten auf menschliches Verschieben in einen Codex-Status |
 | `Todo Codex` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit Codex` verschieben. | `In Arbeit Codex` |
 | `In Arbeit Codex` | Ja | Implementierung läuft aktiv. | `Review Codex` |
 | `Review Codex` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Review` |
@@ -168,7 +167,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo Codex` setzt.
-   - Jeder nicht-terminale Status ohne `Codex` im Namen (zum Beispiel `Review`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen Codex-Status verschiebt.
+   - Jeder nicht-terminale Status ohne `Codex` im Namen, außer `In Arbeit` (zum Beispiel `Review`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen Codex-Status verschiebt.
+   - `In Arbeit` -> Ablauf `In Arbeit` ausführen.
    - `Todo Codex` -> Ablauf `Todo Codex` ausführen.
    - `In Arbeit Codex` -> Ablauf `In Arbeit Codex` ausführen.
    - `Review Codex` -> Ablauf `Review Codex` ausführen.
@@ -178,7 +178,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `Neustart Codex` -> Ablauf `Neustart Codex` ausführen.
    - `Fertig` -> nichts tun und beenden.
    - `Abgebrochen` -> nichts tun und beenden.
-5. Bevor du einen aktiven Ausführungsablauf fortsetzt, prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
+5. Bevor du einen aktiven Codex-Ausführungsablauf fortsetzt, prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
    - Wenn eine Branch-PR existiert und `CLOSED` oder `MERGED` ist, behandle die bisherige Branch-Arbeit für diesen Lauf als nicht wiederverwendbar.
    - Erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
 
@@ -207,6 +207,37 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 ### Sonderfälle
 
 - Wenn bereits eine PR angehängt ist, behandle das Ticket als Feedback-/Rework-Schleife: vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `Review Codex` weiterreichen; erst nach abgeschlossenem `Review Codex`-Lauf geht es nach `Review`.
+
+## Ablauf für `In Arbeit`
+
+### Ziel
+
+Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten, ohne den regulären Codex-Ausführungsablauf zu starten.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `In Arbeit`.
+
+### Ablauf
+
+1. Prüfe, ob für das Issue bereits der kanonische Git-Worktree `symphony/{{ issue.identifier }}` unterhalb des konfigurierten Workspace-Roots existiert.
+2. Falls der Worktree noch nicht existiert, lege ihn gemäß Git-Branch-Kontrakt an.
+3. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
+   - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
+   - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
+   - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
+   - Falls nicht vorhanden, erstelle genau einen neuen, leeren Workpad-Kommentar in der Standardstruktur aus `## Workpad-Standard`, aber ohne bereits begonnene Planungs-, Implementierungs- oder Validierungsinhalte.
+4. Starte keine weitere Analyse-, Planungs- oder Implementierungsarbeit.
+5. Ändere den Status nicht automatisch weiter.
+
+### Abschluss und nächster Status
+
+- Nach erfolgreichem Bootstrap endet dieser Ablauf ohne weiteren Statuswechsel.
+- Das Issue bleibt in `In Arbeit`, bis ein Mensch es in einen Codex-Status verschiebt.
+
+### Sonderfälle
+
+- Wenn der Bootstrap an einem echten externen Blocker scheitert, halte den Blocker knapp im Workpad fest und beende den Turn.
 
 ## Ablauf für `In Arbeit Codex`
 
@@ -483,8 +514,8 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
 
-- Im Abschnitt `### Review` werden die Schritte aus `.symphony/review_codex.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
-- Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Review` werden die Schritte aus `.codex/skills/review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
 
 ````md
 ## Codex Workpad
@@ -511,11 +542,11 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ### Review
 
-- [ ] `<Review-Schritt aus .symphony/review_codex.md>`: `<kurze Statusnotiz>`
+- [ ] `<Review-Schritt aus .codex/skills/review/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Test
 
-- [ ] `<Test-Schritt aus .symphony/test_codex.md>`: `<kurze Statusnotiz>`
+- [ ] `<Test-Schritt aus .codex/skills/test/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Verlauf
 

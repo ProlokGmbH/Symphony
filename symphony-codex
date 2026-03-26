@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+
+_symphony_codex_sourced=0
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  _symphony_codex_sourced=1
+fi
+
+symphony_codex_finish() {
+  local status="${1:-0}"
+
+  if (( _symphony_codex_sourced )); then
+    return "$status"
+  fi
+
+  exit "$status"
+}
+
+symphony_codex_stderr() {
+  printf 'symphony-codex: %s\n' "$*" >&2
+}
+
+symphony_codex_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  symphony-codex <issue.identifier>
+  source symphony-codex <issue.identifier>
+  symphony-codex --observer [<issue.identifier>]
+
+Direct execution runs Codex in the selected worktree.
+If the script is sourced, the current shell stays in that worktree afterwards.
+EOF
+}
+
+symphony_codex_die() {
+  symphony_codex_stderr "$@"
+  symphony_codex_finish 1
+}
+
+symphony_codex_activate_venv() {
+  local source_repo="$1"
+  local activate_script="$source_repo/.venv/bin/activate"
+
+  if [[ -f "$activate_script" ]]; then
+    # shellcheck disable=SC1090
+    . "$activate_script"
+  fi
+}
+
+symphony_codex_source_repo() {
+  local script_source="${BASH_SOURCE[0]}"
+  local resolved_source
+  local script_dir
+  local common_dir
+
+  if [[ "$script_source" != */* ]]; then
+    resolved_source="$(command -v -- "$script_source" 2>/dev/null || true)"
+
+    if [[ -n "$resolved_source" ]]; then
+      script_source="$resolved_source"
+    fi
+  fi
+
+  script_dir="$(cd "$(dirname "$script_source")" && pwd -P 2>/dev/null)" ||
+    symphony_codex_die "cannot resolve script directory"
+
+  common_dir="$(git -C "$script_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+
+  if [[ -n "$common_dir" ]]; then
+    (
+      cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
+    )
+    return
+  fi
+
+  if [[ -f "$script_dir/WORKFLOW.md" && -f "$script_dir/mix.exs" ]]; then
+    printf '%s\n' "$script_dir"
+    return
+  fi
+
+  symphony_codex_die "cannot determine the Symphony source repository"
+}
+
+symphony_codex_run_mix() {
+  if command -v mise >/dev/null 2>&1; then
+    mise exec -- mix "$@"
+  else
+    mix "$@"
+  fi
+}
+
+symphony_codex_workspace_root() {
+  local source_repo="$1"
+  local workflow_file="$2"
+
+  if [[ -n "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}" ]]; then
+    printf '%s\n' "$SYMPHONY_PROJECT_WORKTREES_ROOT"
+    return
+  fi
+
+  (
+    cd "$source_repo" || exit 1
+    symphony_codex_run_mix run --no-start -e '
+      workflow_path = List.first(System.argv()) || raise "missing workflow file"
+      SymphonyElixir.Workflow.set_workflow_file_path(workflow_path)
+      IO.write(SymphonyElixir.Config.settings!().workspace.root)
+    ' -- "$workflow_file"
+  )
+}
+
+symphony_codex_expand_path() {
+  local source_repo="$1"
+  local raw_path="$2"
+
+  case "$raw_path" in
+    "~")
+      printf '%s\n' "$HOME"
+      ;;
+    "~/"*)
+      printf '%s\n' "$HOME/${raw_path#~/}"
+      ;;
+    /*)
+      printf '%s\n' "$raw_path"
+      ;;
+    *)
+      printf '%s\n' "$source_repo/$raw_path"
+      ;;
+  esac
+}
+
+symphony_codex_safe_identifier() {
+  LC_ALL=C sed 's/[^A-Za-z0-9._-]/_/g' <<<"$1"
+}
+
+symphony_codex_resolve_workspace() {
+  local source_repo="$1"
+  local workflow_file="$2"
+  local issue_identifier="$3"
+  local workspace_root
+  local safe_identifier
+  local workspace
+  local branch_name
+  local expected_branch="symphony/$issue_identifier"
+
+  workspace_root="$(symphony_codex_workspace_root "$source_repo" "$workflow_file")" ||
+    symphony_codex_die "cannot resolve workspace root from $workflow_file"
+  workspace_root="$(symphony_codex_expand_path "$source_repo" "$workspace_root")"
+
+  safe_identifier="$(symphony_codex_safe_identifier "$issue_identifier")"
+  workspace="$workspace_root/$safe_identifier"
+
+  if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    symphony_codex_die "no existing worktree for $issue_identifier at $workspace"
+  fi
+
+  branch_name="$(git -C "$workspace" branch --show-current 2>/dev/null || true)"
+
+  if [[ "$branch_name" != "$expected_branch" ]]; then
+    symphony_codex_die "worktree $workspace is on branch ${branch_name:-<unknown>}, expected $expected_branch"
+  fi
+
+  printf '%s\n' "$workspace"
+}
+
+symphony_codex_run() {
+  local observer_mode=0
+  local issue_identifier=""
+  local source_repo
+  local workflow_file
+  local workspace=""
+  local -a codex_args=(
+    --config shell_environment_policy.inherit=all
+    --config model_reasoning_effort=high
+    --model gpt-5.4
+  )
+
+  while (($# > 0)); do
+    case "$1" in
+      --observer|--app-server|--ubserver)
+        observer_mode=1
+        ;;
+      -h|--help)
+        symphony_codex_usage
+        symphony_codex_finish 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        symphony_codex_die "unknown option: $1"
+        ;;
+      *)
+        if [[ -n "$issue_identifier" ]]; then
+          symphony_codex_die "expected at most one issue identifier"
+        fi
+
+        issue_identifier="$1"
+        ;;
+    esac
+
+    shift
+  done
+
+  if (($# > 0)); then
+    symphony_codex_die "unexpected positional arguments: $*"
+  fi
+
+  if (( ! observer_mode )) && [[ -z "$issue_identifier" ]]; then
+    symphony_codex_usage
+    symphony_codex_finish 1
+  fi
+
+  if ! source_repo="$(symphony_codex_source_repo)"; then
+    symphony_codex_finish 1
+  fi
+
+  workflow_file="${SYMPHONY_WORKFLOW_FILE:-$source_repo/WORKFLOW.md}"
+
+  if [[ -n "$issue_identifier" ]]; then
+    if ! workspace="$(symphony_codex_resolve_workspace "$source_repo" "$workflow_file" "$issue_identifier")"; then
+      symphony_codex_finish 1
+    fi
+
+    cd "$workspace" || symphony_codex_die "cannot change into $workspace"
+  fi
+
+  if (( observer_mode )); then
+    codex_args+=(app-server)
+  fi
+
+  if (( _symphony_codex_sourced )); then
+    (
+      symphony_codex_activate_venv "$source_repo"
+      codex "${codex_args[@]}"
+    )
+
+    symphony_codex_finish $?
+  fi
+
+  symphony_codex_activate_venv "$source_repo"
+  exec codex "${codex_args[@]}"
+}
+
+symphony_codex_run "$@"

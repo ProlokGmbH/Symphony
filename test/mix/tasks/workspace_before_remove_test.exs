@@ -782,6 +782,83 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end
   end
 
+  test "resolves relative git paths when deriving the linked worktree source repo" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-relative-git-paths-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    git_script = """
+    #!/bin/sh
+    printf '%s\\n' "$*" >> "$GH_LOG"
+
+    if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+      printf '%s\\n' "#{workspace}"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "rev-parse" ] && [ "$4" = "--git-common-dir" ]; then
+      printf '%s\\n' "../repo/.git"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "rev-parse" ] && [ "$4" = "--absolute-git-dir" ]; then
+      printf '%s\\n' ".git"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "list" ] && [ "$5" = "--porcelain" ]; then
+      printf 'worktree #{workspace}\\nHEAD abc123\\nbranch refs/heads/feature/relative-git-paths\\n'
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "ls-remote" ] && [ "$4" = "--exit-code" ] && [ "$5" = "--heads" ] && [ "$6" = "origin" ] && [ "$7" = "feature/relative-git-paths" ]; then
+      exit 2
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "show-ref" ] && [ "$4" = "--verify" ] && [ "$5" = "--quiet" ] && [ "$6" = "refs/heads/feature/relative-git-paths" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "branch" ] && [ "$4" = "-D" ] && [ "$5" = "feature/relative-git-paths" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--branch", "feature/relative-git-paths"])
+          end)
+
+        assert output =~ "Removed Git worktree #{workspace}"
+        assert output =~ "Deleted local branch feature/relative-git-paths"
+
+        log = File.read!(log_path)
+        assert log =~ "-C #{workspace} rev-parse --git-common-dir"
+        assert log =~ "-C #{workspace} rev-parse --absolute-git-dir"
+        assert log =~ "-C #{source_repo} worktree list --porcelain"
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
   test "skips worktree removal when git path resolution fails" do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "workspace-before-remove-path-failure-#{unique}")
@@ -812,6 +889,79 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
           end)
 
         assert output == ""
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "resolves relative git paths when deriving the linked worktree source repo" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-relative-git-path-#{unique}")
+    workspace = Path.join(root, "wt")
+    source_repo = Path.join(root, "repo")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+
+    git_script = """
+    #!/bin/sh
+    printf 'git %s\\n' "$*" >> "$GH_LOG"
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "rev-parse" ] && [ "$4" = "--git-common-dir" ]; then
+      printf '../repo/.git\\n'
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{workspace}" ] && [ "$3" = "rev-parse" ] && [ "$4" = "--absolute-git-dir" ]; then
+      printf '.git\\n'
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "list" ] && [ "$5" = "--porcelain" ]; then
+      printf 'worktree #{workspace}\\nHEAD abc123\\nbranch refs/heads/feature/relative-git-path\\n'
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "ls-remote" ] && [ "$4" = "--exit-code" ] && [ "$5" = "--heads" ] && [ "$6" = "origin" ] && [ "$7" = "feature/relative-git-path" ]; then
+      exit 2
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "show-ref" ] && [ "$4" = "--verify" ] && [ "$5" = "--quiet" ] && [ "$6" = "refs/heads/feature/relative-git-path" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "branch" ] && [ "$4" = "-D" ] && [ "$5" = "feature/relative-git-path" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      exit 0
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--branch", "feature/relative-git-path", "--workspace", workspace])
+          end)
+
+        assert output =~ "Deleted local branch feature/relative-git-path"
+        assert output =~ "Removed Git worktree #{workspace}"
+
+        log = File.read!(log_path)
+        assert log =~ "git -C #{workspace} rev-parse --git-common-dir"
+        assert log =~ "git -C #{workspace} rev-parse --absolute-git-dir"
+        assert log =~ "git -C #{source_repo} worktree list --porcelain"
+        assert log =~ "git -C #{source_repo} show-ref --verify --quiet refs/heads/feature/relative-git-path"
       end)
     after
       File.rm_rf!(root)

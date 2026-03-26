@@ -43,6 +43,7 @@ defmodule SymphonyElixir.TestSupport do
           Application.delete_env(:symphony_elixir, :server_port_override)
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
+          Application.delete_env(:symphony_elixir, :memory_tracker_comments)
           File.rm_rf(workflow_root)
         end)
 
@@ -109,6 +110,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_assignee: "dev@example.com",
           tracker_active_states: [
             "Todo Codex",
+            "In Arbeit",
             "In Arbeit Codex",
             "Review Codex",
             "Test Codex",

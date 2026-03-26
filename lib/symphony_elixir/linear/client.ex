@@ -64,6 +64,18 @@ defmodule SymphonyElixir.Linear.Client do
   }
   """
 
+  @issue_comments_query """
+  query SymphonyLinearIssueComments($id: String!) {
+    issue(id: $id) {
+      comments(first: 50) {
+        nodes {
+          body
+        }
+      }
+    }
+  }
+  """
+
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
     tracker = Config.settings!().tracker
@@ -118,6 +130,22 @@ defmodule SymphonyElixir.Linear.Client do
         with {:ok, assignee_filter} <- routing_assignee_filter() do
           do_fetch_issue_states(ids, assignee_filter)
         end
+    end
+  end
+
+  @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
+    case graphql(@issue_comments_query, %{id: issue_id}) do
+      {:ok, response} ->
+        comments =
+          response
+          |> get_in(["data", "issue", "comments", "nodes"])
+          |> extract_comment_bodies()
+
+        {:ok, comments}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -586,6 +614,14 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp extract_labels(_), do: []
+
+  defp extract_comment_bodies(comments) when is_list(comments) do
+    comments
+    |> Enum.map(& &1["body"])
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp extract_comment_bodies(_), do: []
 
   defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
        when is_list(inverse_relations) do
