@@ -782,7 +782,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end
   end
 
-  test "resolves relative git paths when deriving the linked worktree source repo" do
+  test "resolves relative git paths when deriving the linked worktree source repo for an explicit workspace path" do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "workspace-before-remove-relative-git-paths-#{unique}")
     workspace = Path.join(root, "wt")
