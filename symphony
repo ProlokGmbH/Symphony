@@ -21,7 +21,7 @@ fi
 ln -sfnT "$CODEX_TARGET_PATH" "$CODEX_LINK_PATH"
 
 shopt -s nullglob
-for skill_dir in "$SKILLS_DIR"/symphony-*; do
+for skill_dir in "$SKILLS_DIR"/symphony-* "$SKILLS_DIR"/review "$SKILLS_DIR"/test; do
   if [ ! -d "$skill_dir" ]; then
     continue
   fi
@@ -37,7 +37,7 @@ for skill_dir in "$SKILLS_DIR"/symphony-*; do
   ln -sfnT "$skill_dir" "$target_path"
 done
 
-for user_skill in "$USER_SKILLS_DIR"/symphony-*; do
+for user_skill in "$USER_SKILLS_DIR"/symphony-* "$USER_SKILLS_DIR"/review "$USER_SKILLS_DIR"/test; do
   if [ ! -L "$user_skill" ]; then
     continue
   fi

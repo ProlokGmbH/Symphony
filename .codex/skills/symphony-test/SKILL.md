@@ -1,9 +1,9 @@
 ---
 name: symphony-test
 description:
-  Lies `.symphony/test_codex.md`, führe die dort definierten `Test Codex`-
-  Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad als
-  Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu,
+  Lies den Skill `.codex/skills/test/SKILL.md`, führe die dort definierten
+  `Test Codex`-Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad
+  als Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu,
   bis der Workspace sauber ist oder `agent.max_turns` erreicht wurde.
 ---
 
@@ -13,7 +13,8 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test Codex` erreicht.
 
 ## Ziel
 
-- Lies die repository-spezifischen Anweisungen aus `.symphony/test_codex.md`.
+- Lies die repository-spezifischen Anweisungen aus dem Skill `test` unter
+  `.codex/skills/test/SKILL.md`.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
@@ -22,15 +23,16 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test Codex` erreicht.
 
 ## Repository-spezifische Anweisungen
 
-- Öffne zu Beginn `.symphony/test_codex.md` im Repository-Root und lies die Datei vollständig.
-- Verwende die Datei als maßgebliche Quelle für die konkrete Test-Checkliste und ihre Reihenfolge.
+- Öffne zu Beginn `.codex/skills/test/SKILL.md` und lies die Datei vollständig.
+- Verwende den Skill als maßgebliche Quelle für die konkrete Test-Checkliste und ihre Reihenfolge.
 - Erfinde keine fehlenden Test-Schritte aus früheren Repository-Konventionen.
-- Wenn `.symphony/test_codex.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
+- Wenn `.codex/skills/test/SKILL.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
 
 ## Workpad-Aktualisierung
 
 - Nutze den vorhandenen Kommentar `## Codex Workpad`.
-- Spiegele die Schritte aus `.symphony/test_codex.md` unter `### Test` als Checkliste in derselben Reihenfolge.
+- Spiegele die Schritte aus `.codex/skills/test/SKILL.md` unter `### Test` als
+  Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschließlich den Abschnitt `### Test`; ändere `### Review` nicht.
 - Pflege dort pro Schritt genau einen kurzen Eintrag, zum Beispiel:
   - `- [x] Führe make all aus: erfolgreich`
@@ -41,12 +43,14 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test Codex` erreicht.
 
 ## Test-Schleife
 
-1. Lies `.symphony/test_codex.md` und beginne mit dem ersten dort definierten Schritt.
+1. Lies `.codex/skills/test/SKILL.md` und beginne mit dem ersten dort
+   definierten Schritt.
 2. Aktualisiere nach jedem Schritt zuerst den zugehörigen Checklistenpunkt unter `### Test` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
 3. Wenn ein Schritt fehlschlägt oder konkrete Änderungen verlangt:
    - setze den Fix sofort um,
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
-   - starte die Checkliste wieder beim ersten in `.symphony/test_codex.md` definierten Schritt.
+   - starte die Checkliste wieder beim ersten in
+     `.codex/skills/test/SKILL.md` definierten Schritt.
 4. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
 5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Review`.
 
