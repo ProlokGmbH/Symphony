@@ -1,6 +1,6 @@
 # Symphony
 
-Symphony ist ein deutschsprachiger Fork von OpenAI Symphony mit klaren Konventionen fuer den produktiven Einsatz von Coding Agents. Das Projekt funktioniert besonders gut in Codebasen, die [Harness Engineering](https://openai.com/index/harness-engineering/) bereits eingefuehrt haben. Ziel ist der naechste Schritt nach dem reinen Einsatz einzelner Agents: weg vom Verwalten von Coding Agents, hin zur Orchestrierung konkreter Arbeit, die erledigt werden muss.
+Symphony ist ein deutschsprachiger, bewusst vorstrukturierter Fork von OpenAI Symphony fuer Teams, die Coding Agents nicht nur einsetzen, sondern verlässlich in ihren Entwicklungsprozess einbinden wollen. Das Projekt funktioniert besonders gut in Codebasen, die [Harness Engineering](https://openai.com/index/harness-engineering/) bereits eingefuehrt haben. Ziel ist der naechste Schritt nach dem reinen Einsatz einzelner Agents: weg vom Verwalten von Coding Agents, hin zur Orchestrierung konkreter Arbeit, die erledigt werden muss.
 
 ![Symphony Dashboard](.github/media/elixir-screenshot.png)
 
@@ -18,7 +18,7 @@ Dadurch wird aus einzelnen Agentenlaeufen ein reproduzierbarer, repo-eigener Arb
 
 ## Unterschiede zur Originalversion
 
-Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschsprachigen, klar vorstrukturierten Team-Workflow:
+Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschsprachigen, klar gefuehrten Team-Workflow:
 
 - Deutsche Sprache in Workflow, Skills und Projektdokumentation
 - Eine zentrale `WORKFLOW.md` als verbindlicher Workflow- und Prompt-Vertrag
@@ -74,25 +74,27 @@ mix specs.check
 
 ## Workflow
 
-Der Ablauf ist bewusst knapp gehalten: AI-Status treiben die Automatisierung, `Freigabe` ist der manuelle Review- und Commit-Schritt.
+Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Uebergabepunkten. `Freigabe` ist der menschliche Review- und Commit-Schritt; nach dem Merge landet das Ticket in `Review` als manuelle Abschlussstation.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
-| `Backlog` | Mensch | Ticket ist noch nicht fuer die Automatisierung vorgesehen. | `Todo (AI)` |
+| `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `In Arbeit (AI)` |
-| `In Arbeit` | Mensch/AI | Sonderfall fuer den Bootstrap von Worktree und leerem Workpad, ohne eigentliche Umsetzung. | bleibt offen bis zum naechsten AI-Status |
-| `In Arbeit (AI)` | AI | Planung, Umsetzung, lokale Validierung und Workpad-Pflege. | `Review (AI)` |
-| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Freigabe` |
-| `Freigabe` | Mensch | Manueller Review- und Commit-Schritt. | `In Arbeit (AI)`, `Test (AI)` oder `Merge (AI)` |
+| `In Arbeit` | Mensch/AI | Sonderfall fuer Bootstrap von Worktree und leerem Workpad ohne weitere Umsetzung. | bleibt offen bis zum naechsten AI-Status |
+| `In Arbeit (AI)` | AI | Planung, Umsetzung, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
+| `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe` |
+| `Freigabe` | Mensch | Manueller Review- und Commit-Schritt. | `Review (AI)` oder `In Arbeit (AI)` |
+| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Test (AI)` |
 | `Test (AI)` | AI | Repository-spezifischer Test-/Fix-Zyklus auf sauberem Workspace. | `Merge (AI)` oder `Freigabe` |
-| `Merge (AI)` | AI | Automatisiertes Landen der PR auf sauberem Stand. | `Fertig` |
+| `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen. | `Review` |
+| `Review` | Mensch | Manueller Endstatus nach dem Merge, bevor das Ticket ganz abgeschlossen wird. | `Fertig` |
 | `Abbruch (AI)` | AI | Stoppt laufende Arbeit und fuehrt Cleanup aus. | `Abgebrochen` |
 | `Fertig` | Abschluss | Ticket ist abgeschlossen. | - |
 | `Abgebrochen` | Abschluss | Ticket wurde bewusst verworfen oder bereinigt. | - |
 
 Der typische Pfad ist damit:
 
-`Todo (AI)` -> `In Arbeit (AI)` -> `Review (AI)` -> `Freigabe` -> `Test (AI)` -> `Merge (AI)` -> `Fertig`
+`Todo (AI)` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe` -> `Review (AI)` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
 
 ## Zentrale Dateien
 
