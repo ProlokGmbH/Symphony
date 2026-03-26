@@ -57,12 +57,12 @@ agent:
   max_turns: 20
 codex:
   command: >-
-    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)";
     if [ -z "$common_dir" ]; then
-      echo "Unable to determine git common dir for symphony-codex" >&2
-      exit 1
-    fi
-    source_repo="$(cd "$common_dir/.." && pwd -P)"
+      echo "Unable to determine git common dir for symphony-codex" >&2;
+      exit 1;
+    fi;
+    source_repo="$(cd "$common_dir/.." && pwd -P)";
     exec "$source_repo/symphony-codex" --observer
   approval_policy: never
   thread_sandbox: danger-full-access

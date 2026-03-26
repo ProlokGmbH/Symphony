@@ -138,6 +138,9 @@ defmodule SymphonyElixir.CoreTest do
     codex = Map.get(config, "codex", %{})
     assert is_map(codex)
     assert Map.get(codex, "command") =~ "git rev-parse --path-format=absolute --git-common-dir"
+    assert Map.get(codex, "command") =~ "common_dir=\"$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)\"; if [ -z \"$common_dir\" ]; then"
+    assert Map.get(codex, "command") =~ "exit 1;"
+    assert Map.get(codex, "command") =~ "fi; source_repo=\"$(cd \"$common_dir/..\" && pwd -P)\";"
     assert Map.get(codex, "command") =~ "exec \"$source_repo/symphony-codex\" --observer"
 
     assert String.trim(prompt) != ""
@@ -524,7 +527,8 @@ defmodule SymphonyElixir.CoreTest do
     orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
 
     on_exit(fn ->
-      if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
+      if is_pid(Process.whereis(SymphonyElixir.Supervisor)) and
+           is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
         case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
           {:ok, _pid} -> :ok
           {:error, {:already_started, _pid}} -> :ok
@@ -532,7 +536,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    if is_pid(orchestrator_pid) do
+    if is_pid(orchestrator_pid) and is_pid(Process.whereis(SymphonyElixir.Supervisor)) do
       assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
     end
 
