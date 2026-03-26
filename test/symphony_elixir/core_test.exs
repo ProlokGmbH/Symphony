@@ -15,14 +15,13 @@ defmodule SymphonyElixir.CoreTest do
     assert config.polling.interval_ms == 30_000
 
     assert config.tracker.active_states == [
-             "Todo Codex",
+             "Todo (AI)",
              "In Arbeit",
-             "In Arbeit Codex",
-             "Review Codex",
-             "Test Codex",
-             "Abbruch Codex",
-             "Merge Codex",
-             "Neustart Codex"
+             "In Arbeit (AI)",
+             "Review (AI)",
+             "Test (AI)",
+             "Abbruch (AI)",
+             "Merge (AI)"
            ]
 
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
@@ -48,7 +47,7 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Freigabe,")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"
 
@@ -144,11 +143,11 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
     assert prompt =~ "Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten"
-    assert prompt =~ "## Ablauf für `In Arbeit Codex`"
-    assert prompt =~ "Der reguläre Abschluss dieser Phase ist `Review Codex`, nicht direkt `Review`."
-    assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review Codex` verschiebst:"
-    assert prompt =~ "Ein direkter Übergang von `In Arbeit Codex` nach `Review` ist nur über den blocked-access escape hatch zulässig."
-    assert prompt =~ "Nur dieser Schritt verschiebt regulär von `Review Codex` nach `Review`."
+    assert prompt =~ "## Ablauf für `In Arbeit (AI)`"
+    assert prompt =~ "Der reguläre Abschluss dieser Phase ist `Review (AI)`, nicht direkt `Freigabe`."
+    assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review (AI)` verschiebst:"
+    assert prompt =~ "Ein direkter Übergang von `In Arbeit (AI)` nach `Freigabe` ist nur über den blocked-access escape hatch zulässig."
+    assert prompt =~ "Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe`."
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
@@ -559,7 +558,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
+        tracker_active_states: ["Todo (AI)", "In Arbeit (AI)", "Review (AI)"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -579,7 +578,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "Todo Codex", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "Todo (AI)", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -622,7 +621,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: test_root,
-        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
+        tracker_active_states: ["Todo (AI)", "In Arbeit (AI)", "Review (AI)"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
       )
 
@@ -642,7 +641,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "In Arbeit (AI)", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -688,11 +687,10 @@ defmodule SymphonyElixir.CoreTest do
         tracker_kind: "memory",
         workspace_root: test_root,
         tracker_active_states: [
-          "Todo Codex",
-          "In Arbeit Codex",
-          "Review Codex",
-          "Abbruch Codex",
-          "Neustart Codex"
+          "Todo (AI)",
+          "In Arbeit (AI)",
+          "Review (AI)",
+          "Abbruch (AI)"
         ],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
       )
@@ -716,7 +714,7 @@ defmodule SymphonyElixir.CoreTest do
             pid: agent_pid,
             ref: nil,
             identifier: issue_identifier,
-            issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
+            issue: %Issue{id: issue_id, state: "In Arbeit (AI)", identifier: issue_identifier},
             started_at: DateTime.utc_now()
           }
         },
@@ -728,7 +726,7 @@ defmodule SymphonyElixir.CoreTest do
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
-        state: "Abbruch Codex",
+        state: "Abbruch (AI)",
         title: "Abort work",
         description: "User canceled the workflow",
         labels: []
@@ -765,11 +763,10 @@ defmodule SymphonyElixir.CoreTest do
         tracker_kind: "memory",
         workspace_root: test_root,
         tracker_active_states: [
-          "Todo Codex",
-          "In Arbeit Codex",
-          "Review Codex",
-          "Abbruch Codex",
-          "Neustart Codex"
+          "Todo (AI)",
+          "In Arbeit (AI)",
+          "Review (AI)",
+          "Abbruch (AI)"
         ],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"],
         poll_interval_ms: 30_000
@@ -780,7 +777,7 @@ defmodule SymphonyElixir.CoreTest do
       issue = %Issue{
         id: issue_id,
         identifier: issue_identifier,
-        state: "Abbruch Codex",
+        state: "Abbruch (AI)",
         title: "Abort idle work",
         description: "Workspace should be cleaned without dispatch",
         labels: []
@@ -832,7 +829,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: test_root,
-        tracker_active_states: ["Todo Codex", "In Arbeit Codex", "Review Codex"],
+        tracker_active_states: ["Todo (AI)", "In Arbeit (AI)", "Review (AI)"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
         poll_interval_ms: 30_000
       )
@@ -870,7 +867,7 @@ defmodule SymphonyElixir.CoreTest do
         pid: agent_pid,
         ref: nil,
         identifier: issue_identifier,
-        issue: %Issue{id: issue_id, state: "In Arbeit Codex", identifier: issue_identifier},
+        issue: %Issue{id: issue_id, state: "In Arbeit (AI)", identifier: issue_identifier},
         started_at: DateTime.utc_now()
       }
 
@@ -907,7 +904,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-557",
-            state: "Todo Codex"
+            state: "Todo (AI)"
           },
           started_at: DateTime.utc_now()
         }
@@ -920,7 +917,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-557",
-      state: "In Arbeit Codex",
+      state: "In Arbeit (AI)",
       title: "Active state refresh",
       description: "State should be refreshed",
       labels: []
@@ -931,7 +928,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert Map.has_key?(updated_state.running, issue_id)
     assert MapSet.member?(updated_state.claimed, issue_id)
-    assert updated_entry.issue.state == "In Arbeit Codex"
+    assert updated_entry.issue.state == "In Arbeit (AI)"
   end
 
   test "reconcile stops running issue when it is reassigned away from this worker" do
@@ -953,7 +950,7 @@ defmodule SymphonyElixir.CoreTest do
           issue: %Issue{
             id: issue_id,
             identifier: "MT-561",
-            state: "In Arbeit Codex",
+            state: "In Arbeit (AI)",
             assigned_to_worker: true
           },
           started_at: DateTime.utc_now()
@@ -967,7 +964,7 @@ defmodule SymphonyElixir.CoreTest do
     issue = %Issue{
       id: issue_id,
       identifier: "MT-561",
-      state: "In Arbeit Codex",
+      state: "In Arbeit (AI)",
       title: "Reassigned active issue",
       description: "Worker should stop",
       labels: [],
@@ -999,7 +996,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-558",
-      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Arbeit Codex"},
+      issue: %Issue{id: issue_id, identifier: "MT-558", state: "In Arbeit (AI)"},
       started_at: DateTime.utc_now()
     }
 
@@ -1040,7 +1037,7 @@ defmodule SymphonyElixir.CoreTest do
       ref: ref,
       identifier: "MT-559",
       retry_attempt: 2,
-      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Arbeit Codex"},
+      issue: %Issue{id: issue_id, identifier: "MT-559", state: "In Arbeit (AI)"},
       started_at: DateTime.utc_now()
     }
 
@@ -1079,7 +1076,7 @@ defmodule SymphonyElixir.CoreTest do
       pid: self(),
       ref: ref,
       identifier: "MT-560",
-      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Arbeit Codex"},
+      issue: %Issue{id: issue_id, identifier: "MT-560", state: "In Arbeit (AI)"},
       started_at: DateTime.utc_now()
     }
 
@@ -1951,7 +1948,7 @@ defmodule SymphonyElixir.CoreTest do
 
         state =
           if attempt == 1 do
-            "In Arbeit Codex"
+            "In Arbeit (AI)"
           else
             "Fertig"
           end
@@ -1973,7 +1970,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-247",
         title: "Continue until done",
         description: "Still active after first turn",
-        state: "In Arbeit Codex",
+        state: "In Arbeit (AI)",
         url: "https://example.org/issues/MT-247",
         labels: []
       }
@@ -2074,7 +2071,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-BRANCH-SYNC",
              title: "Branch sync",
              description: "Sync tracker branch name from workspace",
-             state: "Review"
+             state: "Freigabe"
            }
          ]}
       end
@@ -2084,7 +2081,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-BRANCH-SYNC",
         title: "Branch sync",
         description: "Sync tracker branch name from workspace",
-        state: "In Arbeit Codex",
+        state: "In Arbeit (AI)",
         url: "https://example.org/issues/MT-BRANCH-SYNC",
         labels: []
       }
@@ -2097,7 +2094,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Review Codex issues to Review after a clean review turn" do
+  test "agent runner moves Review (AI) issues to Freigabe after a clean review turn" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2152,7 +2149,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Review Codex" end)
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
       parent = self()
 
       recipient =
@@ -2182,21 +2179,21 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-REVIEW",
         title: "Review handoff",
         description: "Advance after clean review turn",
-        state: "Review Codex",
+        state: "Review (AI)",
         url: "https://example.org/issues/MT-REVIEW",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Review"}
-      assert "Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Freigabe"}
+      assert "Freigabe" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test Codex issues to Merge Codex after a clean test turn without code changes" do
+  test "agent runner moves Test (AI) issues to Merge (AI) after a clean test turn without code changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2247,7 +2244,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
       parent = self()
 
       recipient =
@@ -2277,21 +2274,21 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-TEST-CLEAN",
         title: "Test handoff clean",
         description: "Advance to merge when tests need no fixes",
-        state: "Test Codex",
+        state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-CLEAN",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Merge Codex"}
-      assert "Merge Codex" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Merge (AI)"}
+      assert "Merge (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test Codex issues back to Review after a clean test turn with code changes" do
+  test "agent runner moves Test (AI) issues back to Freigabe after a clean test turn with code changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2343,7 +2340,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
       parent = self()
 
       recipient =
@@ -2373,21 +2370,21 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-TEST-FIX",
         title: "Test handoff with fix",
         description: "Return to review when tests required a fix",
-        state: "Test Codex",
+        state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-FIX",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Review"}
-      assert "Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe"}
+      assert "Freigabe" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test Codex issues back to Review before running Codex when the workspace is dirty" do
+  test "agent runner moves Test (AI) issues back to Freigabe before running Codex when the workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2445,7 +2442,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Test Codex" end)
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
       parent = self()
 
       recipient =
@@ -2475,14 +2472,14 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-TEST-DIRTY",
         title: "Test preflight dirty workspace",
         description: "Return to review before testing when manual commit is missing",
-        state: "Test Codex",
+        state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Review"}
-      assert "Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe"}
+      assert "Freigabe" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -2490,7 +2487,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Merge Codex issues back to Review before running Codex when the workspace is dirty" do
+  test "agent runner moves Merge (AI) issues back to Freigabe before running Codex when the workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2548,7 +2545,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Merge Codex" end)
+      {:ok, state_agent} = Agent.start_link(fn -> "Merge (AI)" end)
       parent = self()
 
       recipient =
@@ -2578,14 +2575,14 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-MERGE-DIRTY",
         title: "Merge preflight dirty workspace",
         description: "Return to review before merge when manual commit is missing",
-        state: "Merge Codex",
+        state: "Merge (AI)",
         url: "https://example.org/issues/MT-MERGE-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Review"}
-      assert "Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe"}
+      assert "Freigabe" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -2664,7 +2661,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-248",
              title: "Stop at max turns",
              description: "Still active",
-             state: "In Arbeit Codex"
+             state: "In Arbeit (AI)"
            }
          ]}
       end
@@ -2674,7 +2671,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-248",
         title: "Stop at max turns",
         description: "Still active",
-        state: "In Arbeit Codex",
+        state: "In Arbeit (AI)",
         url: "https://example.org/issues/MT-248",
         labels: []
       }

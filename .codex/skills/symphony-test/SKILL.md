@@ -2,14 +2,14 @@
 name: symphony-test
 description:
   Lies den Skill `.codex/skills/test/SKILL.md`, führe die dort definierten
-  `Test Codex`-Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad
+  `Test (AI)`-Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad
   als Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu,
   bis der Workspace sauber ist oder `agent.max_turns` erreicht wurde.
 ---
 
 # Symphony Test
 
-Verwende diesen Skill, wenn ein Ticket den Status `Test Codex` erreicht.
+Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 
 ## Ziel
 
@@ -52,10 +52,10 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test Codex` erreicht.
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/test/SKILL.md` definierten Schritt.
 4. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
-5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Review`.
+5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Freigabe`.
 
 ## Abschlussbedingung
 
-- Wenn der Testlauf ohne neue Workspace-Änderungen abgeschlossen ist, verschiebe das Ticket von `Test Codex` nach `Merge Codex`.
-- Wenn der Testlauf Codeänderungen erfordert hat, verschiebe das Ticket von `Test Codex` zurück nach `Review`, damit der Entwickler die Änderungen erneut prüft.
-- Erstelle keine Commits. Der manuelle Review-/Commit-Schritt bleibt beim Entwickler im Status `Review`.
+- Wenn der Testlauf ohne neue Workspace-Änderungen abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`.
+- Wenn der Testlauf Codeänderungen erfordert hat, verschiebe das Ticket von `Test (AI)` zurück nach `Freigabe`, damit der Entwickler die Änderungen erneut prüft.
+- Erstelle keine Commits. Der manuelle Freigabe-/Commit-Schritt bleibt beim Entwickler im Status `Freigabe`.

@@ -2,7 +2,7 @@
 name: symphony-review
 description:
   Lies den Skill `.codex/skills/review/SKILL.md`, führe die dort definierten
-  `Review Codex`-Schritte aus, protokolliere jeden Review-Schritt im Codex
+  `Review (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
   Workpad als Checklistenpunkt, setze Fixes sofort um und starte den Review-
   Zyklus neu, bis der Workspace sauber ist oder `agent.max_turns` erreicht
   wurde.
@@ -10,7 +10,7 @@ description:
 
 # Symphony Review
 
-Verwende diesen Skill, wenn ein Ticket den Status `Review Codex` erreicht.
+Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
 
 ## Ziel
 
@@ -53,9 +53,9 @@ Verwende diesen Skill, wenn ein Ticket den Status `Review Codex` erreicht.
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/review/SKILL.md` definierten Schritt.
 4. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist das Review abgeschlossen.
-5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Review`.
+5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Freigabe`.
 
 ## Abschlussbedingung
 
-- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review Codex` nach `Review`.
-- Erstelle keine Commits. Der manuelle Commit-Schritt bleibt beim Entwickler im Status `Review`.
+- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Freigabe`.
+- Erstelle keine Commits. Der manuelle Commit-Schritt bleibt beim Entwickler im Status `Freigabe`.

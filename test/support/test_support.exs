@@ -109,14 +109,13 @@ defmodule SymphonyElixir.TestSupport do
           tracker_project_slug: "project",
           tracker_assignee: "dev@example.com",
           tracker_active_states: [
-            "Todo Codex",
+            "Todo (AI)",
             "In Arbeit",
-            "In Arbeit Codex",
-            "Review Codex",
-            "Test Codex",
-            "Abbruch Codex",
-            "Merge Codex",
-            "Neustart Codex"
+            "In Arbeit (AI)",
+            "Review (AI)",
+            "Test (AI)",
+            "Abbruch (AI)",
+            "Merge (AI)"
           ],
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"],
           poll_interval_ms: 30_000,
