@@ -337,8 +337,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         hook_after_create: "echo nope && exit 17"
       )
 
+      workspace = Path.join(workspace_root, "MT-FAIL")
+
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL")
+
+      refute File.exists?(workspace)
     after
       File.rm_rf(workspace_root)
     end
@@ -358,10 +362,75 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         hook_after_create: "sleep 1"
       )
 
+      workspace = Path.join(workspace_root, "MT-TIMEOUT")
+
       assert {:error, {:workspace_hook_timeout, "after_create", 10}} =
                Workspace.create_for_issue("MT-TIMEOUT")
+
+      refute File.exists?(workspace)
     after
       File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace retries after_create after cleaning up a failed fresh workspace" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-retry-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      attempt_marker = Path.join(test_root, "after_create.failed")
+
+      File.mkdir_p!(source_repo)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "init", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      File.write!(Path.join(source_repo, "README.md"), "base\n")
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: """
+        branch="symphony/$issue_key"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
+          git -C "$source_repo" worktree add "$PWD" "$branch"
+        else
+          git -C "$source_repo" worktree add -b "$branch" "$PWD" main
+        fi
+        if [ ! -f "#{attempt_marker}" ]; then
+          echo first-failure > "#{attempt_marker}"
+          exit 17
+        fi
+        echo recovered >> README.md
+        """
+      )
+
+      workspace = Path.join(workspace_root, "MT-RETRY")
+
+      assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
+               File.cd!(source_repo, fn ->
+                 Workspace.create_for_issue("MT-RETRY")
+               end)
+
+      refute File.exists?(workspace)
+      assert {"", 0} = System.cmd("git", ["-C", source_repo, "branch", "--list", "symphony/MT-RETRY"], stderr_to_stdout: true)
+      assert {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
+      refute worktree_list =~ workspace
+
+      assert {:ok, ^workspace} =
+               File.cd!(source_repo, fn ->
+                 Workspace.create_for_issue("MT-RETRY")
+               end)
+
+      assert File.read!(Path.join(workspace, "README.md")) =~ "recovered\n"
+    after
+      File.rm_rf(test_root)
     end
   end
 

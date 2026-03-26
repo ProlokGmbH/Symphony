@@ -43,10 +43,8 @@ hooks:
     fi
     if [ -f "$source_repo/.env.local" ]; then
       cp "$source_repo/.env.local" "$workspace/.env.local"
+      chmod 600 "$workspace/.env.local"
     fi
-    if command -v mise >/dev/null 2>&1; then
-      mise trust && mise exec -- mix deps.get
-    fi    
   before_remove: |
     # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
