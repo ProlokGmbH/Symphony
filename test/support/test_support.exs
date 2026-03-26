@@ -134,7 +134,6 @@ defmodule SymphonyElixir.TestSupport do
           codex_read_timeout_ms: 5_000,
           codex_stall_timeout_ms: 300_000,
           hook_after_create: nil,
-          hook_on_worktree_commit: nil,
           hook_before_run: nil,
           hook_after_run: nil,
           hook_before_remove: nil,
@@ -172,7 +171,6 @@ defmodule SymphonyElixir.TestSupport do
     codex_read_timeout_ms = Keyword.get(config, :codex_read_timeout_ms)
     codex_stall_timeout_ms = Keyword.get(config, :codex_stall_timeout_ms)
     hook_after_create = Keyword.get(config, :hook_after_create)
-    hook_on_worktree_commit = Keyword.get(config, :hook_on_worktree_commit)
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
     hook_before_remove = Keyword.get(config, :hook_before_remove)
@@ -215,7 +213,6 @@ defmodule SymphonyElixir.TestSupport do
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
         hooks_yaml(
           hook_after_create,
-          hook_on_worktree_commit,
           hook_before_run,
           hook_after_run,
           hook_before_remove,
@@ -253,12 +250,11 @@ defmodule SymphonyElixir.TestSupport do
 
   defp yaml_value(value), do: yaml_value(to_string(value))
 
-  defp hooks_yaml(nil, nil, nil, nil, nil, timeout_ms),
+  defp hooks_yaml(nil, nil, nil, nil, timeout_ms),
     do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
 
   defp hooks_yaml(
          hook_after_create,
-         hook_on_worktree_commit,
          hook_before_run,
          hook_after_run,
          hook_before_remove,
@@ -268,7 +264,6 @@ defmodule SymphonyElixir.TestSupport do
       "hooks:",
       "  timeout_ms: #{yaml_value(timeout_ms)}",
       hook_entry("after_create", hook_after_create),
-      hook_entry("on_worktree_commit", hook_on_worktree_commit),
       hook_entry("before_run", hook_before_run),
       hook_entry("after_run", hook_after_run),
       hook_entry("before_remove", hook_before_remove)

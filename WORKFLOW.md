@@ -43,10 +43,8 @@ hooks:
     fi
     if [ -f "$source_repo/.env.local" ]; then
       cp "$source_repo/.env.local" "$workspace/.env.local"
-      chmod 600 "$workspace/.env.local" 2>/dev/null || true
+      chmod 600 "$workspace/.env.local"
     fi
-  on_worktree_commit: |
-    cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.on_worktree_commit --source-repo "$SYMPHONY_PROJECT_ROOT" --workspace "$SYMPHONY_WORKSPACE" --branch "$SYMPHONY_BRANCH_NAME" --old-head "$SYMPHONY_PREV_HEAD_SHA" --new-head "$SYMPHONY_HEAD_SHA"
   before_remove: |
     # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
@@ -482,8 +480,8 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
 
-- Im Abschnitt `### Review` werden die Schritte aus `.symphony/review_codex.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
-- Im Abschnitt `### Test` werden die Schritte aus `.symphony/test_codex.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Review` werden die Schritte aus `.codex/skills/review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
 
 ````md
 ## Codex Workpad
@@ -510,11 +508,11 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ### Review
 
-- [ ] `<Review-Schritt aus .symphony/review_codex.md>`: `<kurze Statusnotiz>`
+- [ ] `<Review-Schritt aus .codex/skills/review/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Test
 
-- [ ] `<Test-Schritt aus .symphony/test_codex.md>`: `<kurze Statusnotiz>`
+- [ ] `<Test-Schritt aus .codex/skills/test/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Verlauf
 

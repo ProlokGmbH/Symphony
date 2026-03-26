@@ -20,9 +20,15 @@ defmodule SymphonyElixir.Workspace do
 
       with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
            :ok <- validate_workspace_path(workspace, worker_host),
-           {:ok, workspace, created?} <- ensure_workspace(workspace, worker_host),
-           :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
-        {:ok, workspace}
+           {:ok, workspace, created?} <- ensure_workspace(workspace, worker_host) do
+        case maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
+          :ok ->
+            {:ok, workspace}
+
+          {:error, _reason} = error ->
+            cleanup_failed_new_workspace(workspace, created?, worker_host, issue_context)
+            error
+        end
       end
     rescue
       error in [ArgumentError, ErlangError, File.Error] ->
@@ -99,6 +105,85 @@ defmodule SymphonyElixir.Workspace do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
     {:ok, workspace, true}
+  end
+
+  defp cleanup_failed_new_workspace(_workspace, false, _worker_host, _issue_context), do: :ok
+
+  defp cleanup_failed_new_workspace(workspace, true, nil, issue_context) do
+    case validate_workspace_path(workspace, nil) do
+      :ok ->
+        script =
+          cleanup_failed_new_workspace_script(
+            RuntimePaths.project_root(),
+            workspace,
+            issue_context
+          )
+
+        case System.cmd("sh", ["-lc", script],
+               env: Enum.into(RuntimePaths.builtin_env(), []),
+               stderr_to_stdout: true
+             ) do
+          {_output, 0} ->
+            :ok
+
+          {output, status} ->
+            Logger.warning("Workspace cleanup after failed after_create hook failed #{issue_log_context(issue_context)} worker_host=local status=#{status} output=#{inspect(output)}")
+        end
+
+      {:error, reason} ->
+        Logger.warning("Workspace cleanup after failed after_create hook skipped #{issue_log_context(issue_context)} worker_host=local workspace=#{workspace} error=#{inspect(reason)}")
+    end
+  end
+
+  defp cleanup_failed_new_workspace(workspace, true, worker_host, issue_context)
+       when is_binary(worker_host) do
+    case validate_workspace_path(workspace, worker_host) do
+      :ok ->
+        script =
+          cleanup_failed_new_workspace_script(
+            RuntimePaths.project_root(),
+            workspace,
+            issue_context
+          )
+
+        case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+          {:ok, {_output, 0}} ->
+            :ok
+
+          {:ok, {output, status}} ->
+            Logger.warning("Workspace cleanup after failed after_create hook failed #{issue_log_context(issue_context)} worker_host=#{worker_host} status=#{status} output=#{inspect(output)}")
+
+          {:error, reason} ->
+            Logger.warning("Workspace cleanup after failed after_create hook failed #{issue_log_context(issue_context)} worker_host=#{worker_host} error=#{inspect(reason)}")
+        end
+
+      {:error, reason} ->
+        Logger.warning("Workspace cleanup after failed after_create hook skipped #{issue_log_context(issue_context)} worker_host=#{worker_host} workspace=#{workspace} error=#{inspect(reason)}")
+    end
+  end
+
+  defp cleanup_failed_new_workspace_script(source_repo, workspace, issue_context) do
+    branch = "symphony/#{issue_context.issue_identifier}"
+
+    [
+      "set -eu",
+      "source_repo=#{shell_escape(source_repo)}",
+      "workspace=#{shell_escape(workspace)}",
+      "branch=#{shell_escape(branch)}",
+      "if git -C \"$source_repo\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
+      "  if git -C \"$source_repo\" worktree list --porcelain | grep -Fqx \"worktree $workspace\"; then",
+      "    git -C \"$source_repo\" worktree remove --force \"$workspace\"",
+      "    git -C \"$source_repo\" worktree prune",
+      "  fi",
+      "  if git -C \"$source_repo\" rev-parse --verify --quiet \"refs/heads/$branch\" >/dev/null 2>&1; then",
+      "    if ! git -C \"$source_repo\" show-ref --verify --quiet \"refs/remotes/origin/$branch\"; then",
+      "      git -C \"$source_repo\" branch -D \"$branch\"",
+      "    fi",
+      "  fi",
+      "fi",
+      "rm -rf \"$workspace\""
+    ]
+    |> Enum.join("\n")
   end
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
