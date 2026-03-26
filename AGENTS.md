@@ -1,53 +1,51 @@
 # Symphony Elixir
 
-This directory contains the Elixir agent orchestration service that polls Linear, creates per-issue workspaces, and runs Codex in app-server mode.
+Dieses Verzeichnis enthaelt den in Elixir geschriebenen Orchestrierungsdienst fuer Agents. Er pollt Linear, legt pro Ticket isolierte Workspaces an und startet Codex im App-Server-Modus.
 
-## Environment
+## Umgebung
 
-- Elixir: `1.19.x` (OTP 28) via `mise`.
-- Install deps: `mix setup`.
-- Main quality gate: `make all` (format check, lint, coverage, dialyzer).
+- Elixir: `1.19.x` (OTP 28) via `mise`
+- Abhaengigkeiten installieren: `mix setup`
+- Wichtigstes Qualitaets-Gate: `make all` (Format-Check, Lint, Coverage, Dialyzer)
 
+## Projektspezifische Konventionen
 
-## Codebase-Specific Conventions
+- Die Laufzeitkonfiguration wird ueber den Front-Matter von `WORKFLOW.md` via `SymphonyElixir.Workflow` und `SymphonyElixir.Config` geladen.
+- Halte die Implementierung nach Moeglichkeit in Einklang mit [SPEC.md](SPEC.md).
+  - Die Implementierung darf eine Obermenge der Spezifikation sein.
+  - Die Implementierung darf der Spezifikation nicht widersprechen.
+  - Wenn Implementierungsaenderungen das beabsichtigte Verhalten wesentlich veraendern, aktualisiere nach Moeglichkeit die Spezifikation im selben Change, damit sie aktuell bleibt.
+- Fuehre neue Konfigurationszugriffe bevorzugt ueber `SymphonyElixir.Config` ein, statt Umgebungsvariablen ad hoc direkt zu lesen.
+- Workspace-Sicherheit ist kritisch:
+  - Fuehre Codex niemals mit einem Turn-CWD im Source-Repository aus.
+  - Workspaces muessen unterhalb des konfigurierten Workspace-Roots bleiben.
+- Das Verhalten des Orchestrators ist zustandsbehaftet und nebenlaeufigkeitssensibel. Bewahre daher die Semantik fuer Retries, Reconciliation und Cleanup.
+- Folge fuer Logging-Konventionen und die erforderlichen Issue-/Session-Kontextfelder der Datei `docs/logging.md`.
 
-- Runtime config is loaded from `WORKFLOW.md` front matter via `SymphonyElixir.Workflow` and `SymphonyElixir.Config`.
-- Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
-  - The implementation may be a superset of the spec.
-  - The implementation must not conflict with the spec.
-  - If implementation changes meaningfully alter the intended behavior, update the spec in the same
-    change where practical so the spec stays current.
-- Prefer adding config access through `SymphonyElixir.Config` instead of ad-hoc env reads.
-- Workspace safety is critical:
-  - Never run Codex turn cwd in source repo.
-  - Workspaces must stay under configured workspace root.
-- Orchestrator behavior is stateful and concurrency-sensitive; preserve retry, reconciliation, and cleanup semantics.
-- Follow `docs/logging.md` for logging conventions and required issue/session context fields.
+## Tests und Validierung
 
-## Tests and Validation
-
-Run targeted tests while iterating, then run full gates before handoff.
+Fuehre waehrend der Iteration gezielte Tests aus und vor der Uebergabe die vollstaendigen Gates.
 
 ```bash
 make all
 ```
 
-## Required Rules
+## Verbindliche Regeln
 
-- Public functions (`def`) in `lib/` must have an adjacent `@spec`.
-- `defp` specs are optional.
-- `@impl` callback implementations are exempt from local `@spec` requirement.
-- Keep changes narrowly scoped; avoid unrelated refactors.
-- Follow existing module/style patterns in `lib/symphony_elixir/*`.
+- Oeffentliche Funktionen (`def`) in `lib/` muessen ein direkt benachbartes `@spec` haben.
+- `defp`-Specs sind optional.
+- Callback-Implementierungen mit `@impl` sind von der lokalen `@spec`-Pflicht ausgenommen.
+- Halte Aenderungen eng am Scope; vermeide nicht zusammenhaengende Refactorings.
+- Folge den bestehenden Modul- und Stilmustern in `lib/symphony_elixir/*`.
 
-Validation command:
+Validierungsbefehl:
 
 ```bash
 mix specs.check
 ```
 
-## Docs Update Policy
+## Dokumentationspolitik
 
-If behavior/config changes, update docs in the same PR:
+Wenn sich Verhalten oder Konfiguration aendern, aktualisiere die Dokumentation im selben PR:
 
-- `WORKFLOW.md` for workflow/config contract changes.
+- `WORKFLOW.md` fuer Aenderungen am Workflow- oder Konfigurationsvertrag
