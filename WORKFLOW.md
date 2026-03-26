@@ -56,11 +56,11 @@ codex:
   command: >-
     common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)";
     if [ -z "$common_dir" ]; then
-      echo "Unable to determine git common dir for symphony-codex" >&2;
+      echo "Unable to determine git common dir for sym-codex" >&2;
       exit 1;
     fi;
     source_repo="$(cd "$common_dir/.." && pwd -P)";
-    exec "$source_repo/symphony-codex" --observer
+    exec "$source_repo/sym-codex" --observer
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
@@ -480,8 +480,8 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
 
-- Im Abschnitt `### Review` werden die Schritte aus `.codex/skills/review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
-- Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Review` werden die Schritte aus `.codex/skills/sym-review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/sym-test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
 
 ````md
 ## Codex Workpad
@@ -508,11 +508,11 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ### Review
 
-- [ ] `<Review-Schritt aus .codex/skills/review/SKILL.md>`: `<kurze Statusnotiz>`
+- [ ] `<Review-Schritt aus .codex/skills/sym-review/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Test
 
-- [ ] `<Test-Schritt aus .codex/skills/test/SKILL.md>`: `<kurze Statusnotiz>`
+- [ ] `<Test-Schritt aus .codex/skills/sym-test/SKILL.md>`: `<kurze Statusnotiz>`
 
 ### Verlauf
 
