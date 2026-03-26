@@ -47,13 +47,14 @@ defmodule SymphonyElixir.Config.Schema do
       "Todo (AI)",
       "In Arbeit",
       "In Arbeit (AI)",
+      "PreReview (AI)",
       "Review (AI)",
       "Test (AI)",
       "Abbruch (AI)",
       "Merge (AI)"
     ]
 
-    @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
+    @default_terminal_states ["Review", "Fertig", "Abgebrochen"]
 
     embedded_schema do
       field(:kind, :string)

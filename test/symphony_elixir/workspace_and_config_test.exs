@@ -783,7 +783,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1003",
       title: "Ready work",
       state: "Todo (AI)",
-      blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
+      blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Review"}]
     }
 
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
@@ -1004,13 +1004,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "Todo (AI)",
              "In Arbeit",
              "In Arbeit (AI)",
+             "PreReview (AI)",
              "Review (AI)",
              "Test (AI)",
              "Abbruch (AI)",
              "Merge (AI)"
            ]
 
-    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Fertig", "Abgebrochen"]
+    assert config.tracker.terminal_states == ["Review", "Fertig", "Abgebrochen"]
 
     assert config.codex.approval_policy == %{
              "reject" => %{

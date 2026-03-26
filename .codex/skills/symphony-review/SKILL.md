@@ -53,9 +53,9 @@ Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/sym-review/SKILL.md` definierten Schritt.
 4. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist das Review abgeschlossen.
-5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Freigabe`.
+5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Test (AI)`.
 
 ## Abschlussbedingung
 
-- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Freigabe`.
+- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Test (AI)`.
 - Erstelle keine Commits. Der manuelle Commit-Schritt bleibt beim Entwickler im Status `Freigabe`.

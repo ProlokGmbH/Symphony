@@ -7,15 +7,13 @@ tracker:
     - Todo (AI)
     - In Arbeit
     - In Arbeit (AI)
+    - PreReview (AI)
     - Review (AI)
     - Test (AI)
     - Abbruch (AI)
     - Merge (AI)
   terminal_states:
-    - Closed
-    - Cancelled
-    - Canceled
-    - Duplicate
+    - Review
     - Fertig
     - Abgebrochen
 polling:
@@ -131,6 +129,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach dem manuellen Commit den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
 - `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
+- `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
 - `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
 - `symphony-test`: wenn das Ticket `Test (AI)` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
 - `symphony-land`: wenn das Ticket `Merge (AI)` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
@@ -149,11 +148,13 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | Nicht-terminale Stati ohne `(AI)` im Namen, außer `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen AI-Status |
 | `In Arbeit` | Ja | Ausnahme vom automatischen Statusschema: beim Eintritt den kanonischen Git-Worktree unterhalb des konfigurierten Workspace-Roots sicherstellen und genau ein leeres `## Codex Workpad` erfassen. Keine weitere automatische Bearbeitung starten. | Warten auf menschliches Verschieben in einen AI-Status |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit (AI)` verschieben. | `In Arbeit (AI)` |
-| `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `Review (AI)` |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Freigabe` |
+| `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `PreReview (AI)` |
+| `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe` |
+| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Test (AI)` |
 | `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` oder `Freigabe` |
-| `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `In Arbeit (AI)`, `Test (AI)` oder `Merge (AI)` |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen. | `Fertig` |
+| `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `In Arbeit (AI)` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen. | `Review` |
+| `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Fertig` | Nein | Terminaler Status; keine weitere Aktion erforderlich. | - |
 | `Abgebrochen` | Nein | Terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich. | - |
@@ -169,10 +170,12 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `In Arbeit` -> Ablauf `In Arbeit` ausführen.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
+   - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
+   - `Review` -> nichts tun und beenden.
    - `Fertig` -> nichts tun und beenden.
    - `Abgebrochen` -> nichts tun und beenden.
 5. Bevor du einen aktiven Codex-Ausführungsablauf fortsetzt, prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
@@ -203,7 +206,7 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 
 ### Sonderfälle
 
-- Wenn bereits eine PR angehängt ist, behandle das Ticket als Feedback-/Rework-Schleife: vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `Review (AI)` weiterreichen; erst nach abgeschlossenem `Review (AI)`-Lauf geht es nach `Freigabe`.
+- Wenn bereits eine PR angehängt ist, behandle das Ticket als Feedback-/Rework-Schleife: vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `PreReview (AI)` weiterreichen; erst nach abgeschlossenem `PreReview (AI)`-Lauf geht es nach `Freigabe`.
 
 ## Ablauf für `In Arbeit`
 
@@ -240,7 +243,7 @@ Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten, oh
 
 ### Ziel
 
-Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `Review (AI)`.
+Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `PreReview (AI)`.
 
 ### Voraussetzungen
 
@@ -284,19 +287,19 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
     - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
     - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
     - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
-    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `Review (AI)` wieder zurück.
+    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
     - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
     - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
 14. Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
-15. Führe vor der Übergabe nach `Review (AI)` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
+15. Führe vor der Übergabe nach `PreReview (AI)` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
 16. Führe keine automatischen Commits aus. Alle Commits werden ausschließlich durch den Entwickler im Status `Freigabe` erstellt.
 17. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
     - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
     - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
-    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `Review (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
+    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
     - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
     - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-18. Bevor du nach `Review (AI)` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
+18. Bevor du nach `PreReview (AI)` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
     - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
     - Führe in diesem Fall das vollständige PR-Feedback-Sweep-Protokoll aus.
     - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
@@ -304,14 +307,14 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
 
 ### Abschluss und nächster Status
 
-- Der reguläre Abschluss dieser Phase ist `Review (AI)`, nicht direkt `Freigabe`.
-- Erst dann nach `Review (AI)` verschieben.
+- Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe`.
+- Erst dann nach `PreReview (AI)` verschieben.
   - Ein direkter Übergang von `In Arbeit (AI)` nach `Freigabe` ist nur über den blocked-access escape hatch zulässig.
   - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Freigabe` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
 - Für `Todo (AI)`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
   - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
-  - Verschiebe erst dann nach `Review (AI)`.
-- Vor dem Wechsel nach `Review (AI)` müssen alle folgenden Bedingungen erfüllt sein:
+  - Verschiebe erst dann nach `PreReview (AI)`.
+- Vor dem Wechsel nach `PreReview (AI)` müssen alle folgenden Bedingungen erfüllt sein:
   - Die Checkliste aus diesem Ablauf ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
   - Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
   - Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
@@ -322,6 +325,30 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
 ### Sonderfälle
 
 - Wenn du blockiert bist und noch kein Workpad existiert, füge einen Blocker-Kommentar hinzu, der Blocker, Auswirkung und nächste Entblockungsaktion beschreibt.
+
+## Ablauf für `PreReview (AI)`
+
+### Ziel
+
+Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und das Issue danach in den manuellen `Freigabe`-Schritt übergeben.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `PreReview (AI)`.
+
+### Ablauf
+
+1. Öffne `.codex/skills/symphony-prereview/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Der Skill enthält die repository-spezifische PreReview-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die gezielte Schrittwiederholung ohne kompletten Neustart.
+
+### Abschluss und nächster Status
+
+- Verschiebe das Issue erst danach nach `Freigabe`.
+  - Nur dieser Schritt verschiebt regulär von `PreReview (AI)` nach `Freigabe`.
+
+### Sonderfälle
+
+- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe` als Fallback automatisch.
 
 ## Ablauf für `Review (AI)`
 
@@ -340,12 +367,12 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Freigabe`.
-  - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe`.
+- Verschiebe das Issue erst danach nach `Test (AI)`.
+  - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Test (AI)`.
 
 ### Sonderfälle
 
-- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe` als Fallback automatisch.
+- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den Statuswechsel nach `Test (AI)` als Fallback automatisch.
 
 ## Ablauf für `Test (AI)`
 
@@ -391,7 +418,7 @@ Den manuellen Review- und Commit-Schritt vollständig dem Entwickler überlassen
 
 ### Abschluss und nächster Status
 
-- Nach der manuellen Freigabe kann ein Mensch das Issue für einen zusätzlichen automatisierten Testlauf nach `Test (AI)` verschieben oder nach abgeschlossenem manuellem Commit direkt nach `Merge (AI)`.
+- Nach der manuellen Freigabe verschiebt ein Mensch das Issue regulär nach `Review (AI)`.
 - Wenn Freigabe-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
 
 ### Sonderfälle
@@ -402,7 +429,7 @@ Den manuellen Review- und Commit-Schritt vollständig dem Entwickler überlassen
 
 ### Ziel
 
-Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen und das Issue danach nach `Fertig` verschieben.
+Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen und das Issue danach nach `Review` verschieben.
 
 ### Voraussetzungen
 
@@ -416,7 +443,7 @@ Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen u
 
 ### Abschluss und nächster Status
 
-- Nach abgeschlossenem Merge das Issue nach `Fertig` verschieben.
+- Nach abgeschlossenem Merge das Issue nach `Review` verschieben.
 
 ### Sonderfälle
 
@@ -450,7 +477,7 @@ Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber ab
 
 ### PR-Feedback-Sweep-Protokoll
 
-Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review (AI)` verschiebst:
+Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `PreReview (AI)` verschiebst:
 
 1. Ermittle die PR-Nummer aus Issue-Links/Attachments.
 2. Sammle Feedback aus allen Kanälen:
@@ -461,7 +488,7 @@ Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, 
    - Code/Tests/Doku wurden aktualisiert, um ihn zu adressieren, oder
    - in genau diesem Thread wurde eine explizite, begründete Pushback-Antwort gepostet.
 4. Aktualisiere Plan/Checkliste im Workpad, sodass jeder Feedback-Punkt und sein Auflösungsstatus enthalten sind.
-5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für `Review (AI)` und den anschließenden manuellen Commit in `Freigabe` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
+5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für `PreReview (AI)` und den anschließenden manuellen Commit in `Freigabe` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
 6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
 
 ### Blocked-access escape hatch
@@ -480,7 +507,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 
 Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
 
-- Im Abschnitt `### Review` werden die Schritte aus `.codex/skills/sym-review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
+- Im Abschnitt `### Review` werden während `PreReview (AI)` die Schritte aus `.codex/skills/sym-prereview/SKILL.md` und während `Review (AI)` die Schritte aus `.codex/skills/sym-review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
 - Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/sym-test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
 
 ````md
@@ -508,7 +535,7 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ### Review
 
-- [ ] `<Review-Schritt aus .codex/skills/sym-review/SKILL.md>`: `<kurze Statusnotiz>`
+- [ ] `<PreReview-/Review-Schritt aus dem aktiven Skill>`: `<kurze Statusnotiz>`
 
 ### Test
 
@@ -532,9 +559,9 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Freigabe` erstellt.
-- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `Review (AI)` rückgängig gemacht werden.
+- Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
-- Verschiebe nicht nach `Review (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
+- Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
 - In `Freigabe` keine weiteren Codeänderungen vornehmen; auf manuellen Commit sowie gegebenenfalls nachgelagerte Push-/PR-Updates warten. Kein regelmäßiges Polling.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.

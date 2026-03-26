@@ -8,12 +8,16 @@ defmodule SymphonyElixir.AgentRunner do
   alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
 
   @type worker_host :: String.t() | nil
+  @prereview_codex_state_name "prereview (ai)"
+  @prereview_handoff_state_name "Freigabe"
   @review_codex_state_name "review (ai)"
-  @review_handoff_state_name "Freigabe"
+  @review_handoff_state_name "Test (AI)"
   @test_codex_state_name "test (ai)"
   @test_codex_clean_handoff_state_name "Merge (AI)"
-  @test_codex_changed_handoff_state_name "Freigabe"
+  @freigabe_state_name "Freigabe"
+  @test_codex_changed_handoff_state_name @freigabe_state_name
   @merge_codex_state_name "merge (ai)"
+  @merge_handoff_state_name "Review"
   @workspace_bootstrap_state_name "in arbeit"
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
@@ -278,6 +282,16 @@ defmodule SymphonyElixir.AgentRunner do
          initial_workspace_signature
        ) do
     cond do
+      prereview_codex_state?(issue.state) and is_binary(issue.id) ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          @prereview_handoff_state_name,
+          :prereview_handoff_state_update_failed,
+          "completed prereview issue",
+          :stop
+        )
+
       review_codex_state?(issue.state) and is_binary(issue.id) ->
         transition_issue_state(
           issue,
@@ -295,6 +309,16 @@ defmodule SymphonyElixir.AgentRunner do
           workspace,
           worker_host,
           initial_workspace_signature
+        )
+
+      merge_codex_state?(issue.state) and is_binary(issue.id) ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          @merge_handoff_state_name,
+          :merge_handoff_state_update_failed,
+          "completed merge issue",
+          :stop
         )
 
       true ->
@@ -380,7 +404,7 @@ defmodule SymphonyElixir.AgentRunner do
       case transition_issue_state(
              issue,
              issue_state_fetcher,
-             @review_handoff_state_name,
+             @freigabe_state_name,
              :dirty_workspace_handoff_state_update_failed,
              "redirected issue with dirty workspace before #{issue.state}",
              :stop
@@ -509,6 +533,12 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp active_issue_state?(_state_name), do: false
+
+  defp prereview_codex_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @prereview_codex_state_name
+  end
+
+  defp prereview_codex_state?(_state_name), do: false
 
   defp review_codex_state?(state_name) when is_binary(state_name) do
     normalize_issue_state(state_name) == @review_codex_state_name
