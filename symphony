@@ -7,8 +7,9 @@ SKILLS_DIR="$SCRIPT_DIR/.codex/skills"
 USER_SKILLS_DIR="$HOME/.codex/skills"
 USER_BIN_DIR="$HOME/.local/bin"
 PROJECT_DIR="$SCRIPT_DIR"
-CODEX_LINK_PATH="$USER_BIN_DIR/symphony-codex"
-CODEX_TARGET_PATH="$PROJECT_DIR/symphony-codex"
+CODEX_LINK_PATH="$USER_BIN_DIR/sym-codex"
+CODEX_TARGET_PATH="$PROJECT_DIR/sym-codex"
+LEGACY_CODEX_LINK_PATH="$USER_BIN_DIR/symphony-codex"
 
 mkdir -p "$USER_SKILLS_DIR"
 mkdir -p "$USER_BIN_DIR"
@@ -21,7 +22,11 @@ fi
 ln -sfnT "$CODEX_TARGET_PATH" "$CODEX_LINK_PATH"
 
 shopt -s nullglob
-for skill_dir in "$SKILLS_DIR"/symphony-* "$SKILLS_DIR"/review "$SKILLS_DIR"/test; do
+if [ -L "$LEGACY_CODEX_LINK_PATH" ]; then
+  unlink "$LEGACY_CODEX_LINK_PATH"
+fi
+
+for skill_dir in "$SKILLS_DIR"/symphony-* "$SKILLS_DIR"/sym-review "$SKILLS_DIR"/sym-test; do
   if [ ! -d "$skill_dir" ]; then
     continue
   fi
@@ -37,7 +42,7 @@ for skill_dir in "$SKILLS_DIR"/symphony-* "$SKILLS_DIR"/review "$SKILLS_DIR"/tes
   ln -sfnT "$skill_dir" "$target_path"
 done
 
-for user_skill in "$USER_SKILLS_DIR"/symphony-* "$USER_SKILLS_DIR"/review "$USER_SKILLS_DIR"/test; do
+for user_skill in "$USER_SKILLS_DIR"/symphony-* "$USER_SKILLS_DIR"/sym-review "$USER_SKILLS_DIR"/sym-test "$USER_SKILLS_DIR"/review "$USER_SKILLS_DIR"/test; do
   if [ ! -L "$user_skill" ]; then
     continue
   fi

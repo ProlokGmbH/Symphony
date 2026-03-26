@@ -1,13 +1,13 @@
 ---
-name: test
+name: sym-test
 description: |
   Repository-spezifische Checkliste fuer den Workflow-Schritt `Test Codex`
   in Symphony Elixir.
 ---
 
-# Test
+# Sym Test
 
-Verwende diesen Skill als massgebliche Checkliste fuer `Test Codex` in diesem
+Verwende diesen Skill `sym-test` als massgebliche Checkliste fuer `Test Codex` in diesem
 Repository.
 
 ## Checkliste
