@@ -155,7 +155,7 @@ defmodule SymphonyElixir.LiveE2ETest do
     |> Enum.filter(&(&1["type"] in ["completed", "canceled"]))
     |> Enum.map(& &1["name"])
     |> case do
-      [] -> ["Fertig", "Abgebrochen", "Canceled", "Cancelled"]
+      [] -> ["Review", "Fertig", "Abgebrochen"]
       names -> names
     end
   end
@@ -165,7 +165,7 @@ defmodule SymphonyElixir.LiveE2ETest do
     |> Enum.reject(&(&1["type"] in ["completed", "canceled"]))
     |> Enum.map(& &1["name"])
     |> case do
-      [] -> ["Todo (AI)", "In Arbeit", "In Arbeit (AI)", "Review (AI)", "Test (AI)", "Abbruch (AI)", "Merge (AI)"]
+      [] -> ["Todo (AI)", "In Arbeit", "In Arbeit (AI)", "PreReview (AI)", "Review (AI)", "Test (AI)", "Abbruch (AI)", "Merge (AI)"]
       names -> names
     end
   end

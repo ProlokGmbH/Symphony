@@ -1,13 +1,13 @@
 ---
-name: review
+name: sym-review
 description: |
   Repository-spezifische Checkliste fuer den Workflow-Schritt `Review Codex`
   in Symphony Elixir.
 ---
 
-# Review
+# Sym Review
 
-Verwende diesen Skill als massgebliche Checkliste fuer `Review Codex` in
+Verwende diesen Skill `sym-review` als massgebliche Checkliste fuer `Review Codex` in
 diesem Repository.
 
 ## Checkliste
