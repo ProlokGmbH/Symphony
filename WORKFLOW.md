@@ -75,7 +75,7 @@ Fortsetzungskontext:
 - Dies ist Wiederholungsversuch Nr. {{ attempt }}, weil sich das Ticket weiterhin in einem aktiven Status befindet.
 - Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
 - Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
-- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert. Ausnahme: Für `In Arbeit` endet der Turn regulär nach erfolgreichem Bootstrap von Worktree und leerem Workpad.
+- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert. Ausnahme: Für `In Arbeit` endet der Turn regulär nach erfolgreichem Bootstrap von Worktree und Workpad; bei bestätigtem Erstkontakt gehört das einmalige `Erstkontakt-Protokoll für neue Items` noch zu diesem Bootstrap.
 {% endif %}
 
 Ticket-Kontext:
@@ -101,7 +101,7 @@ Keine Beschreibung vorhanden.
 
 - Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
-- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus. Die einzige Ausnahme ist `In Arbeit`; dort darfst du ausschließlich den Bootstrap von Git-Worktree und leerem Workpad ausführen.
+- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus. Die einzige Ausnahme ist `In Arbeit`; dort darfst du ausschließlich den Bootstrap von Git-Worktree und Workpad ausführen sowie bei bestätigtem Erstkontakt einmalig das `Erstkontakt-Protokoll für neue Items`.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
@@ -147,7 +147,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | Nicht-terminale Stati ohne `(AI)` im Namen, außer `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen AI-Status |
-| `In Arbeit` | Ja | Ausnahme vom automatischen Statusschema: beim Eintritt den kanonischen Git-Worktree unterhalb des konfigurierten Workspace-Roots sicherstellen und genau ein leeres `## Codex Workpad` erfassen. Keine weitere automatische Bearbeitung starten. | Warten auf menschliches Verschieben in einen AI-Status |
+| `In Arbeit` | Ja | Ausnahme vom automatischen Statusschema: beim Eintritt den kanonischen Git-Worktree unterhalb des konfigurierten Workspace-Roots sicherstellen, das `## Codex Workpad` bootstrappen und bei bestätigtem Erstkontakt einmalig das `Erstkontakt-Protokoll für neue Items` ausführen. Keine weitere automatische Bearbeitung starten. | Warten auf menschliches Verschieben in einen AI-Status |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit (AI)` verschieben. | `In Arbeit (AI)` |
 | `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `Review (AI)` |
 | `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Freigabe` |
@@ -194,6 +194,7 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 1. Für `Todo (AI)`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "In Arbeit (AI)")`
    - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
+   - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
    - erst danach Analyse-, Planungs- und Implementierungsarbeit beginnen.
 2. Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
 
@@ -209,7 +210,7 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 
 ### Ziel
 
-Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten, ohne den regulären Codex-Ausführungsablauf zu starten.
+Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten und nur bei bestätigtem Erstkontakt einmalig die Beschreibung korrigieren, ohne den regulären Codex-Ausführungsablauf zu starten.
 
 ### Voraussetzungen
 
@@ -224,7 +225,8 @@ Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten, oh
    - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
    - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
    - Falls nicht vorhanden, erstelle genau einen neuen, leeren Workpad-Kommentar in der Standardstruktur aus `## Workpad-Standard`, aber ohne bereits begonnene Planungs-, Implementierungs- oder Validierungsinhalte.
-4. Starte keine weitere Analyse-, Planungs- oder Implementierungsarbeit.
+   - Falls du in diesem Turn den ersten Workpad-Kommentar neu anlegen musstest, prüfe unmittelbar danach die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus.
+4. Starte darüber hinaus keine weitere Analyse-, Planungs- oder Implementierungsarbeit.
 5. Ändere den Status nicht automatisch weiter.
 
 ### Abschluss und nächster Status
@@ -255,6 +257,7 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
    - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
    - Falls nicht vorhanden, erstelle einen Workpad-Kommentar und nutze ihn für alle Updates.
    - Speichere die ID des Workpad-Kommentars und schreibe Fortschrittsupdates nur in diese ID.
+   - Falls du in diesem Turn den ersten Workpad-Kommentar neu anlegen musstest, prüfe unmittelbar danach die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus, bevor du Plan, Akzeptanzkriterien oder Validierung weiter ausarbeitest.
 2. Gleiche das Workpad vor neuen Änderungen sofort ab:
    - Hake bereits erledigte Punkte ab.
    - Erweitere/korrigiere den Plan so, dass er für den aktuellen Scope vollständig ist.
@@ -448,6 +451,24 @@ Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber ab
 
 ## Verpflichtende Sonderprotokolle
 
+### Erstkontakt-Protokoll für neue Items
+
+Führe dieses Protokoll nur dann aus, wenn alle folgenden Bedingungen gleichzeitig erfüllt sind:
+
+1. Du hast in diesem Turn festgestellt, dass vorab kein aktiver `## Codex Workpad`-Kommentar existierte und musstest deshalb einen neuen Workpad-Kommentar anlegen.
+2. Du hast zusätzlich per separater, vollständig paginierter Kommentarabfrage einschließlich aufgelöster Kommentare bestätigt, dass für dieses Issue außer dem Workpad-Kommentar, den du gerade in diesem Turn neu angelegt hast, noch nie ein `## Codex Workpad`-Kommentar existiert hat.
+3. Wenn du diese Erstkontakt-Bedingung nicht zuverlässig verifizieren kannst, weil Kommentare oder Seiten nicht vollständig abrufbar sind, überspringe das Protokoll vollständig und lasse die Issue-Beschreibung unverändert.
+
+Wenn die Trigger-Bedingungen erfüllt sind:
+
+1. Lies den aktuellen Beschreibungstext des Issues direkt aus Linear.
+2. Analysiere den Text auf Rechtschreibung, Grammatik, offensichtliche Spracherkennungsfehler und Formatierungsprobleme.
+3. Korrigiere insbesondere falsche oder uneinheitliche Begriffe, die sich auf dieses Repository beziehen. Nutze dafür vorhandene Dateinamen, Modulnamen, Produktnamen, Workflow-Begriffe und andere repository-spezifische Referenzen als Quelle.
+4. Bewahre die fachliche Bedeutung und den Scope des Tickets. Verbessere nur Sprache, Begriffswahl und Formatierung; füge keine neuen Anforderungen hinzu.
+5. Speichere den bereinigten Beschreibungstext über den in der Sitzung verfügbaren Linear-Zugriff zurück in Linear. Nutze dazu den Linear-MCP-Server oder das injizierte Tool `linear_graphql` mit `issueUpdate(..., input: {description: ...})`, je nachdem was tatsächlich verfügbar ist, und nur wenn gegenüber dem Original tatsächlich eine qualitativ bessere, inhaltlich äquivalente Fassung entsteht.
+6. Halte im Workpad knapp fest, ob die Erstkontakt-Korrektur durchgeführt wurde oder keine Änderung nötig war.
+7. Führe dieses Protokoll niemals erneut aus, wenn bereits vor oder während eines früheren Turns ein Workpad-Kommentar für das Issue existiert hat.
+
 ### PR-Feedback-Sweep-Protokoll
 
 Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `Review (AI)` verschiebst:
@@ -528,7 +549,7 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 - Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
 - Für geschlossene/gemergte Branch-PRs erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
 - Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo (AI)` verschiebt.
-- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung.
+- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Die einzige Ausnahme ist das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Freigabe` erstellt.
