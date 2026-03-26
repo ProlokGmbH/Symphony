@@ -127,7 +127,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 ### Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
-- `symphony-push`: nach dem manuellen Commit den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
+- `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren und PR-Updates veröffentlichen.
 - `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
 - `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
 - `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
@@ -150,10 +150,10 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit (AI)` verschieben. | `In Arbeit (AI)` |
 | `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe` |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Test (AI)` |
-| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` oder `Freigabe` |
+| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig. | `Test (AI)` |
+| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig. | `Merge (AI)` |
 | `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `In Arbeit (AI)` |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen. | `Review` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind in diesem Status zulässig. | `Review` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Fertig` | Nein | Terminaler Status; keine weitere Aktion erforderlich. | - |
@@ -295,7 +295,7 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
     - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
 14. Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
 15. Führe vor der Übergabe nach `PreReview (AI)` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
-16. Führe keine automatischen Commits aus. Alle Commits werden ausschließlich durch den Entwickler im Status `Freigabe` erstellt.
+16. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Freigabe-/Commit-Schritt bewusst ungecommittet bleiben.
 17. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
     - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
     - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
@@ -357,7 +357,7 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Ziel
 
-Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das Issue danach in den menschlichen Review übergeben.
+Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Test (AI)` übergeben.
 
 ### Voraussetzungen
 
@@ -367,6 +367,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
+3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche den aktualisierten Stand anschließend mit `symphony-push`.
 
 ### Abschluss und nächster Status
 
@@ -381,23 +382,22 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 ### Ziel
 
-Den repository-spezifischen Test-/Fix-Zyklus auf einem sauberen Workspace ausführen und anhand des Ergebnisses den nächsten Status bestimmen.
+Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Merge (AI)` übergeben.
 
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `Test (AI)`.
-- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Freigabe`-Schritt mehr vorhanden sind.
 
 ### Ablauf
 
-1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Freigabe`, damit der manuelle Commit-Schritt nachgeholt wird; den Test-Skill in diesem Fall nicht starten.
-2. Nur mit sauberem Workspace `.codex/skills/symphony-test/SKILL.md` öffnen und den dort definierten Ablauf ausführen.
-3. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche den aktualisierten Stand anschließend mit `symphony-push`.
 
 ### Abschluss und nächster Status
 
-- Wenn der Testlauf ohne neue Workspace-Änderungen sauber endet, verschiebe das Issue nach `Merge (AI)`.
-- Wenn der Testlauf Codeänderungen erfordert und sauber endet, verschiebe das Issue zurück nach `Freigabe`, damit der Entwickler die Änderungen erneut begutachten kann.
+- Verschiebe das Issue erst danach nach `Merge (AI)`.
+  - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Merge (AI)`.
 
 ### Sonderfälle
 
@@ -437,7 +437,7 @@ Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen u
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `Merge (AI)`.
-- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen aus dem manuellen `Freigabe`-Schritt mehr vorhanden sind.
+- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen mehr vorhanden sind.
 
 ### Ablauf
 
@@ -516,7 +516,7 @@ Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, 
 
 Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
-- GitHub ist vor `Freigabe` standardmäßig **kein** gültiger Blocker. Automatische Commits gehören nicht in diesen Ablauf.
+- GitHub ist vor `Freigabe` standardmäßig **kein** gültiger Blocker. Die in späteren AI-Status erlaubten automatischen Commits ändern daran nichts.
 - Verschiebe nicht wegen GitHub-Zugriff/Auth nach `Freigabe`; der Entwickler übernimmt dort den manuellen Commit-Schritt. Pushes und PR-Aktualisierungen können anschließend weiterhin erfolgen.
 - Wenn ein erforderliches Nicht-GitHub-Tool fehlt oder erforderliche Nicht-GitHub-Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Freigabe`. Dieser Hinweis muss enthalten:
   - was fehlt,
@@ -579,7 +579,7 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Die einzige Ausnahme ist das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Führe keine automatischen Commits aus. Alle Commits werden ausschließlich manuell durch den Entwickler im Status `Freigabe` erstellt.
+- Automatische Commits sind ausschließlich in `Review (AI)`, `Test (AI)` und `Merge (AI)` zulässig. In allen anderen Status bleiben sie verboten.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.

@@ -18,6 +18,7 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
+- Wenn der Test-Zyklus Fixes erzeugt, committe den resultierenden Stand vor Abschluss dieses Status mit `symphony-commit`; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche den Commit anschließend mit `symphony-push`.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 
@@ -51,11 +52,10 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/sym-test/SKILL.md` definierten Schritt.
-4. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
-5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und übergib nach `Freigabe`.
+4. Wenn während der Schleife lokale Fixes entstanden sind, committe den finalen Stand vor dem Abschluss dieses Status mit `symphony-commit`; falls bereits ein PR- oder Remote-Branch existiert, veröffentliche ihn anschließend mit `symphony-push`.
+5. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
+6. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und stoppe ohne Statuswechsel.
 
 ## Abschlussbedingung
 
-- Wenn der Testlauf ohne neue Workspace-Änderungen abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`.
-- Wenn der Testlauf Codeänderungen erfordert hat, verschiebe das Ticket von `Test (AI)` zurück nach `Freigabe`, damit der Entwickler die Änderungen erneut prüft.
-- Erstelle keine Commits. Der manuelle Freigabe-/Commit-Schritt bleibt beim Entwickler im Status `Freigabe`.
+- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`. Das gilt auch dann, wenn der Testlauf hierfür notwendige Fixes in diesem Status committed hat.
