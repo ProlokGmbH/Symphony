@@ -12,11 +12,10 @@ diesem Repository.
 
 ## Checkliste
 
-1. `mix build`
-2. `mix format`
-3. `mix format --check-formatted`
-4. `mix lint`
-5. `codex review --uncommitted`
+1. `mix format`
+2. `mix format --check-formatted`
+3. `mix lint`
+4. `codex review --base origin/main`
 
 Fuehre die Checkliste strikt nacheinander aus. Falls es beim Review zu
 Abweichungen kommt, behebe diese direkt. Ueberspringe nach einem Fix keine

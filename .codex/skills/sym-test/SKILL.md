@@ -12,8 +12,7 @@ Repository.
 
 ## Checkliste
 
-1. `mix test --cover`
-2. `mix test`
+1. `make all`
 
 Fuehre die Checkliste strikt nacheinander aus. Falls es beim Test zu
 Abweichungen kommt, behebe diese direkt. Ueberspringe nach einem Fix keine
