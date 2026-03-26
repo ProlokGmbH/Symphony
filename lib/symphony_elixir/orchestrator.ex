@@ -1006,7 +1006,10 @@ defmodule SymphonyElixir.Orchestrator do
       })
     else
       Logger.info("Bootstrap task completed for issue_id=#{issue_id} session_id=#{session_id}; suppressing continuation until state changes")
-      complete_issue(state, issue_id, running_entry.issue.state)
+
+      state
+      |> complete_issue(issue_id, running_entry.issue.state)
+      |> release_issue_claim(issue_id)
     end
   end
 

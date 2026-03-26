@@ -1020,6 +1020,46 @@ defmodule SymphonyElixir.CoreTest do
     assert_due_in_range(due_at_ms, 250, 1_100)
   end
 
+  test "bootstrap worker exit releases the claim until the issue state changes" do
+    issue_id = "issue-bootstrap"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :BootstrapCompletionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-562",
+      issue: %Issue{id: issue_id, identifier: "MT-562", state: "In Arbeit"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+    Process.sleep(50)
+    state = :sys.get_state(pid)
+
+    refute Map.has_key?(state.running, issue_id)
+    assert MapSet.member?(state.completed, issue_id)
+    assert state.completed_states[issue_id] == "in arbeit"
+    refute MapSet.member?(state.claimed, issue_id)
+    assert state.retry_attempts == %{}
+  end
+
   test "abnormal worker exit increments retry attempt progressively" do
     issue_id = "issue-crash"
     ref = make_ref()
