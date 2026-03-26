@@ -46,6 +46,26 @@ sym_codex_activate_venv() {
   fi
 }
 
+sym_codex_realpath() {
+  local raw_path="$1"
+  local resolved_path=""
+
+  if command -v readlink >/dev/null 2>&1; then
+    resolved_path="$(readlink -f -- "$raw_path" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$resolved_path" ]] && command -v realpath >/dev/null 2>&1; then
+    resolved_path="$(realpath "$raw_path" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$resolved_path" ]]; then
+    printf '%s\n' "$resolved_path"
+    return 0
+  fi
+
+  return 1
+}
+
 sym_codex_source_repo() {
   local script_source="${BASH_SOURCE[0]}"
   local resolved_source
@@ -58,6 +78,12 @@ sym_codex_source_repo() {
     if [[ -n "$resolved_source" ]]; then
       script_source="$resolved_source"
     fi
+  fi
+
+  resolved_source="$(sym_codex_realpath "$script_source" 2>/dev/null || true)"
+
+  if [[ -n "$resolved_source" ]]; then
+    script_source="$resolved_source"
   fi
 
   script_dir="$(cd "$(dirname "$script_source")" && pwd -P 2>/dev/null)" ||
