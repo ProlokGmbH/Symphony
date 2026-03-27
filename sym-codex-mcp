@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+sym_codex_mcp_die() {
+  printf 'sym-codex-mcp: %s\n' "$*" >&2
+  exit 1
+}
+
+sym_codex_mcp_activate_venv() {
+  local source_repo="$1"
+  local activate_script="$source_repo/.venv/bin/activate"
+
+  if [[ -f "$activate_script" ]]; then
+    # shellcheck disable=SC1090
+    . "$activate_script"
+  fi
+}
+
+sym_codex_mcp_run_mix() {
+  if command -v mise >/dev/null 2>&1; then
+    mise exec -- mix "$@"
+  else
+    mix "$@"
+  fi
+}
+
+main() {
+  local source_repo="${SYMPHONY_SOURCE_REPO:-}"
+
+  if [[ -z "$source_repo" ]]; then
+    sym_codex_mcp_die "missing SYMPHONY_SOURCE_REPO"
+  fi
+
+  if [[ ! -d "$source_repo" ]]; then
+    sym_codex_mcp_die "source repo does not exist: $source_repo"
+  fi
+
+  cd "$source_repo" || sym_codex_mcp_die "cannot change into $source_repo"
+  sym_codex_mcp_activate_venv "$source_repo"
+  sym_codex_mcp_run_mix run --no-start -e 'SymphonyElixir.Codex.MCPServer.main()'
+}
+
+main "$@"

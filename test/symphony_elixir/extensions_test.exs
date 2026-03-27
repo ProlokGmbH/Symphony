@@ -25,6 +25,11 @@ defmodule SymphonyElixir.ExtensionsTest do
       {:ok, issue_ids}
     end
 
+    def fetch_issue_by_identifier(identifier) do
+      send(self(), {:fetch_issue_by_identifier_called, identifier})
+      {:ok, identifier}
+    end
+
     def fetch_issue_comment_bodies(issue_id) do
       send(self(), {:fetch_issue_comment_bodies_called, issue_id})
       Process.get({__MODULE__, :issue_comment_bodies_result})
@@ -104,6 +109,13 @@ defmodule SymphonyElixir.ExtensionsTest do
     end)
 
     :ok
+  end
+
+  test "linear adapter fetches an issue by identifier through the configured client module" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+
+    assert {:ok, "PRO-49"} = Adapter.fetch_issue_by_identifier("PRO-49")
+    assert_receive {:fetch_issue_by_identifier_called, "PRO-49"}
   end
 
   test "workflow store reloads changes, keeps last good workflow, and falls back when stopped" do

@@ -55,6 +55,16 @@ defmodule SymphonyElixir.Linear.Client do
   }
   """
 
+  @query_by_identifier """
+  query SymphonyLinearIssueByIdentifier($teamKey: String!, $number: Float!, $relationFirst: Int!) {
+    issues(filter: {team: {key: {eq: $teamKey}}, number: {eq: $number}}, first: 1) {
+      nodes {
+        #{@issue_selection}
+      }
+    }
+  }
+  """
+
   @viewer_query """
   query SymphonyLinearViewer {
     viewer {
@@ -133,6 +143,35 @@ defmodule SymphonyElixir.Linear.Client do
     end
   end
 
+  @spec fetch_issue_by_identifier(String.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def fetch_issue_by_identifier(identifier) when is_binary(identifier) do
+    normalized_identifier = String.trim(identifier)
+    tracker = Config.settings!().tracker
+
+    cond do
+      is_nil(tracker.api_key) ->
+        {:error, :missing_linear_api_token}
+
+      is_nil(tracker.project_slug) ->
+        {:error, :missing_linear_project_slug}
+
+      normalized_identifier == "" ->
+        {:error, :missing_issue_identifier}
+
+      true ->
+        with {:ok, team_key, issue_number} <- split_issue_identifier(normalized_identifier),
+             {:ok, body} <-
+               graphql(@query_by_identifier, %{
+                 teamKey: team_key,
+                 number: issue_number,
+                 relationFirst: @issue_page_size
+               }),
+             {:ok, issues} <- decode_linear_response(body, nil) do
+          first_issue(issues, normalized_identifier)
+        end
+    end
+  end
+
   @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
     case graphql(@issue_comments_query, %{id: issue_id}) do
@@ -153,7 +192,13 @@ defmodule SymphonyElixir.Linear.Client do
   def graphql(query, variables \\ %{}, opts \\ [])
       when is_binary(query) and is_map(variables) and is_list(opts) do
     payload = build_graphql_payload(query, variables, Keyword.get(opts, :operation_name))
-    request_fun = Keyword.get(opts, :request_fun, &post_graphql_request/2)
+
+    request_fun =
+      Keyword.get(
+        opts,
+        :request_fun,
+        Application.get_env(:symphony_elixir, :linear_client_request_fun, &post_graphql_request/2)
+      )
 
     with {:ok, headers} <- graphql_headers(),
          {:ok, %{status: 200, body: body}} <- request_fun.(payload, headers) do
@@ -443,6 +488,19 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp decode_linear_page_response(response, assignee_filter), do: decode_linear_response(response, assignee_filter)
+
+  defp first_issue([%Issue{} = issue | _rest], _identifier), do: {:ok, issue}
+  defp first_issue([], identifier), do: {:error, {:issue_not_found, identifier}}
+
+  defp split_issue_identifier(identifier) when is_binary(identifier) do
+    case Regex.named_captures(~r/\A(?<team_key>[A-Za-z0-9]+)-(?<issue_number>\d+)\z/, identifier) do
+      %{"team_key" => team_key, "issue_number" => issue_number} ->
+        {:ok, String.upcase(team_key), String.to_integer(issue_number)}
+
+      _ ->
+        {:error, {:invalid_issue_identifier, identifier}}
+    end
+  end
 
   defp next_page_cursor(%{has_next_page: true, end_cursor: end_cursor})
        when is_binary(end_cursor) and byte_size(end_cursor) > 0 do

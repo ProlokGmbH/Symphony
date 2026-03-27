@@ -22,11 +22,11 @@ sym_codex_stderr() {
 sym_codex_usage() {
   cat >&2 <<'EOF'
 Usage:
-  sym-codex <issue.identifier>
-  source sym-codex <issue.identifier>
+  sym-codex [<issue.identifier>]
   sym-codex --observer [<issue.identifier>]
 
 Direct execution runs Codex in the selected worktree.
+If no issue identifier is given from inside a configured worktree, sym-codex reuses that worktree.
 If the script is sourced, the current shell stays in that worktree afterwards.
 EOF
 }
@@ -37,13 +37,27 @@ sym_codex_die() {
 }
 
 sym_codex_activate_venv() {
-  local source_repo="$1"
-  local activate_script="$source_repo/.venv/bin/activate"
+  local project_root="$1"
+  local workspace="$2"
+  local source_repo="$3"
+  local candidate_root=""
+  local activate_script=""
 
-  if [[ -f "$activate_script" ]]; then
-    # shellcheck disable=SC1090
-    . "$activate_script"
-  fi
+  for candidate_root in "$project_root" "$workspace" "$source_repo"; do
+    if [[ -n "$candidate_root" ]]; then
+      activate_script="$candidate_root/.venv/bin/activate"
+
+      if [[ -f "$activate_script" ]]; then
+        export BASH_ENV="$activate_script"
+        export VIRTUAL_ENV_DISABLE_PROMPT=1
+        # shellcheck disable=SC1090
+        . "$activate_script"
+        return 0
+      fi
+    fi
+  done
+
+  return 0
 }
 
 sym_codex_realpath() {
@@ -89,17 +103,17 @@ sym_codex_source_repo() {
   script_dir="$(cd "$(dirname "$script_source")" && pwd -P 2>/dev/null)" ||
     sym_codex_die "cannot resolve script directory"
 
+  if [[ -f "$script_dir/WORKFLOW.md" && -f "$script_dir/mix.exs" ]]; then
+    printf '%s\n' "$script_dir"
+    return
+  fi
+
   common_dir="$(git -C "$script_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 
   if [[ -n "$common_dir" ]]; then
     (
       cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
     )
-    return
-  fi
-
-  if [[ -f "$script_dir/WORKFLOW.md" && -f "$script_dir/mix.exs" ]]; then
-    printf '%s\n' "$script_dir"
     return
   fi
 
@@ -114,9 +128,38 @@ sym_codex_run_mix() {
   fi
 }
 
+sym_codex_project_root() {
+  local start_dir="$1"
+  local common_dir
+  local project_root
+
+  common_dir="$(git -C "$start_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+
+  if [[ -n "$common_dir" ]]; then
+    project_root="$(
+      cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
+    )" || return 1
+
+    printf '%s\n' "$project_root"
+    return 0
+  fi
+
+  project_root="$(git -C "$start_dir" rev-parse --path-format=absolute --show-toplevel 2>/dev/null || true)"
+
+  if [[ -n "$project_root" ]]; then
+    printf '%s\n' "$project_root"
+    return 0
+  fi
+
+  (
+    cd "$start_dir" >/dev/null 2>&1 && pwd -P
+  )
+}
+
 sym_codex_workspace_root() {
   local source_repo="$1"
   local workflow_file="$2"
+  local project_root="$3"
 
   if [[ -n "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}" ]]; then
     printf '%s\n' "$SYMPHONY_PROJECT_WORKTREES_ROOT"
@@ -125,16 +168,61 @@ sym_codex_workspace_root() {
 
   (
     cd "$source_repo" || exit 1
+    export SYMPHONY_PROJECT_ROOT="$project_root"
+    export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
     sym_codex_run_mix run --no-start -e '
-      workflow_path = List.first(System.argv()) || raise "missing workflow file"
-      SymphonyElixir.Workflow.set_workflow_file_path(workflow_path)
-      IO.write(SymphonyElixir.Config.settings!().workspace.root)
+      workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
+      env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
+
+      case SymphonyElixir.Codex.ScriptSupport.workspace_root(workflow_path, env_files_dir) do
+        {:ok, workspace_root} ->
+          IO.write(workspace_root)
+
+        {:error, reason} ->
+          raise "workspace_root_error: #{inspect(reason)}"
+      end
     ' -- "$workflow_file"
   )
 }
 
-sym_codex_expand_path() {
+sym_codex_build_manual_prompt() {
   local source_repo="$1"
+  local workflow_file="$2"
+  local interactive_workflow_file="$3"
+  local project_root="$4"
+  local issue_identifier="$5"
+
+  (
+    cd "$source_repo" || exit 1
+    export SYMPHONY_PROJECT_ROOT="$project_root"
+    export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
+    export SYMPHONY_WORKFLOW_FILE="$workflow_file"
+    export SYMPHONY_WORKFLOW_DIR
+    SYMPHONY_WORKFLOW_DIR="$(cd "$(dirname "$workflow_file")" >/dev/null 2>&1 && pwd -P)"
+    sym_codex_run_mix run --no-start -e '
+      workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
+      interactive_workflow_path = Enum.at(System.argv(), 1) || raise "missing interactive workflow file"
+      issue_identifier = Enum.at(System.argv(), 2) || raise "missing issue identifier"
+      env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
+
+      case SymphonyElixir.Codex.ScriptSupport.manual_prompt(
+             workflow_path,
+             interactive_workflow_path,
+             issue_identifier,
+             env_files_dir
+           ) do
+        {:ok, prompt} ->
+          IO.write(prompt)
+
+        {:error, reason} ->
+          raise "manual_prompt_error: #{inspect(reason)}"
+      end
+    ' -- "$workflow_file" "$interactive_workflow_file" "$issue_identifier"
+  )
+}
+
+sym_codex_expand_path() {
+  local project_root="$1"
   local raw_path="$2"
 
   case "$raw_path" in
@@ -148,7 +236,7 @@ sym_codex_expand_path() {
       printf '%s\n' "$raw_path"
       ;;
     *)
-      printf '%s\n' "$source_repo/$raw_path"
+      printf '%s\n' "$project_root/$raw_path"
       ;;
   esac
 }
@@ -157,19 +245,60 @@ sym_codex_safe_identifier() {
   LC_ALL=C sed 's/[^A-Za-z0-9._-]/_/g' <<<"$1"
 }
 
+sym_codex_toml_basic_string() {
+  local value="$1"
+
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+
+  printf '"%s"' "$value"
+}
+
+sym_codex_infer_issue_identifier_from_cwd() {
+  local source_repo="$1"
+  local workflow_file="$2"
+  local project_root="$3"
+  local workspace_root
+  local current_dir
+  local relative_path
+  local issue_identifier
+
+  workspace_root="$(sym_codex_workspace_root "$source_repo" "$workflow_file" "$project_root")" || return 1
+  workspace_root="$(sym_codex_expand_path "$project_root" "$workspace_root")"
+  current_dir="$(pwd -P)"
+
+  case "$current_dir" in
+    "$workspace_root"/*)
+      relative_path="${current_dir#"$workspace_root"/}"
+      issue_identifier="${relative_path%%/*}"
+
+      if [[ -n "$issue_identifier" ]]; then
+        printf '%s\n' "$issue_identifier"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 sym_codex_resolve_workspace() {
   local source_repo="$1"
   local workflow_file="$2"
-  local issue_identifier="$3"
+  local project_root="$3"
+  local issue_identifier="$4"
   local workspace_root
   local safe_identifier
   local workspace
   local branch_name
   local expected_branch="symphony/$issue_identifier"
 
-  workspace_root="$(sym_codex_workspace_root "$source_repo" "$workflow_file")" ||
+  workspace_root="$(sym_codex_workspace_root "$source_repo" "$workflow_file" "$project_root")" ||
     sym_codex_die "cannot resolve workspace root from $workflow_file"
-  workspace_root="$(sym_codex_expand_path "$source_repo" "$workspace_root")"
+  workspace_root="$(sym_codex_expand_path "$project_root" "$workspace_root")"
 
   safe_identifier="$(sym_codex_safe_identifier "$issue_identifier")"
   workspace="$workspace_root/$safe_identifier"
@@ -189,10 +318,14 @@ sym_codex_resolve_workspace() {
 
 sym_codex_run() {
   local observer_mode=0
+  local issue_identifier_inferred=0
   local issue_identifier=""
   local source_repo
+  local project_root
   local workflow_file
+  local interactive_workflow_file
   local workspace=""
+  local prompt=""
   local -a codex_args=(
     --config shell_environment_policy.inherit=all
     --config model_reasoning_effort=high
@@ -231,39 +364,58 @@ sym_codex_run() {
     sym_codex_die "unexpected positional arguments: $*"
   fi
 
-  if (( ! observer_mode )) && [[ -z "$issue_identifier" ]]; then
-    sym_codex_usage
-    sym_codex_finish 1
-  fi
-
   if ! source_repo="$(sym_codex_source_repo)"; then
     sym_codex_finish 1
   fi
 
+  if ! project_root="$(sym_codex_project_root "$(pwd -P)")"; then
+    sym_codex_die "cannot determine the local project root"
+  fi
+
   workflow_file="${SYMPHONY_WORKFLOW_FILE:-$source_repo/WORKFLOW.md}"
+  interactive_workflow_file="${SYMPHONY_WORKFLOW_INTERACTIVE_FILE:-$source_repo/WORKFLOW_INTERACTIVE.md}"
+
+  if [[ -z "$issue_identifier" ]]; then
+    issue_identifier="$(sym_codex_infer_issue_identifier_from_cwd "$source_repo" "$workflow_file" "$project_root" 2>/dev/null || true)"
+
+    if [[ -n "$issue_identifier" ]]; then
+      issue_identifier_inferred=1
+    fi
+  fi
 
   if [[ -n "$issue_identifier" ]]; then
-    if ! workspace="$(sym_codex_resolve_workspace "$source_repo" "$workflow_file" "$issue_identifier")"; then
+    if ! workspace="$(sym_codex_resolve_workspace "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")"; then
       sym_codex_finish 1
     fi
 
-    cd "$workspace" || sym_codex_die "cannot change into $workspace"
+    if (( ! issue_identifier_inferred )); then
+      cd "$workspace" || sym_codex_die "cannot change into $workspace"
+    fi
+  elif (( ! observer_mode )); then
+    sym_codex_usage
+    sym_codex_finish 1
   fi
 
   if (( observer_mode )); then
     codex_args+=(app-server)
+  else
+    prompt="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier")" ||
+      sym_codex_die "cannot build prompt for $issue_identifier"
+
+    codex_args+=(
+      --config "mcp_servers.symphony_linear.command=$(sym_codex_toml_basic_string "$source_repo/sym-codex-mcp")"
+      --config "mcp_servers.symphony_linear.env={SYMPHONY_SOURCE_REPO=$(sym_codex_toml_basic_string "$source_repo"),SYMPHONY_WORKFLOW_FILE=$(sym_codex_toml_basic_string "$workflow_file")}"
+      "$prompt"
+    )
   fi
 
   if (( _sym_codex_sourced )); then
-    (
-      sym_codex_activate_venv "$source_repo"
-      codex "${codex_args[@]}"
-    )
-
-    sym_codex_finish $?
+    sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
+    codex "${codex_args[@]}"
+    return $?
   fi
 
-  sym_codex_activate_venv "$source_repo"
+  sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
   exec codex "${codex_args[@]}"
 }
 

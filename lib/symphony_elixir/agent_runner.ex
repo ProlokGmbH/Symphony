@@ -192,7 +192,9 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
+  defp build_turn_prompt(issue, opts, 1, _max_turns) do
+    PromptBuilder.build_prompt(issue, Keyword.put_new(opts, :session_mode, :orchestrated))
+  end
 
   defp build_turn_prompt(%Issue{} = issue, _opts, turn_number, max_turns) do
     """

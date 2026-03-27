@@ -2,6 +2,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
   use SymphonyElixir.TestSupport
 
   alias SymphonyElixir.Codex.DynamicTool
+  alias SymphonyElixir.Codex.LinearGraphqlTool
 
   test "tool_specs advertises the linear_graphql input contract" do
     assert [
@@ -306,5 +307,40 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
     assert response["success"] == true
     assert response["output"] == ":ok"
+  end
+
+  test "linear_graphql direct entry points support their default option arities" do
+    assert LinearGraphqlTool.tool_name() == "linear_graphql"
+    assert LinearGraphqlTool.mcp_tool()["name"] == "linear_graphql"
+
+    assert LinearGraphqlTool.execute("   ") == %{
+             "success" => false,
+             "output" => "{\n  \"error\": {\n    \"message\": \"`linear_graphql` requires a non-empty `query` string.\"\n  }\n}",
+             "contentItems" => [
+               %{
+                 "type" => "inputText",
+                 "text" => "{\n  \"error\": {\n    \"message\": \"`linear_graphql` requires a non-empty `query` string.\"\n  }\n}"
+               }
+             ]
+           }
+
+    assert LinearGraphqlTool.mcp_call(%{"query" => "   "}) == %{
+             "content" => [
+               %{
+                 "type" => "text",
+                 "text" => "{\n  \"error\": {\n    \"message\": \"`linear_graphql` requires a non-empty `query` string.\"\n  }\n}"
+               }
+             ],
+             "isError" => true
+           }
+
+    assert LinearGraphqlTool.invoke(%{"query" => "   "}) == {
+             :error,
+             %{
+               "error" => %{
+                 "message" => "`linear_graphql` requires a non-empty `query` string."
+               }
+             }
+           }
   end
 end

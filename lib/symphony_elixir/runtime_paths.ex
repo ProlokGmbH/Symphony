@@ -10,7 +10,7 @@ defmodule SymphonyElixir.RuntimePaths do
 
   @spec project_worktrees_root() :: Path.t()
   def project_worktrees_root do
-    project_root() <> "-worktrees"
+    project_worktrees_base_root() <> "-worktrees"
   end
 
   @spec workflow_dir() :: Path.t()
@@ -37,5 +37,25 @@ defmodule SymphonyElixir.RuntimePaths do
   @spec resolve_builtin_env(String.t()) :: String.t() | nil
   def resolve_builtin_env(name) when is_binary(name) do
     Map.get(builtin_env(), name)
+  end
+
+  defp project_worktrees_base_root do
+    cwd = project_root()
+
+    case System.cmd("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+           cd: cwd,
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        output
+        |> String.trim()
+        |> case do
+          "" -> cwd
+          common_dir -> Path.expand("..", common_dir)
+        end
+
+      {_output, _status} ->
+        cwd
+    end
   end
 end
