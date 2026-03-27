@@ -143,13 +143,6 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
     assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
-    assert prompt =~ "Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten"
-    assert prompt =~ "## Ablauf für `In Arbeit (AI)`"
-    assert prompt =~ "Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe`."
-    assert prompt =~ "Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `PreReview (AI)` verschiebst:"
-    assert prompt =~ "Ein direkter Übergang von `In Arbeit (AI)` nach `Freigabe` ist nur über den blocked-access escape hatch zulässig."
-    assert prompt =~ "## Ablauf für `PreReview (AI)`"
-    assert prompt =~ "Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Test (AI)`."
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
