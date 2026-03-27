@@ -35,6 +35,16 @@ defmodule SymphonyElixir.Tracker.Memory do
      end)}
   end
 
+  @spec fetch_issue_by_identifier(String.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def fetch_issue_by_identifier(identifier) when is_binary(identifier) do
+    normalized_identifier = String.trim(identifier)
+
+    case Enum.find(issue_entries(), &(&1.identifier == normalized_identifier)) do
+      %Issue{} = issue -> {:ok, issue}
+      nil -> {:error, {:issue_not_found, normalized_identifier}}
+    end
+  end
+
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     store_comment(issue_id, body)

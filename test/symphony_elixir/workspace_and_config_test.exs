@@ -667,6 +667,66 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}
   end
 
+  test "linear client fetches a single issue by team key and number derived from the identifier" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      if is_nil(previous_request_fun) do
+        Application.delete_env(:symphony_elixir, :linear_client_request_fun)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_request_fun, previous_request_fun)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:fetch_issue_by_identifier, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => [
+                 %{
+                   "id" => "issue-49",
+                   "identifier" => "PRO-49",
+                   "title" => "Shared prompt context",
+                   "description" => "Load prompt for manual sessions",
+                   "state" => %{"name" => "Freigabe"},
+                   "labels" => %{"nodes" => [%{"name" => "workflow"}]},
+                   "inverseRelations" => %{"nodes" => []}
+                 }
+               ]
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, %Issue{identifier: "PRO-49", state: "Freigabe"} = issue} =
+             Client.fetch_issue_by_identifier("PRO-49")
+
+    assert issue.title == "Shared prompt context"
+
+    assert_receive {:fetch_issue_by_identifier,
+                    %{
+                      "query" => query,
+                      "variables" => %{
+                        teamKey: "PRO",
+                        number: 49,
+                        relationFirst: 50
+                      }
+                    }}
+
+    assert query =~ "SymphonyLinearIssueByIdentifier"
+  end
+
+  test "linear client rejects malformed issue identifiers before hitting the api" do
+    assert {:error, {:invalid_issue_identifier, "not-an-issue"}} =
+             Client.fetch_issue_by_identifier("not-an-issue")
+  end
+
   test "linear client logs response bodies for non-200 graphql responses" do
     log =
       ExUnit.CaptureLog.capture_log(fn ->

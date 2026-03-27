@@ -157,10 +157,53 @@ sym_codex_workspace_root() {
     export SYMPHONY_PROJECT_ROOT="$project_root"
     export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
     sym_codex_run_mix run --no-start -e '
-      workflow_path = List.first(System.argv()) || raise "missing workflow file"
-      SymphonyElixir.Workflow.set_workflow_file_path(workflow_path)
-      IO.write(SymphonyElixir.Config.settings!().workspace.root)
+      workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
+      env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
+
+      case SymphonyElixir.Codex.ScriptSupport.workspace_root(workflow_path, env_files_dir) do
+        {:ok, workspace_root} ->
+          IO.write(workspace_root)
+
+        {:error, reason} ->
+          raise "workspace_root_error: #{inspect(reason)}"
+      end
     ' -- "$workflow_file"
+  )
+}
+
+sym_codex_build_manual_prompt() {
+  local source_repo="$1"
+  local workflow_file="$2"
+  local interactive_workflow_file="$3"
+  local project_root="$4"
+  local issue_identifier="$5"
+
+  (
+    cd "$source_repo" || exit 1
+    export SYMPHONY_PROJECT_ROOT="$project_root"
+    export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
+    export SYMPHONY_WORKFLOW_FILE="$workflow_file"
+    export SYMPHONY_WORKFLOW_DIR
+    SYMPHONY_WORKFLOW_DIR="$(cd "$(dirname "$workflow_file")" >/dev/null 2>&1 && pwd -P)"
+    sym_codex_run_mix run --no-start -e '
+      workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
+      interactive_workflow_path = Enum.at(System.argv(), 1) || raise "missing interactive workflow file"
+      issue_identifier = Enum.at(System.argv(), 2) || raise "missing issue identifier"
+      env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
+
+      case SymphonyElixir.Codex.ScriptSupport.manual_prompt(
+             workflow_path,
+             interactive_workflow_path,
+             issue_identifier,
+             env_files_dir
+           ) do
+        {:ok, prompt} ->
+          IO.write(prompt)
+
+        {:error, reason} ->
+          raise "manual_prompt_error: #{inspect(reason)}"
+      end
+    ' -- "$workflow_file" "$interactive_workflow_file" "$issue_identifier"
   )
 }
 
@@ -266,7 +309,9 @@ sym_codex_run() {
   local source_repo
   local project_root
   local workflow_file
+  local interactive_workflow_file
   local workspace=""
+  local prompt=""
   local -a codex_args=(
     --config shell_environment_policy.inherit=all
     --config model_reasoning_effort=high
@@ -314,6 +359,7 @@ sym_codex_run() {
   fi
 
   workflow_file="${SYMPHONY_WORKFLOW_FILE:-$source_repo/WORKFLOW.md}"
+  interactive_workflow_file="${SYMPHONY_WORKFLOW_INTERACTIVE_FILE:-$source_repo/WORKFLOW_INTERACTIVE.md}"
 
   if [[ -z "$issue_identifier" ]]; then
     issue_identifier="$(sym_codex_infer_issue_identifier_from_cwd "$source_repo" "$workflow_file" "$project_root" 2>/dev/null || true)"
@@ -339,9 +385,13 @@ sym_codex_run() {
   if (( observer_mode )); then
     codex_args+=(app-server)
   else
+    prompt="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier")" ||
+      sym_codex_die "cannot build prompt for $issue_identifier"
+
     codex_args+=(
       --config "mcp_servers.symphony_linear.command=$(sym_codex_toml_basic_string "$source_repo/sym-codex-mcp")"
       --config "mcp_servers.symphony_linear.env={SYMPHONY_SOURCE_REPO=$(sym_codex_toml_basic_string "$source_repo"),SYMPHONY_WORKFLOW_FILE=$(sym_codex_toml_basic_string "$workflow_file")}"
+      "$prompt"
     )
   fi
 

@@ -1,6 +1,8 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.Codex.ScriptSupport
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -1348,6 +1350,180 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "tz="
   end
 
+  test "prompt builder exposes session and workflow modes" do
+    workflow_prompt =
+      "session={{ runtime.session_mode }} workflow={{ runtime.workflow_mode }} automated={{ runtime.automated }} interactive={{ runtime.interactive }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698C",
+      title: "Session mode",
+      description: "Expose manual and automated modes",
+      state: "Freigabe",
+      url: "https://example.org/issues/MT-698C",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) ==
+             "session=orchestrated workflow=interactive automated=false interactive=true"
+
+    assert PromptBuilder.build_prompt(issue, session_mode: :manual) ==
+             "session=manual workflow=interactive automated=false interactive=true"
+  end
+
+  test "prompt builder treats orchestrated In Arbeit as automated and manual In Arbeit as interactive" do
+    workflow_prompt = "{% if runtime.automated %}AUTO{% else %}INTERACTIVE{% endif %}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698D",
+      title: "In Arbeit bootstrap",
+      description: "Session mode changes behavior",
+      state: "In Arbeit",
+      url: "https://example.org/issues/MT-698D",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "AUTO"
+    assert PromptBuilder.build_prompt(issue, session_mode: :manual) == "INTERACTIVE"
+  end
+
+  test "prompt builder keeps AI states automated in manual sessions and falls back to orchestrated for unknown session modes" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.session_mode }} {{ runtime.workflow_mode }}")
+
+    issue = %Issue{
+      identifier: "MT-698DA",
+      title: "AI state automation",
+      description: "AI statuses stay automated",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-698DA",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue, session_mode: :manual) == "manual automated"
+    assert PromptBuilder.build_prompt(issue, session_mode: :unexpected) == "orchestrated automated"
+  end
+
+  test "prompt builder treats missing issue states as interactive" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "{{ runtime.workflow_mode }}")
+
+    issue = %Issue{
+      identifier: "MT-698DB",
+      title: "Missing state",
+      description: "Nil state should not force automation",
+      state: nil,
+      url: "https://example.org/issues/MT-698DB",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "interactive"
+  end
+
+  test "prompt builder can resolve an issue by identifier for manual sessions" do
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      prompt: "{{ issue.identifier }} {{ runtime.session_mode }} {{ runtime.workflow_mode }}"
+    )
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      %Issue{
+        id: "issue-698e",
+        identifier: "MT-698E",
+        title: "Resolve by identifier",
+        description: "Manual prompt lookup",
+        state: "Freigabe",
+        url: "https://example.org/issues/MT-698E",
+        labels: []
+      }
+    ])
+
+    assert {:ok, "MT-698E orchestrated interactive"} =
+             PromptBuilder.build_prompt_for_issue_identifier("MT-698E")
+
+    assert {:ok, "MT-698E manual interactive"} =
+             PromptBuilder.build_prompt_for_issue_identifier("MT-698E", session_mode: :manual)
+
+    assert {:error, {:issue_not_found, "MISSING-1"}} =
+             PromptBuilder.build_prompt_for_issue_identifier("MISSING-1", session_mode: :manual)
+  end
+
+  test "script support loads env files from the project root for manual prompts" do
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
+    project_root = Path.join(System.tmp_dir!(), "sym-codex-project-root-#{System.unique_integer([:positive])}")
+    interactive_workflow_path = Path.join(project_root, "WORKFLOW_INTERACTIVE.md")
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_env("LINEAR_API_KEY", previous_linear_api_key)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.write!(Path.join(project_root, ".env"), "LINEAR_API_KEY=project-root-key\n")
+    File.write!(interactive_workflow_path, "---\n---\ninteractive={{ issue.identifier }}\n")
+    System.delete_env("LINEAR_API_KEY")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_api_token: "$LINEAR_API_KEY",
+      prompt: "{{ issue.identifier }}"
+    )
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      %Issue{
+        id: "issue-698f",
+        identifier: "MT-698F",
+        title: "External env directory",
+        description: "Manual prompt should load env files from project root",
+        state: "Freigabe",
+        url: "https://example.org/issues/MT-698F",
+        labels: []
+      }
+    ])
+
+    assert {:ok, "interactive=MT-698F"} =
+             ScriptSupport.manual_prompt(
+               Workflow.workflow_file_path(),
+               interactive_workflow_path,
+               "MT-698F",
+               project_root
+             )
+
+    assert Config.settings!().tracker.api_key == "project-root-key"
+  end
+
+  test "script support resolves workspace root after loading project env files" do
+    previous_custom_root = System.get_env("SYMP_SCRIPT_WORKSPACE_ROOT")
+
+    project_root =
+      Path.join(System.tmp_dir!(), "sym-codex-workspace-root-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      restore_env("SYMP_SCRIPT_WORKSPACE_ROOT", previous_custom_root)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(project_root)
+    File.write!(Path.join(project_root, ".env"), "SYMP_SCRIPT_WORKSPACE_ROOT=external-worktrees\n")
+    System.delete_env("SYMP_SCRIPT_WORKSPACE_ROOT")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: "$SYMP_SCRIPT_WORKSPACE_ROOT"
+    )
+
+    assert {:ok, "external-worktrees"} =
+             ScriptSupport.workspace_root(Workflow.workflow_file_path(), project_root)
+  end
+
   test "prompt builder uses trimmed TZ environment values in runtime context" do
     previous_tz = System.get_env("TZ")
     on_exit(fn -> restore_env("TZ", previous_tz) end)
@@ -1380,6 +1556,25 @@ defmodule SymphonyElixir.CoreTest do
       description: "Prompt should handle blank TZ",
       state: "Todo",
       url: "https://example.org/issues/MT-698B",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "tz=system-local"
+  end
+
+  test "prompt builder falls back to system-local when TZ is unset" do
+    previous_tz = System.get_env("TZ")
+    on_exit(fn -> restore_env("TZ", previous_tz) end)
+
+    System.delete_env("TZ")
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "tz={{ runtime.timezone }}")
+
+    issue = %Issue{
+      identifier: "MT-698BB",
+      title: "Unset timezone",
+      description: "Prompt should handle missing TZ",
+      state: "Todo",
+      url: "https://example.org/issues/MT-698BB",
       labels: []
     }
 
@@ -1529,7 +1724,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-616",
       title: "Use rich templates for WORKFLOW.md",
       description: "Render with rich template variables",
-      state: "In Progress",
+      state: "In Arbeit (AI)",
       url: "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd",
       labels: ["templating", "workflow"]
     }
@@ -1544,7 +1739,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ~r/(Issue context|Ticket-Kontext):/
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ ~r/(Title|Titel): Use rich templates for WORKFLOW.md/
-    assert prompt =~ ~r/(Current status|Aktueller Status): In Progress/
+    assert prompt =~ ~r/(Current status|Aktueller Status): In Arbeit \(AI\)/
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
 
     assert prompt =~

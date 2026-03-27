@@ -3,6 +3,7 @@ defmodule SymCodexScriptTest do
 
   @script_source Path.expand("../sym-codex", __DIR__)
   @mcp_script_source Path.expand("../sym-codex-mcp", __DIR__)
+  @interactive_workflow_source Path.expand("../WORKFLOW_INTERACTIVE.md", __DIR__)
 
   test "sym-codex reaches codex when invoked directly from the script repository" do
     %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
@@ -83,6 +84,7 @@ defmodule SymCodexScriptTest do
     assert output =~ ~s(mcp_servers.symphony_linear.command="#{repo_dir}/sym-codex-mcp")
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+    assert output =~ "manual-prompt-for-PRO-49"
   end
 
   test "sym-codex prefers the current Symphony worktree for MCP server wiring" do
@@ -104,6 +106,7 @@ defmodule SymCodexScriptTest do
     assert output =~ ~s(mcp_servers.symphony_linear.command="#{worktree}/sym-codex-mcp")
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{worktree}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{worktree}/WORKFLOW.md")
+    assert output =~ "manual-prompt-for-PRO-49"
   end
 
   test "sym-codex resolves worktrees from the local project root when launched from another repo" do
@@ -162,12 +165,38 @@ defmodule SymCodexScriptTest do
     File.cp!(@script_source, Path.join(repo_dir, "sym-codex"))
     File.cp!(@mcp_script_source, Path.join(repo_dir, "sym-codex-mcp"))
     File.write!(codex_path, "#!/usr/bin/env bash\nprintf 'codex-stub pwd=%s args=%s\\n' \"$PWD\" \"$*\"\n")
-    File.write!(mix_path, "#!/usr/bin/env bash\nprintf '%s' \"${SYMPHONY_PROJECT_WORKTREES_ROOT:-}\"\n")
+
+    File.write!(mix_path, """
+    #!/usr/bin/env bash
+    if [ "$1" = "run" ] && [ "$2" = "--no-start" ] && [ "$3" = "-e" ]; then
+      shift 4
+
+      if [ "$1" = "--" ]; then
+        shift
+      fi
+
+      case "$#" in
+        1)
+          printf '%s' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
+          exit 0
+          ;;
+        3)
+          printf 'manual-prompt-for-%s' "$3"
+          exit 0
+          ;;
+      esac
+    fi
+
+    printf 'unexpected mix args=%s\\n' "$*" >&2
+    exit 1
+    """)
+
     File.write!(mise_path, "#!/usr/bin/env bash\nif [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--\" ]; then\n  shift 2\n  exec \"$@\"\nfi\nprintf 'unexpected mise args=%s\\n' \"$*\" >&2\nexit 1\n")
     File.chmod!(codex_path, 0o755)
     File.chmod!(mix_path, 0o755)
     File.chmod!(mise_path, 0o755)
     File.write!(Path.join(repo_dir, "WORKFLOW.md"), "")
+    File.cp!(@interactive_workflow_source, Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md"))
     File.write!(Path.join(repo_dir, "mix.exs"), "")
 
     %{repo_dir: repo_dir, bin_dir: bin_dir}
