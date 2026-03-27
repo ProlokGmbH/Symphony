@@ -25,6 +25,7 @@ Sobald der Benutzer die gewünschte Aufgabe benannt hat:
 - Verwende fuer Aufbau und Pflege des Codex Workpads den Skill `symphony-workpad`.
 - Verwende fuer Linear-Lese- und Schreibzugriffe weiterhin den Skill `symphony-linear`.
 - Behandle `symphony-workpad` nur als Quelle fuer Workpad-Aufbau und -Pflege.
+- Behandle die Statuslogik in diesem Modus nicht als Teil dieser Skills und leite sie nicht aus `WORKFLOW.md` ab.
 
 WICHTIG:
 - schreibe ausschließlich in das Linear-Ticket {{ issue.identifier }}, andere Tickets dürfen lediglich auf Anforderung des Benutzers gelesen werden.
