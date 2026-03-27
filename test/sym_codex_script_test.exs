@@ -151,6 +151,128 @@ defmodule SymCodexScriptTest do
     assert output =~ "pwd=#{worktree}"
   end
 
+  test "sourced sym-codex activates the repo venv in the current shell" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    command =
+      ~s|. "#{Path.join(repo_dir, "sym-codex")}" PRO-49; printf 'after pwd=%s venv=%s codex=%s\\n' "$PWD" "${VIRTUAL_ENV:-}" "$(command -v codex)"|
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        cd: repo_dir,
+        env: [
+          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+          {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{worktree}"
+    assert output =~ "venv=#{Path.join(repo_dir, ".venv")}"
+    assert output =~ "codex=#{Path.join(repo_dir, ".venv/bin/codex")}"
+  end
+
+  test "sourced sym-codex keeps repo python ahead in login shells spawned afterwards" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: _worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    fake_home =
+      Path.join(System.tmp_dir!(), "sym-codex-home-#{System.unique_integer([:positive])}")
+
+    fake_user_bin = Path.join(fake_home, ".local/bin")
+    fake_user_python = Path.join(fake_user_bin, "python")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+      File.rm_rf(fake_home)
+    end)
+
+    File.mkdir_p!(fake_user_bin)
+
+    File.write!(Path.join(fake_home, ".profile"), """
+    PATH="$HOME/.local/bin:$PATH"
+    export PATH
+    """)
+
+    File.write!(fake_user_python, """
+    #!/usr/bin/env bash
+    printf 'user-python\\n'
+    """)
+
+    File.chmod!(fake_user_python, 0o755)
+
+    command =
+      ~s|. "#{Path.join(repo_dir, "sym-codex")}" PRO-49; HOME="#{fake_home}" bash -lc 'printf "python=%s\\nvenv=%s\\nbash_env=%s\\n" "$(command -v python)" "${VIRTUAL_ENV:-}" "${BASH_ENV:-}"'|
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        cd: repo_dir,
+        env: [
+          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+          {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "python=#{Path.join(repo_dir, ".venv/bin/python")}"
+    assert output =~ "venv=#{Path.join(repo_dir, ".venv")}"
+    assert output =~ "bash_env=#{Path.join(repo_dir, ".venv/bin/activate")}"
+  end
+
+  test "sym-codex prefers a worktree-local venv over the script-repo venv" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    create_venv_fixture!(worktree, "workspace")
+
+    {output, 0} =
+      run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+        env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
+      )
+
+    assert output =~ "venv=#{Path.join(worktree, ".venv")}"
+  end
+
+  test "sym-codex prefers the project-root venv over worktree and script-repo venvs" do
+    %{
+      repo_dir: repo_dir,
+      bin_dir: bin_dir,
+      project_root: project_root,
+      workspace_root: _workspace_root,
+      worktree: worktree
+    } = build_external_project_fixture!("PRO-28")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(Path.dirname(project_root))
+    end)
+
+    create_venv_fixture!(project_root, "project")
+    create_venv_fixture!(worktree, "workspace")
+
+    {output, 0} =
+      run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-28"], cd: worktree)
+
+    assert output =~ "venv=#{Path.join(project_root, ".venv")}"
+  end
+
   defp build_script_fixture! do
     repo_dir =
       Path.join(System.tmp_dir!(), "sym-codex-script-#{System.unique_integer([:positive])}")
@@ -165,6 +287,7 @@ defmodule SymCodexScriptTest do
     File.cp!(@script_source, Path.join(repo_dir, "sym-codex"))
     File.cp!(@mcp_script_source, Path.join(repo_dir, "sym-codex-mcp"))
     File.write!(codex_path, "#!/usr/bin/env bash\nprintf 'codex-stub pwd=%s args=%s\\n' \"$PWD\" \"$*\"\n")
+    create_venv_fixture!(repo_dir, "repo")
 
     File.write!(mix_path, """
     #!/usr/bin/env bash
@@ -270,4 +393,32 @@ defmodule SymCodexScriptTest do
 
   defp maybe_put_cd(opts, nil), do: opts
   defp maybe_put_cd(opts, cd), do: Keyword.put(opts, :cd, cd)
+
+  defp create_venv_fixture!(root, label) do
+    venv_bin_dir = Path.join(root, ".venv/bin")
+    venv_activate_path = Path.join(venv_bin_dir, "activate")
+    venv_codex_path = Path.join(venv_bin_dir, "codex")
+    venv_python_path = Path.join(venv_bin_dir, "python")
+
+    File.mkdir_p!(venv_bin_dir)
+
+    File.write!(venv_activate_path, """
+    _sym_codex_venv_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+    export VIRTUAL_ENV="$_sym_codex_venv_dir"
+    export PATH="$VIRTUAL_ENV/bin:$PATH"
+    """)
+
+    File.write!(venv_codex_path, """
+    #!/usr/bin/env bash
+    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label}\\n' "$PWD" "$*" "${VIRTUAL_ENV:-}"
+    """)
+
+    File.write!(venv_python_path, """
+    #!/usr/bin/env bash
+    printf '#{label}-python\\n'
+    """)
+
+    File.chmod!(venv_codex_path, 0o755)
+    File.chmod!(venv_python_path, 0o755)
+  end
 end

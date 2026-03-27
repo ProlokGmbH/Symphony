@@ -37,13 +37,27 @@ sym_codex_die() {
 }
 
 sym_codex_activate_venv() {
-  local source_repo="$1"
-  local activate_script="$source_repo/.venv/bin/activate"
+  local project_root="$1"
+  local workspace="$2"
+  local source_repo="$3"
+  local candidate_root=""
+  local activate_script=""
 
-  if [[ -f "$activate_script" ]]; then
-    # shellcheck disable=SC1090
-    . "$activate_script"
-  fi
+  for candidate_root in "$project_root" "$workspace" "$source_repo"; do
+    if [[ -n "$candidate_root" ]]; then
+      activate_script="$candidate_root/.venv/bin/activate"
+
+      if [[ -f "$activate_script" ]]; then
+        export BASH_ENV="$activate_script"
+        export VIRTUAL_ENV_DISABLE_PROMPT=1
+        # shellcheck disable=SC1090
+        . "$activate_script"
+        return 0
+      fi
+    fi
+  done
+
+  return 0
 }
 
 sym_codex_realpath() {
@@ -396,15 +410,12 @@ sym_codex_run() {
   fi
 
   if (( _sym_codex_sourced )); then
-    (
-      sym_codex_activate_venv "$source_repo"
-      codex "${codex_args[@]}"
-    )
-
-    sym_codex_finish $?
+    sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
+    codex "${codex_args[@]}"
+    return $?
   fi
 
-  sym_codex_activate_venv "$source_repo"
+  sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
   exec codex "${codex_args[@]}"
 }
 
