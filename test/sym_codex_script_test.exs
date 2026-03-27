@@ -242,9 +242,7 @@ defmodule SymCodexScriptTest do
     create_venv_fixture!(worktree, "workspace")
 
     {output, 0} =
-      run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
-        env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
-      )
+      run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"], env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}])
 
     assert output =~ "venv=#{Path.join(worktree, ".venv")}"
   end
