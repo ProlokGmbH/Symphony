@@ -22,11 +22,11 @@ sym_codex_stderr() {
 sym_codex_usage() {
   cat >&2 <<'EOF'
 Usage:
-  sym-codex <issue.identifier>
-  source sym-codex <issue.identifier>
+  sym-codex [<issue.identifier>]
   sym-codex --observer [<issue.identifier>]
 
 Direct execution runs Codex in the selected worktree.
+If no issue identifier is given from inside a configured worktree, sym-codex reuses that worktree.
 If the script is sourced, the current shell stays in that worktree afterwards.
 EOF
 }
@@ -157,6 +157,33 @@ sym_codex_safe_identifier() {
   LC_ALL=C sed 's/[^A-Za-z0-9._-]/_/g' <<<"$1"
 }
 
+sym_codex_infer_issue_identifier_from_cwd() {
+  local source_repo="$1"
+  local workflow_file="$2"
+  local workspace_root
+  local current_dir
+  local relative_path
+  local issue_identifier
+
+  workspace_root="$(sym_codex_workspace_root "$source_repo" "$workflow_file")" || return 1
+  workspace_root="$(sym_codex_expand_path "$source_repo" "$workspace_root")"
+  current_dir="$(pwd -P)"
+
+  case "$current_dir" in
+    "$workspace_root"/*)
+      relative_path="${current_dir#"$workspace_root"/}"
+      issue_identifier="${relative_path%%/*}"
+
+      if [[ -n "$issue_identifier" ]]; then
+        printf '%s\n' "$issue_identifier"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 sym_codex_resolve_workspace() {
   local source_repo="$1"
   local workflow_file="$2"
@@ -189,6 +216,7 @@ sym_codex_resolve_workspace() {
 
 sym_codex_run() {
   local observer_mode=0
+  local issue_identifier_inferred=0
   local issue_identifier=""
   local source_repo
   local workflow_file
@@ -231,23 +259,31 @@ sym_codex_run() {
     sym_codex_die "unexpected positional arguments: $*"
   fi
 
-  if (( ! observer_mode )) && [[ -z "$issue_identifier" ]]; then
-    sym_codex_usage
-    sym_codex_finish 1
-  fi
-
   if ! source_repo="$(sym_codex_source_repo)"; then
     sym_codex_finish 1
   fi
 
   workflow_file="${SYMPHONY_WORKFLOW_FILE:-$source_repo/WORKFLOW.md}"
 
+  if [[ -z "$issue_identifier" ]]; then
+    issue_identifier="$(sym_codex_infer_issue_identifier_from_cwd "$source_repo" "$workflow_file" 2>/dev/null || true)"
+
+    if [[ -n "$issue_identifier" ]]; then
+      issue_identifier_inferred=1
+    fi
+  fi
+
   if [[ -n "$issue_identifier" ]]; then
     if ! workspace="$(sym_codex_resolve_workspace "$source_repo" "$workflow_file" "$issue_identifier")"; then
       sym_codex_finish 1
     fi
 
-    cd "$workspace" || sym_codex_die "cannot change into $workspace"
+    if (( ! issue_identifier_inferred )); then
+      cd "$workspace" || sym_codex_die "cannot change into $workspace"
+    fi
+  elif (( ! observer_mode )); then
+    sym_codex_usage
+    sym_codex_finish 1
   fi
 
   if (( observer_mode )); then
