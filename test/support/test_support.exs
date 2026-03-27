@@ -110,7 +110,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_assignee: "dev@example.com",
           tracker_active_states: [
             "Todo (AI)",
-            "In Arbeit",
+            "Planung (AI)",
             "In Arbeit (AI)",
             "PreReview (AI)",
             "Review (AI)",

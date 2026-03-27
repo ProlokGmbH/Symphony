@@ -45,7 +45,7 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     @default_active_states [
       "Todo (AI)",
-      "In Arbeit",
+      "Planung (AI)",
       "In Arbeit (AI)",
       "PreReview (AI)",
       "Review (AI)",
@@ -411,7 +411,7 @@ defmodule SymphonyElixir.Config.Schema do
         |> String.trim()
         |> String.downcase()
 
-      String.contains?(normalized_state, "(ai)") or normalized_state == "in arbeit"
+      String.contains?(normalized_state, "(ai)")
     end)
   end
 

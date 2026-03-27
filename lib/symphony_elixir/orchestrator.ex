@@ -16,7 +16,6 @@ defmodule SymphonyElixir.Orchestrator do
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch (ai)"
   @canceled_terminal_state_name "Abgebrochen"
-  @workspace_bootstrap_state_name "in arbeit"
   @empty_codex_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -993,24 +992,16 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
        when is_binary(issue_id) and is_map(running_entry) do
-    if schedule_continuation_after_completion?(running_entry) do
-      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+    Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
 
-      state
-      |> complete_issue(issue_id, running_entry.issue.state)
-      |> schedule_issue_retry(issue_id, 1, %{
-        identifier: running_entry.identifier,
-        delay_type: :continuation,
-        worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path)
-      })
-    else
-      Logger.info("Bootstrap task completed for issue_id=#{issue_id} session_id=#{session_id}; suppressing continuation until state changes")
-
-      state
-      |> complete_issue(issue_id, running_entry.issue.state)
-      |> release_issue_claim(issue_id)
-    end
+    state
+    |> complete_issue(issue_id, running_entry.issue.state)
+    |> schedule_issue_retry(issue_id, 1, %{
+      identifier: running_entry.identifier,
+      delay_type: :continuation,
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    })
   end
 
   defp completed_in_current_state?(%Issue{id: issue_id, state: issue_state}, completed_states)
@@ -1056,16 +1047,6 @@ defmodule SymphonyElixir.Orchestrator do
       end)
 
     %{state | completed_states: completed_states, completed: completed}
-  end
-
-  defp schedule_continuation_after_completion?(running_entry) when is_map(running_entry) do
-    case Map.get(running_entry, :issue) do
-      %Issue{state: state_name} when is_binary(state_name) ->
-        normalize_issue_state(state_name) != @workspace_bootstrap_state_name
-
-      _ ->
-        true
-    end
   end
 
   defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do

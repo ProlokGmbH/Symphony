@@ -861,7 +861,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       max_concurrent_agents: 3,
       running: %{},
       claimed: MapSet.new(),
-      completed_states: %{"ready-2" => "in arbeit"},
+      completed_states: %{"ready-2" => "review (ai)"},
       codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
@@ -869,11 +869,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     same_state_issue = %Issue{
       id: "ready-2",
       identifier: "MT-1008",
-      title: "Bootstrap already done",
-      state: "In Arbeit"
+      title: "Review already done",
+      state: "Review (AI)"
     }
 
-    changed_state_issue = %{same_state_issue | state: "Review (AI)"}
+    changed_state_issue = %{same_state_issue | state: "Test (AI)"}
 
     refute Orchestrator.should_dispatch_issue_for_test(same_state_issue, state)
     assert Orchestrator.should_dispatch_issue_for_test(changed_state_issue, state)
@@ -1069,7 +1069,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert config.tracker.active_states == [
              "Todo (AI)",
-             "In Arbeit",
+             "Planung (AI)",
              "In Arbeit (AI)",
              "PreReview (AI)",
              "Review (AI)",
@@ -1408,12 +1408,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.settings!().worker.max_concurrent_agents_per_host == 2
   end
 
-  test "config keeps In Arbeit as the only non-AI/Codex managed active state" do
+  test "config keeps only AI/Codex managed active states" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_active_states: ["Todo", "In Arbeit", "Freigabe", "Review (AI)", "Abbruch (AI)", "Fertig"]
     )
 
-    assert Config.settings!().tracker.active_states == ["In Arbeit", "Review (AI)", "Abbruch (AI)"]
+    assert Config.settings!().tracker.active_states == ["Review (AI)", "Abbruch (AI)"]
   end
 
   test "schema helpers cover custom type and state limit validation" do

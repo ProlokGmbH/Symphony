@@ -5,7 +5,7 @@ tracker:
   assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo (AI)
-    - In Arbeit
+    - Planung (AI)
     - In Arbeit (AI)
     - PreReview (AI)
     - Review (AI)
@@ -62,7 +62,14 @@ codex:
       exit 1;
     fi;
     source_repo="$(cd "$common_dir/.." && pwd -P)";
-    exec "$source_repo/sym-codex" --observer
+    if [ -x "$source_repo/sym-codex" ]; then
+      exec "$source_repo/sym-codex" --observer;
+    fi;
+    if command -v sym-codex >/dev/null 2>&1; then
+      exec "$(command -v sym-codex)" --observer;
+    fi;
+    echo "sym-codex not found in $source_repo or PATH" >&2;
+    exit 127
   approval_policy: never
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
@@ -77,7 +84,7 @@ Fortsetzungskontext:
 - Dies ist Wiederholungsversuch Nr. {{ attempt }}, weil sich das Ticket weiterhin in einem aktiven Status befindet.
 - Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
 - Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
-- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert. Ausnahme: Für `In Arbeit` endet der Turn regulär nach erfolgreichem Bootstrap von Worktree und Workpad; bei bestätigtem Erstkontakt gehört das einmalige `Erstkontakt-Protokoll für neue Items` noch zu diesem Bootstrap.
+- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert.
 {% endif %}
 
 Ticket-Kontext:
@@ -103,12 +110,12 @@ Keine Beschreibung vorhanden.
 
 - Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
-- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus. Die einzige Ausnahme ist `In Arbeit`; dort darfst du ausschließlich den Bootstrap von Git-Worktree und Workpad ausführen sowie bei bestätigtem Erstkontakt einmalig das `Erstkontakt-Protokoll für neue Items`.
+- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
 - Verwende für neue Zeitstempel im Abschnitt `Verlauf` immer lokale Systemzeit; schreibe dort keine UTC- oder `Z`-Zeitstempel.
-- Halte die Ticket-Metadaten aktuell (Status, Checkliste, Akzeptanzkriterien, Links).
+- Halte die Ticket-Metadaten aktuell (Status, Checkliste, Validierung, Links).
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
 - Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare.
 - Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
@@ -140,8 +147,8 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 ### Globale Arbeitsregeln
 
-- Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Akzeptanzvorgabe: spiegle ihn im Workpad wider und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
-- Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Akzeptanzkriterien enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Validierungsvorgabe: übernimm ihn als Punkte im Abschnitt `### Validierung` des Workpads und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
+- Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Validierungspunkte enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
 
 ## Statusübersicht
@@ -149,14 +156,15 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
-| Nicht-terminale Stati ohne `(AI)` im Namen, außer `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen AI-Status |
-| `In Arbeit` | Ja | Ausnahme vom automatischen Statusschema: beim Eintritt den kanonischen Git-Worktree unterhalb des konfigurierten Workspace-Roots sicherstellen, das `## Codex Workpad` bootstrappen und bei bestätigtem Erstkontakt einmalig das `Erstkontakt-Protokoll für neue Items` ausführen. Keine weitere automatische Bearbeitung starten. | Warten auf menschliches Verschieben in einen AI-Status |
-| `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `In Arbeit (AI)` verschieben. | `In Arbeit (AI)` |
-| `In Arbeit (AI)` | Ja | Implementierung läuft aktiv. | `PreReview (AI)` |
+| Nicht-terminale Stati ohne `(AI)` im Namen, einschließlich `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen AI-Status |
+| `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
+| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `In Arbeit` |
+| `In Arbeit (AI)` | Ja | Implementierung des bestehenden, zuvor manuell geprüften Plans läuft aktiv. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe` |
+| `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor der Übergabe veröffentlicht. | `Test (AI)` |
 | `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor `Merge (AI)` veröffentlicht. | `Merge (AI)` |
-| `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `In Arbeit (AI)` |
+| `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `Planung (AI)` oder `In Arbeit (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind in diesem Status zulässig. | `Review` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
@@ -170,9 +178,9 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
-   - Jeder nicht-terminale Status ohne `(AI)` im Namen, außer `In Arbeit` (zum Beispiel `Freigabe`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
-   - `In Arbeit` -> Ablauf `In Arbeit` ausführen.
+   - Jeder nicht-terminale Status ohne `(AI)` im Namen (zum Beispiel `In Arbeit` oder `Freigabe`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
+   - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
@@ -186,7 +194,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 ### Ziel
 
-Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den regulären Ausführungsablauf sauber starten.
+Das Issue aus der Warteschlange in die Planungsphase überführen und den regulären Ausführungsablauf sauber starten.
 
 ### Voraussetzungen
 
@@ -195,123 +203,98 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 ### Ablauf
 
 1. Für `Todo (AI)`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
-   - `update_issue(..., state: "In Arbeit (AI)")`
+   - `update_issue(..., state: "Planung (AI)")`
    - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
    - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
-   - erst danach Analyse-, Planungs- und Implementierungsarbeit beginnen.
+   - erst danach in den Ablauf `Planung (AI)` übergehen.
 
 ### Abschluss und nächster Status
 
-- Nach der unmittelbaren Statusänderung und dem Workpad-Bootstrap geht der Ablauf in `In Arbeit (AI)` über.
+- Nach der unmittelbaren Statusänderung und dem Workpad-Bootstrap geht der Ablauf in `Planung (AI)` über.
 
 ### Sonderfälle
 
 - Keine.
 
-## Ablauf für `In Arbeit`
+## Ablauf für `Planung (AI)`
 
 ### Ziel
 
-Beim Eintritt in `In Arbeit` die Arbeitsumgebung für das Ticket vorbereiten und nur bei bestätigtem Erstkontakt einmalig die Beschreibung korrigieren, ohne den regulären Codex-Ausführungsablauf zu starten.
+Ticketbeschreibung, Workpad-Plan und geplante Validierung so vorbereiten, dass die
+anschließende menschliche Prüfung in `In Arbeit` und danach die Umsetzung in
+`In Arbeit (AI)` ohne autonome Neuplanung beginnen kann.
 
 ### Voraussetzungen
 
-- Das Issue befindet sich aktuell in `In Arbeit`.
+- Das Issue befindet sich aktuell in `Planung (AI)`, oder kommt unmittelbar aus `Todo (AI)`.
 
 ### Ablauf
 
-1. Prüfe, ob für das Issue bereits der kanonische Git-Worktree `symphony/{{ issue.identifier }}` unterhalb des konfigurierten Workspace-Roots existiert.
-2. Falls der Worktree noch nicht existiert, lege ihn gemäß Git-Branch-Kontrakt an.
-3. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
-   - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
-   - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
-   - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
-   - Falls nicht vorhanden, erstelle genau einen neuen, leeren Workpad-Kommentar in der Standardstruktur aus `## Workpad-Standard`, aber ohne bereits begonnene Planungs-, Implementierungs- oder Validierungsinhalte.
-   - Falls du in diesem Turn den ersten Workpad-Kommentar neu anlegen musstest, prüfe unmittelbar danach die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus.
-4. Starte darüber hinaus keine weitere Analyse-, Planungs- oder Implementierungsarbeit.
-5. Ändere den Status nicht automatisch weiter.
+1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue und befolge für Aufbau und Pflege des Kommentars den Skill `.codex/skills/symphony-workpad/SKILL.md`.
+2. Führe die inhaltliche Planung mit `.codex/skills/symphony-planning/SKILL.md` aus:
+   - prüfe, ob die Ticketbeschreibung ausführlich genug für sichere Umsetzung ist,
+   - stelle bei langen Beschreibungen sicher, dass oben eine kurze Zusammenfassung mit Trenner `---` vor dem Haupttext steht,
+   - du darfst die Ticketbeschreibung in diesem Status automatisiert ändern, wenn das für eine vollständige Planung nötig ist,
+   - falls du die Ticketbeschreibung änderst, hinterlasse in Linear einen Kommentar mit der Originalbeschreibung, damit die Änderung nachvollziehbar bleibt,
+   - erstelle oder aktualisiere `### Plan` als hierarchische Checkliste,
+   - stelle sicher, dass der Plan explizite Schritte für automatisierte Tests enthält,
+   - erstelle oder aktualisiere `### Validierung` als Checkliste des geplanten Nachweises.
+3. Starte in diesem Status keine Implementierung.
+4. Ändere den inhaltlichen Plan und die geplante Validierung nur in diesem Status; spätere automatische Schritte dürfen diese Inhalte nicht autonom umschreiben.
 
 ### Abschluss und nächster Status
 
-- Nach erfolgreichem Bootstrap endet dieser Ablauf ohne weiteren Statuswechsel.
-- Das Issue bleibt in `In Arbeit`, bis ein Mensch es in einen Codex-Status verschiebt.
+- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend vorbereitet sind, verschiebe das Issue nach `In Arbeit`, damit ein Mensch den Plan vor der Umsetzung prüfen kann.
 
 ### Sonderfälle
 
-- Wenn der Bootstrap an einem echten externen Blocker scheitert, halte den Blocker knapp im Workpad fest und beende den Turn.
+- Wenn für sichere Planung erforderliche Informationen fehlen, erfinde keinen Scope. Halte die Lücke knapp im Workpad fest und handle anschließend gemäß den übrigen Workflow-Regeln weiter.
 
 ## Ablauf für `In Arbeit (AI)`
 
 ### Ziel
 
-Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `PreReview (AI)`.
+Umsetzung des bestehenden Plans, lokale Validierung und ungecommittete Übergabe
+nach `PreReview (AI)`.
 
 ### Voraussetzungen
 
-- Das Issue befindet sich aktuell in `In Arbeit (AI)`, oder kommt unmittelbar aus `Todo (AI)`.
-- Wenn du von `Todo (AI)` kommst, verzögere nicht mit weiteren Statuswechseln: Das Issue sollte bereits `In Arbeit (AI)` sein, bevor dieser Schritt beginnt.
+- Das Issue befindet sich aktuell in `In Arbeit (AI)`.
+- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und anschließend im manuellen Status `In Arbeit` geprüft worden sein.
 
 ### Ablauf
 
-1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue:
-   - Durchsuche vorhandene Kommentare nach dem Marker-Header `## Codex Workpad`.
-   - Ignoriere bereits aufgelöste Kommentare während der Suche; nur aktive/nicht aufgelöste Kommentare dürfen als Live-Workpad wiederverwendet werden.
-   - Falls vorhanden, verwende genau diesen Kommentar weiter; erstelle keinen neuen Workpad-Kommentar.
-   - Falls nicht vorhanden, erstelle einen Workpad-Kommentar und nutze ihn für alle Updates.
-   - Speichere die ID des Workpad-Kommentars und schreibe Fortschrittsupdates nur in diese ID.
-   - Falls du in diesem Turn den ersten Workpad-Kommentar neu anlegen musstest, prüfe unmittelbar danach die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus, bevor du Plan, Akzeptanzkriterien oder Validierung weiter ausarbeitest.
-2. Gleiche das Workpad vor neuen Änderungen sofort ab:
-   - Hake bereits erledigte Punkte ab.
-   - Erweitere/korrigiere den Plan so, dass er für den aktuellen Scope vollständig ist.
-   - Stelle sicher, dass `Akzeptanzkriterien` und `Validierung` aktuell sind und weiterhin zur Aufgabe passen.
-3. Starte die Arbeit, indem du einen hierarchischen Plan im Workpad-Kommentar schreibst bzw. aktualisierst.
-4. Stelle sicher, dass das Workpad oben einen kompakten Environment-Stamp als Code-Fence-Zeile enthält:
-   - Format: `<host>:<abs-workdir>@<short-sha>`
-   - Beispiel: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-   - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`).
-5. Füge explizite Akzeptanzkriterien und TODOs in Checklistenform in denselben Kommentar ein.
-   - Wenn Änderungen nutzerseitig sichtbar sind, nimm ein UI-Walkthrough-Akzeptanzkriterium auf, das den End-to-End-Nutzerpfad zur Validierung beschreibt.
-   - Wenn Änderungen App-Dateien oder App-Verhalten berühren, füge explizite app-spezifische Ablaufprüfungen in `Akzeptanzkriterien` des Workpads hinzu (zum Beispiel: Startpfad, geänderter Interaktionspfad und erwarteter Ergebnispfad).
-   - Wenn die Ticket-Beschreibung oder der Kommentar-Kontext Abschnitte `Validation`, `Test Plan` oder `Testing` enthält, kopiere diese Anforderungen als verpflichtende Checkboxen in die Bereiche `Akzeptanzkriterien` und `Validierung` des Workpads (keine optionale Abschwächung).
-6. Führe ein Self-Review des Plans im Stil eines Principal Engineers durch und verfeinere ihn im Kommentar.
-7. Erfasse vor der Implementierung ein konkretes Reproduktionssignal und halte es im Abschnitt `Verlauf` des Workpads fest (Befehl/Ausgabe, Screenshot oder deterministisches UI-Verhalten).
-9. Kontext komprimieren und mit der Ausführung fortfahren.
-11. Lade den vorhandenen Workpad-Kommentar und behandle ihn als aktive Ausführungs-Checkliste.
-    - Bearbeite ihn großzügig, sobald sich die Realität ändert (Scope, Risiken, Validierungsansatz, entdeckte Aufgaben).
-12. Implementiere entlang der hierarchischen TODOs und halte den Kommentar aktuell:
-    - Hake erledigte Punkte ab.
-    - Füge neu entdeckte Punkte im passenden Abschnitt hinzu.
-    - Halte die Parent-/Child-Struktur intakt, während sich der Scope weiterentwickelt.
-    - Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein (zum Beispiel: Reproduktion abgeschlossen, Code-Änderung gelandet, Validierung gelaufen, Review-Feedback adressiert).
-    - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
-13. Führe die für den Scope erforderlichen Validierungen/Tests aus.
-    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
-    - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
-    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
-    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
-    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
-    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und dokumentiere die Ergebnisse im Workpad.
-14. Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
-15. Führe vor der Übergabe nach `PreReview (AI)` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
-16. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Freigabe-/Commit-Schritt bewusst ungecommittet bleiben.
-17. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
-    - Markiere abgeschlossene Punkte in Plan-/Akzeptanzkriterien-/Validierungs-Checklisten als erledigt.
-    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
-    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
-    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
-    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-18. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
-19. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
+1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß `.codex/skills/symphony-workpad/SKILL.md` als aktive Ausführungs-Checkliste.
+2. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
+3. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
+4. Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt `### Verlauf`.
+5. Implementiere entlang der vorhandenen Plan-Checkliste und aktualisiere den Workpad-Kommentar nach jedem wesentlichen Meilenstein.
+6. Führe die für den Scope erforderlichen Validierungen/Tests aus.
+   - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen und in `### Validierung` des Workpads übernommenen Anforderungen aus `Validation`, `Test Plan` oder `Testing` aus; behandle unerfüllte Punkte als unvollständige Arbeit.
+   - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
+   - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren, wenn das die Sicherheit erhöht.
+   - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
+   - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in `### Validierung` und/oder `### Verlauf`.
+7. Wenn die Ausführung neue Erkenntnisse hervorbringt, die eine inhaltliche Neuplanung erfordern, halte das knapp im Workpad fest und verschiebe das Issue zurück nach `Planung (AI)`, statt den Plan in diesem Status autonom umzuschreiben.
+8. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Freigabe-/Commit-Schritt bewusst ungecommittet bleiben.
+9. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
+   - Markiere abgeschlossene Punkte in Plan-/Validierungs-Checklisten als erledigt.
+   - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
+   - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
+   - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
+   - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
+10. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
+11. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan` und `Validierung` exakt zur erledigten Arbeit passen.
 
 ### Abschluss und nächster Status
 
 - Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe`.
 - Erst dann nach `PreReview (AI)` verschieben.
-  - Ein direkter Übergang von `In Arbeit (AI)` nach `Freigabe` ist nur über den blocked-access escape hatch zulässig.
-  - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `Freigabe` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
+  - Ein direkter Übergang von `In Arbeit (AI)` nach `BLOCKER` ist nur über den blocked-access escape hatch zulässig.
+  - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `BLOCKER` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
 - Vor dem Wechsel nach `PreReview (AI)` müssen alle folgenden Bedingungen erfüllt sein:
   - Die Checkliste aus diesem Ablauf ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
-  - Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
+  - Erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
   - Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
   - Das Workpad dokumentiert den finalen ungecommitten Übergabestand und die bestandene lokale Validierung explizit.
   - Falls die App berührt wird, sind die Runtime-Validierungsanforderungen aus `App runtime validation (required)` abgeschlossen.
@@ -491,69 +474,39 @@ Wenn die Trigger-Bedingungen erfüllt sind:
 
 Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
-- Wenn ein erforderliches Tool fehlt oder erforderliche Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Freigabe`. Dieser Hinweis muss enthalten:
+- Wenn ein erforderliches Tool fehlt oder erforderliche Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `BLOCKER`. Dieser Hinweis muss enthalten:
   - was fehlt,
-  - warum dadurch erforderliche Akzeptanz/Validierung blockiert wird,
+  - warum dadurch erforderliche Validierung blockiert wird,
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
 - Halte den Hinweis knapp und handlungsorientiert; füge keine zusätzlichen Top-Level-Kommentare außerhalb des Workpads hinzu.
 
-## Workpad-Standard
+## Workpad-Handhabung
 
-Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und halte sie während der gesamten Ausführung direkt an Ort und Stelle aktuell.
+Für Aufbau, Standardstruktur und Pflege des persistierenden Workpad-Kommentars ist
+`.codex/skills/symphony-workpad/SKILL.md` die maßgebliche Quelle.
 
-- Im Abschnitt `### Review` werden während `PreReview (AI)` die Schritte aus `.codex/skills/sym-prereview/SKILL.md` und während `Review (AI)` die Schritte aus `.codex/skills/sym-review/SKILL.md` als Checkliste mit kurzen Statusnotizen geführt; laufende Logs zu Befehlen, Ergebnissen und Fixes bleiben im Abschnitt `### Verlauf`.
-- Im Abschnitt `### Test` werden die Schritte aus `.codex/skills/sym-test/SKILL.md` ebenfalls als Checkliste mit kurzen Statusnotizen geführt; detaillierte Test-Logs bleiben ebenfalls im Abschnitt `### Verlauf`.
+- Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Codex Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
+- Die Schrittreihenfolge der einzelnen Workflow-Phasen und alle Statusübergänge bleiben ausschließlich in dieser `WORKFLOW.md` definiert.
 
-````md
-## Codex Workpad
+## Planungs-Handhabung
 
-```text
-<hostname>:<abs-path>@<short-sha>
-```
+Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
+`.codex/skills/symphony-planning/SKILL.md` die maßgebliche Quelle.
 
-### Plan
-
-- [ ] 1\. Übergeordnete Aufgabe
-  - [ ] 1.1 Teilaufgabe
-  - [ ] 1.2 Teilaufgabe
-- [ ] 2\. Übergeordnete Aufgabe
-
-### Akzeptanzkriterien
-
-- [ ] Kriterium 1
-- [ ] Kriterium 2
-
-### Validierung
-
-- [ ] gezielte Tests: `<command>`
-
-### Review
-
-- [ ] `<PreReview-/Review-Schritt aus dem aktiven Skill>`: `<kurze Statusnotiz>`
-
-### Test
-
-- [ ] `<Test-Schritt aus .codex/skills/sym-test/SKILL.md>`: `<kurze Statusnotiz>`
-
-### Verlauf
-
-- <kurze Fortschritts-/Review-/Test-Notiz mit Zeitstempel in lokaler Zeit>
-
-### Unklarheiten
-
-- <nur einfügen, wenn während der Ausführung etwas unklar war>
-````
+- Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind ausschließlich in `Planung (AI)` zulässig.
+- Interaktive Sitzungen dürfen auf Benutzeranweisung später erneut in die Planung eingreifen.
 
 ## Leitplanken und Verbote
 
 - Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo (AI)` verschiebt.
-- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Die einzige Ausnahme ist das einmalige `Erstkontakt-Protokoll für neue Items`.
+- Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits sind ausschließlich in `Review (AI)`, `Test (AI)` und `Merge (AI)` zulässig. In allen anderen Status bleiben sie verboten.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
-- Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
+- Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
 - In `Freigabe` keine weiteren Codeänderungen vornehmen; auf den manuellen Commit warten. Kein regelmäßiges Polling.
+- In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
