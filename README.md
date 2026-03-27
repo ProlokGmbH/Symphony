@@ -79,11 +79,13 @@ Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Ueber
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
-| `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `In Arbeit (AI)` |
-| `In Arbeit` | Mensch/AI | Sonderfall fuer Bootstrap von Worktree und leerem Workpad ohne weitere Umsetzung. | bleibt offen bis zum naechsten AI-Status |
-| `In Arbeit (AI)` | AI | Planung, Umsetzung, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
+| `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
+| `In Arbeit` | Mensch | Manueller Pruefpunkt fuer den in `Planung (AI)` vorbereiteten Plan; wird von der Automatisierung ignoriert. | bleibt offen bis zum naechsten AI-Status |
+| `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung im Workpad vorbereiten. | `In Arbeit` |
+| `In Arbeit (AI)` | AI | Umsetzung des bestehenden, zuvor manuell geprueften Plans, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe` |
-| `Freigabe` | Mensch | Manueller Review- und Commit-Schritt. | `Review (AI)` oder `In Arbeit (AI)` |
+| `BLOCKER` | Mensch | Kritische Abweichung oder externer Blocker; keine weitere Automatisierung, bis das Problem manuell geloest ist. | wartet auf menschliches Verschieben |
+| `Freigabe` | Mensch | Manueller Review- und Commit-Schritt. | `Review (AI)` oder `Planung (AI)` oder `In Arbeit (AI)` |
 | `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Test (AI)` |
 | `Test (AI)` | AI | Repository-spezifischer Test-/Fix-Zyklus auf sauberem Workspace. | `Merge (AI)` oder `Freigabe` |
 | `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen. | `Review` |
@@ -94,11 +96,11 @@ Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Ueber
 
 Der typische Pfad ist damit:
 
-`Todo (AI)` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe` -> `Review (AI)` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
+`Todo (AI)` -> `Planung (AI)` -> `In Arbeit` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe` -> `Review (AI)` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
 
 ## Zentrale Dateien
 
 - `WORKFLOW.md`: Workflow, Prompt-Vertrag und Runtime-Konfiguration
 - `AGENTS.md`: Repository-spezifische Regeln fuer Codex
 - `SPEC.md`: uebergeordnete Servicespezifikation
-- `.codex/skills/`: repo-spezifische Skills fuer Review, Test, Push und Merge
+- `.codex/skills/`: repo-spezifische Skills fuer Planning, Workpad, Review, Test, Push und Merge

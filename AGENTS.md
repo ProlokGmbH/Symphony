@@ -21,6 +21,7 @@ Dieses Verzeichnis enthaelt den in Elixir geschriebenen Orchestrierungsdienst fu
   - Workspaces muessen unterhalb des konfigurierten Workspace-Roots bleiben.
 - Das Verhalten des Orchestrators ist zustandsbehaftet und nebenlaeufigkeitssensibel. Bewahre daher die Semantik fuer Retries, Reconciliation und Cleanup.
 - Folge fuer Logging-Konventionen und die erforderlichen Issue-/Session-Kontextfelder der Datei `docs/logging.md`.
+- Verwende echte deutsche Umlaute, also z.B. ä statt ae
 
 ## Tests und Validierung
 

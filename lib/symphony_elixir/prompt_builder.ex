@@ -91,7 +91,7 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp workflow_mode(%{state: state}, :orchestrated) when is_binary(state) do
-    if automated_issue_state?(state) or state == "In Arbeit" do
+    if automated_issue_state?(state) do
       :automated
     else
       :interactive

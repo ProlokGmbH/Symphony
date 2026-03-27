@@ -91,6 +91,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
 
     on_exit(fn ->
+      Process.delete({Adapter, :branch_name_update_supported})
+      Process.delete({FakeLinearClient, :graphql_result})
+      Process.delete({FakeLinearClient, :graphql_results})
+      Process.delete({FakeLinearClient, :issue_comment_bodies_result})
+
       if is_nil(linear_client_module) do
         Application.delete_env(:symphony_elixir, :linear_client_module)
       else
@@ -357,16 +362,30 @@ defmodule SymphonyElixir.ExtensionsTest do
     )
 
     assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+    flush_graphql_calls()
 
     Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "__type" => %{
+               "inputFields" => [%{"name" => "branchName"}]
+             }
+           }
+         }},
+        {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+      ]
     )
 
     assert :ok = Adapter.update_issue_branch_name("issue-1", "symphony/MT-1")
 
+    assert_receive {:graphql_called, support_query, %{}}
     assert_receive {:graphql_called, update_branch_query, %{issueId: "issue-1", branchName: "symphony/MT-1"}}
 
+    assert support_query =~ "__type"
+    assert support_query =~ "IssueUpdateInput"
     assert update_branch_query =~ "issueUpdate"
     assert update_branch_query =~ "branchName"
 
@@ -391,6 +410,38 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert {:error, :issue_branch_name_update_failed} =
              Adapter.update_issue_branch_name("issue-1", "symphony/Odd")
+
+    flush_graphql_calls()
+    Process.delete({Adapter, :branch_name_update_supported})
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"__type" => %{"inputFields" => [%{"name" => "stateId"}]}}}}
+    )
+
+    assert :ok = Adapter.update_issue_branch_name("issue-1", "symphony/Unsupported")
+
+    assert_receive {:graphql_called, unsupported_query, %{}}
+    assert unsupported_query =~ "IssueUpdateInput"
+    refute_receive {:graphql_called, _, %{issueId: "issue-1", branchName: "symphony/Unsupported"}}
+
+    flush_graphql_calls()
+    Process.delete({Adapter, :branch_name_update_supported})
+    Process.put({FakeLinearClient, :graphql_result}, {:error, :schema_unavailable})
+
+    assert :ok = Adapter.update_issue_branch_name("issue-1", "symphony/Fallback")
+
+    assert_receive {:graphql_called, fallback_query, %{}}
+    assert fallback_query =~ "IssueUpdateInput"
+    refute_receive {:graphql_called, _, %{issueId: "issue-1", branchName: "symphony/Fallback"}}
+  end
+
+  defp flush_graphql_calls do
+    receive do
+      {:graphql_called, _, _} -> flush_graphql_calls()
+    after
+      0 -> :ok
+    end
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

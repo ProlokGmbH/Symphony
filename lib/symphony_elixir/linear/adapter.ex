@@ -31,6 +31,16 @@ defmodule SymphonyElixir.Linear.Adapter do
   }
   """
 
+  @issue_update_input_fields_query """
+  query SymphonyIssueUpdateInputFields {
+    __type(name: "IssueUpdateInput") {
+      inputFields {
+        name
+      }
+    }
+  }
+  """
+
   @state_lookup_query """
   query SymphonyResolveStateId($issueId: String!, $stateName: String!) {
     issue(id: $issueId) {
@@ -96,22 +106,51 @@ defmodule SymphonyElixir.Linear.Adapter do
   @spec update_issue_branch_name(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_branch_name(issue_id, branch_name)
       when is_binary(issue_id) and is_binary(branch_name) do
-    with {:ok, response} <-
-           client_module().graphql(@update_branch_name_mutation, %{
-             issueId: issue_id,
-             branchName: branch_name
-           }),
-         true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
-      :ok
+    if branch_name_update_supported?() do
+      with {:ok, response} <-
+             client_module().graphql(@update_branch_name_mutation, %{
+               issueId: issue_id,
+               branchName: branch_name
+             }),
+           true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
+        :ok
+      else
+        false -> {:error, :issue_branch_name_update_failed}
+        {:error, reason} -> {:error, reason}
+        _ -> {:error, :issue_branch_name_update_failed}
+      end
     else
-      false -> {:error, :issue_branch_name_update_failed}
-      {:error, reason} -> {:error, reason}
-      _ -> {:error, :issue_branch_name_update_failed}
+      :ok
     end
   end
 
   defp client_module do
     Application.get_env(:symphony_elixir, :linear_client_module, Client)
+  end
+
+  defp branch_name_update_supported? do
+    cache_key = {__MODULE__, :branch_name_update_supported}
+
+    case Process.get(cache_key) do
+      value when is_boolean(value) ->
+        value
+
+      _ ->
+        supported? =
+          case client_module().graphql(@issue_update_input_fields_query, %{}) do
+            {:ok, response} ->
+              response
+              |> get_in(["data", "__type", "inputFields"])
+              |> List.wrap()
+              |> Enum.any?(&match?(%{"name" => "branchName"}, &1))
+
+            _ ->
+              false
+          end
+
+        Process.put(cache_key, supported?)
+        supported?
+    end
   end
 
   defp resolve_state_id(issue_id, state_name) do

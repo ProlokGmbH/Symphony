@@ -18,7 +18,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert config.tracker.active_states == [
              "Todo (AI)",
-             "In Arbeit",
+             "Planung (AI)",
              "In Arbeit (AI)",
              "PreReview (AI)",
              "Review (AI)",
@@ -1018,46 +1018,6 @@ defmodule SymphonyElixir.CoreTest do
     assert_due_in_range(due_at_ms, 250, 1_100)
   end
 
-  test "bootstrap worker exit releases the claim until the issue state changes" do
-    issue_id = "issue-bootstrap"
-    ref = make_ref()
-    orchestrator_name = Module.concat(__MODULE__, :BootstrapCompletionOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-
-    on_exit(fn ->
-      if Process.alive?(pid) do
-        Process.exit(pid, :normal)
-      end
-    end)
-
-    initial_state = :sys.get_state(pid)
-
-    running_entry = %{
-      pid: self(),
-      ref: ref,
-      identifier: "MT-562",
-      issue: %Issue{id: issue_id, identifier: "MT-562", state: "In Arbeit"},
-      started_at: DateTime.utc_now()
-    }
-
-    :sys.replace_state(pid, fn _ ->
-      initial_state
-      |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.new([issue_id]))
-      |> Map.put(:retry_attempts, %{})
-    end)
-
-    send(pid, {:DOWN, ref, :process, self(), :normal})
-    Process.sleep(50)
-    state = :sys.get_state(pid)
-
-    refute Map.has_key?(state.running, issue_id)
-    assert MapSet.member?(state.completed, issue_id)
-    assert state.completed_states[issue_id] == "in arbeit"
-    refute MapSet.member?(state.claimed, issue_id)
-    assert state.retry_attempts == %{}
-  end
-
   test "abnormal worker exit increments retry attempt progressively" do
     issue_id = "issue-crash"
     ref = make_ref()
@@ -1372,7 +1332,7 @@ defmodule SymphonyElixir.CoreTest do
              "session=manual workflow=interactive automated=false interactive=true"
   end
 
-  test "prompt builder treats orchestrated In Arbeit as automated and manual In Arbeit as interactive" do
+  test "prompt builder treats In Arbeit as interactive in orchestrated and manual sessions" do
     workflow_prompt = "{% if runtime.automated %}AUTO{% else %}INTERACTIVE{% endif %}"
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
@@ -1385,7 +1345,7 @@ defmodule SymphonyElixir.CoreTest do
       labels: []
     }
 
-    assert PromptBuilder.build_prompt(issue) == "AUTO"
+    assert PromptBuilder.build_prompt(issue) == "INTERACTIVE"
     assert PromptBuilder.build_prompt(issue, session_mode: :manual) == "INTERACTIVE"
   end
 
@@ -1753,11 +1713,59 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ~r/(keine UTC- oder `Z`-Zeitstempel|do not use UTC or `Z` timestamps)/
 
     assert prompt =~ ~s("next steps for user")
+    assert prompt =~ ".codex/skills/symphony-planning/SKILL.md"
     assert prompt =~ ".codex/skills/symphony-review/SKILL.md"
+    assert prompt =~ ".codex/skills/symphony-workpad/SKILL.md"
     assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
     assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
+  end
+
+  test "in-repo WORKFLOW_INTERACTIVE.md renders planning and workpad skill guidance" do
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    original_workflow_path = Workflow.workflow_file_path()
+    interactive_workflow_path = Path.expand("../../WORKFLOW_INTERACTIVE.md", __DIR__)
+    project_root = Path.join(System.tmp_dir!(), "interactive-workflow-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(project_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      prompt: "{{ issue.identifier }}"
+    )
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      %Issue{
+        id: "issue-698g",
+        identifier: "MT-698G",
+        title: "Interactive workpad skill",
+        description: "Manual prompt should mention workpad handling",
+        state: "Freigabe",
+        url: "https://example.org/issues/MT-698G",
+        labels: []
+      }
+    ])
+
+    assert {:ok, prompt} =
+             ScriptSupport.manual_prompt(
+               Workflow.workflow_file_path(),
+               interactive_workflow_path,
+               "MT-698G",
+               project_root
+             )
+
+    assert prompt =~ "symphony-linear"
+    assert prompt =~ "symphony-planning"
+    assert prompt =~ "symphony-workpad"
+    assert prompt =~ "Beginne nicht sofort mit der Ausführung"
+    assert prompt =~ "Statuslogik"
   end
 
   test "prompt builder adds continuation guidance for retries" do
@@ -1950,27 +1958,18 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner skips Codex bootstrap in In Arbeit when a workpad marker already exists" do
+  test "agent runner ignores In Arbeit without creating a workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
         "symphony-elixir-agent-runner-bootstrap-#{System.unique_integer([:positive])}"
       )
 
-    current_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
-
     try do
-      assert {:ok, %{config: %{"hooks" => %{"after_create" => after_create}}}} =
-               Workflow.load(current_workflow_path)
-
       remote_repo = Path.join(test_root, "remote.git")
       source_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "worktrees")
-      workflow_dir = Path.join(test_root, "workflow")
-      workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
       codex_stamp = Path.join(test_root, "codex-invoked")
-
-      File.mkdir_p!(workflow_dir)
 
       assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
@@ -1982,19 +1981,13 @@ defmodule SymphonyElixir.CoreTest do
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
-      write_workflow_file!(workflow_file,
+      write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        hook_after_create: after_create,
         codex_command: "sh -lc 'touch #{codex_stamp}'"
       )
 
-      Workflow.set_workflow_file_path(workflow_file)
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
-
-      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
-        "issue-bootstrap-1" => ["## Codex Workpad\n\nexisting body"]
-      })
 
       issue = %Issue{
         id: "issue-bootstrap-1",
@@ -2013,25 +2006,14 @@ defmodule SymphonyElixir.CoreTest do
 
       workspace = Path.join(workspace_root, "MT-BOOT")
 
-      assert File.dir?(workspace)
-
-      assert {"symphony/MT-BOOT\n", 0} =
-               System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
+      refute File.dir?(workspace)
 
       assert {worktree_list, 0} =
                System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
 
-      assert worktree_list =~ workspace
-
-      assert_receive {:memory_tracker_branch_update, "issue-bootstrap-1", "symphony/MT-BOOT"}
+      refute worktree_list =~ workspace
+      refute_receive {:memory_tracker_branch_update, "issue-bootstrap-1", _branch}, 100
       refute_receive {:memory_tracker_comment, "issue-bootstrap-1", _body}, 100
-      refute File.exists?(codex_stamp)
-
-      assert :ok =
-               File.cd!(source_repo, fn ->
-                 AgentRunner.run(issue)
-               end)
-
       refute File.exists?(codex_stamp)
     after
       File.rm_rf(test_root)
