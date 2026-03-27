@@ -122,7 +122,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
 - Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
 - Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
-- Wenn Linear, GitHub oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
+- Wenn Linear oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
 
 ### Verwandte Skills
 
@@ -178,10 +178,6 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
    - `Review` -> nichts tun und beenden.
    - `Fertig` -> nichts tun und beenden.
    - `Abgebrochen` -> nichts tun und beenden.
-5. Bevor du einen aktiven Codex-Ausführungsablauf fortsetzt, prüfe, ob für den aktuellen Branch bereits eine PR existiert und ob sie geschlossen ist.
-   - Wenn eine Branch-PR existiert und `CLOSED` oder `MERGED` ist, behandle die bisherige Branch-Arbeit für diesen Lauf als nicht wiederverwendbar.
-   - Erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte den Ausführungsablauf als neuen Versuch neu.
-
 ## Ablauf für `Todo (AI)`
 
 ### Ziel
@@ -199,7 +195,6 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
    - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
    - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
    - erst danach Analyse-, Planungs- und Implementierungsarbeit beginnen.
-2. Wenn bereits eine PR angehängt ist, beginne damit, alle offenen PR-Kommentare zu prüfen und zwischen erforderlichen Änderungen und expliziten Pushback-Antworten zu unterscheiden.
 
 ### Abschluss und nächster Status
 
@@ -207,7 +202,7 @@ Das Issue aus der Warteschlange in die aktive Bearbeitung überführen und den r
 
 ### Sonderfälle
 
-- Wenn bereits eine PR angehängt ist, behandle das Ticket als Feedback-/Rework-Schleife: vollständigen PR-Feedback-Sweep ausführen, Feedback lokal adressieren oder explizit Pushback geben, erneut lokal validieren und anschließend nach `PreReview (AI)` weiterreichen; erst nach abgeschlossenem `PreReview (AI)`-Lauf geht es nach `Freigabe`.
+- Keine.
 
 ## Ablauf für `In Arbeit`
 
@@ -269,7 +264,7 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
 4. Stelle sicher, dass das Workpad oben einen kompakten Environment-Stamp als Code-Fence-Zeile enthält:
    - Format: `<host>:<abs-workdir>@<short-sha>`
    - Beispiel: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-   - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`, `PR link`).
+   - Nimm keine Metadaten auf, die bereits aus den Linear-Issue-Feldern ableitbar sind (`issue ID`, `status`, `branch`).
 5. Füge explizite Akzeptanzkriterien und TODOs in Checklistenform in denselben Kommentar ein.
    - Wenn Änderungen nutzerseitig sichtbar sind, nimm ein UI-Walkthrough-Akzeptanzkriterium auf, das den End-to-End-Nutzerpfad zur Validierung beschreibt.
    - Wenn Änderungen App-Dateien oder App-Verhalten berühren, füge explizite app-spezifische Ablaufprüfungen in `Akzeptanzkriterien` des Workpads hinzu (zum Beispiel: Startpfad, geänderter Interaktionspfad und erwarteter Ergebnispfad).
@@ -285,14 +280,13 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
     - Halte die Parent-/Child-Struktur intakt, während sich der Scope weiterentwickelt.
     - Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein (zum Beispiel: Reproduktion abgeschlossen, Code-Änderung gelandet, Validierung gelaufen, Review-Feedback adressiert).
     - Lasse abgeschlossene Arbeit niemals ungecheckt im Plan stehen.
-    - Für Tickets, die als `Todo (AI)` mit angehängter PR gestartet sind, führe das vollständige PR-Feedback-Sweep-Protokoll sofort nach dem Kickoff und vor neuer Feature-Arbeit aus.
 13. Führe die für den Scope erforderlichen Validierungen/Tests aus.
     - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen Anforderungen aus `Validierung`/`Test Plan`/`Testing` aus, wenn sie vorhanden sind; behandle unerfüllte Punkte als unvollständige Arbeit.
     - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
     - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren (zum Beispiel: einen lokalen Build-Input für `make` anpassen oder einen UI-Account/Response-Pfad hart codieren), wenn das die Sicherheit erhöht.
     - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
     - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in den Bereichen `Validierung`/`Verlauf` des Workpads, damit Reviewer den Nachweis nachvollziehen können.
-    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und erfasse/lade Medien über `github-pr-media` hoch.
+    - Wenn die App berührt wird, führe vor der Übergabe die Validierung `launch-app` aus und dokumentiere die Ergebnisse im Workpad.
 14. Prüfe alle Akzeptanzkriterien erneut und schließe verbleibende Lücken.
 15. Führe vor der Übergabe nach `PreReview (AI)` die für deinen Scope erforderliche Validierung aus und bestätige, dass sie erfolgreich ist; falls nicht, behebe die Probleme und wiederhole den Lauf, bis alles grün ist.
 16. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Freigabe-/Commit-Schritt bewusst ungecommittet bleiben.
@@ -302,28 +296,21 @@ Planung, Implementierung, lokale Validierung und ungecommittete Übergabe nach `
     - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
     - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
     - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-18. Bevor du nach `PreReview (AI)` verschiebst, prüfe vorhandenes PR-Feedback nur dann per Polling, wenn bereits eine PR an dem Ticket hängt:
-    - Lies den PR-Kommentar `Manual QA Plan` (falls vorhanden) und nutze ihn, um die UI-/Runtime-Testabdeckung für die aktuelle Änderung zu verschärfen.
-    - Führe in diesem Fall das vollständige PR-Feedback-Sweep-Protokoll aus.
-    - Bestätige, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
-    - Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
+18. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
+19. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan`, `Akzeptanzkriterien` und `Validierung` exakt zur erledigten Arbeit passen.
 
 ### Abschluss und nächster Status
 
 - Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe`.
 - Erst dann nach `PreReview (AI)` verschieben.
   - Ein direkter Übergang von `In Arbeit (AI)` nach `Freigabe` ist nur über den blocked-access escape hatch zulässig.
-  - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Nicht-GitHub-Tools/Auth blockiert bist, verschiebe nach `Freigabe` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
-- Für `Todo (AI)`-Tickets, bei denen bereits beim Kickoff eine PR angehängt war:
-  - Stelle sicher, dass sämtliches vorhandenes PR-Feedback geprüft und aufgelöst wurde, einschließlich Inline-Review-Kommentaren (durch Code-Änderungen oder eine explizite, begründete Pushback-Antwort).
-  - Verschiebe erst dann nach `PreReview (AI)`.
+  - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `Freigabe` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
 - Vor dem Wechsel nach `PreReview (AI)` müssen alle folgenden Bedingungen erfüllt sein:
   - Die Checkliste aus diesem Ablauf ist vollständig abgeschlossen und korrekt im einen Workpad-Kommentar abgebildet.
   - Akzeptanzkriterien und erforderliche ticketseitige Validierungspunkte sind abgeschlossen.
   - Validation/Tests sind für den aktuellen lokalen Arbeitsstand grün.
-  - Falls bereits eine PR existiert, ist der PR-Feedback-Sweep abgeschlossen und es gibt keine umsetzbaren Kommentare mehr.
   - Das Workpad dokumentiert den finalen ungecommitten Übergabestand und die bestandene lokale Validierung explizit.
-  - Falls die App berührt wird, sind die Runtime-Validierungs-/Media-Anforderungen aus `App runtime validation (required)` abgeschlossen.
+  - Falls die App berührt wird, sind die Runtime-Validierungsanforderungen aus `App runtime validation (required)` abgeschlossen.
 
 ### Sonderfälle
 
@@ -367,7 +354,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendi
 
 1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; veröffentliche den aktualisierten Stand anschließend mit `symphony-push`, damit Branch und PR auf dem aktuellen Stand sind oder erstmals angelegt und am aktiven Linear-Issue angehängt werden.
+3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; veröffentliche den aktualisierten Stand anschließend mit `symphony-push`, damit der Remote-Branch auf dem aktuellen Stand ist.
 
 ### Abschluss und nächster Status
 
@@ -392,7 +379,7 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes 
 
 1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Merge (AI)` ein landbarer Branch mit PR existiert und diese PR am aktiven Linear-Issue hängt.
+3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Merge (AI)` ein landbarer Remote-Branch existiert.
 
 ### Abschluss und nächster Status
 
@@ -496,29 +483,11 @@ Wenn die Trigger-Bedingungen erfüllt sind:
 6. Halte im Workpad knapp fest, ob die Erstkontakt-Korrektur durchgeführt wurde oder keine Änderung nötig war.
 7. Führe dieses Protokoll niemals erneut aus, wenn bereits vor oder während eines früheren Turns ein Workpad-Kommentar für das Issue existiert hat.
 
-### PR-Feedback-Sweep-Protokoll
-
-Wenn an ein Ticket bereits eine PR angehängt ist, führe dieses Protokoll aus, bevor du es nach `PreReview (AI)` verschiebst:
-
-1. Ermittle die PR-Nummer aus Issue-Links/Attachments.
-2. Sammle Feedback aus allen Kanälen:
-   - Top-Level-PR-Kommentare (`gh pr view --comments`).
-   - Inline-Review-Kommentare (`gh api repos/<owner>/<repo>/pulls/<pr>/comments`).
-   - Review-Zusammenfassungen/-Status (`gh pr view --json reviews`).
-3. Behandle jeden umsetzbaren Reviewer-Kommentar (Mensch oder Bot), einschließlich Inline-Review-Kommentaren, als blockierend, bis eine der folgenden Bedingungen erfüllt ist:
-   - Code/Tests/Doku wurden aktualisiert, um ihn zu adressieren, oder
-   - in genau diesem Thread wurde eine explizite, begründete Pushback-Antwort gepostet.
-4. Aktualisiere Plan/Checkliste im Workpad, sodass jeder Feedback-Punkt und sein Auflösungsstatus enthalten sind.
-5. Führe nach feedbackgetriebenen Änderungen die Validierung erneut lokal aus und dokumentiere, dass die resultierenden Änderungen für `PreReview (AI)` und den anschließenden manuellen Commit in `Freigabe` bereitliegen; nach dem manuellen Commit können Pushes/PR-Updates weiterhin folgen.
-6. Wiederhole diesen Sweep, bis keine offenen umsetzbaren Kommentare mehr vorhanden sind.
-
 ### Blocked-access escape hatch
 
 Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehlende Auth/Berechtigungen blockiert ist, die in der laufenden Sitzung nicht auflösbar sind.
 
-- GitHub ist vor `Freigabe` standardmäßig **kein** gültiger Blocker. Die in späteren AI-Status erlaubten automatischen Commits ändern daran nichts.
-- Verschiebe nicht wegen GitHub-Zugriff/Auth nach `Freigabe`; der Entwickler übernimmt dort den manuellen Commit-Schritt. Pushes und PR-Aktualisierungen können anschließend weiterhin erfolgen.
-- Wenn ein erforderliches Nicht-GitHub-Tool fehlt oder erforderliche Nicht-GitHub-Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Freigabe`. Dieser Hinweis muss enthalten:
+- Wenn ein erforderliches Tool fehlt oder erforderliche Auth nicht verfügbar ist, verschiebe das Ticket mit einem kurzen Blocker-Hinweis im Workpad nach `Freigabe`. Dieser Hinweis muss enthalten:
   - was fehlt,
   - warum dadurch erforderliche Akzeptanz/Validierung blockiert wird,
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
@@ -573,8 +542,6 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 
 ## Leitplanken und Verbote
 
-- Wenn die Branch-PR bereits geschlossen/gemergt ist, verwende diesen Branch oder den bisherigen Implementierungszustand nicht erneut für eine Fortsetzung.
-- Für geschlossene/gemergte Branch-PRs erstelle oder verwende den kanonischen Branch `symphony/{{ issue.identifier }}` von `origin/main` und starte bei Reproduktion/Planung neu, als würdest du frisch beginnen.
 - Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo (AI)` verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Die einzige Ausnahme ist das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
@@ -583,6 +550,6 @@ Verwende für den persistierenden Workpad-Kommentar exakt diese Struktur und hal
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Akzeptanzkriterien, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Freigabe` keine weiteren Codeänderungen vornehmen; auf manuellen Commit sowie gegebenenfalls nachgelagerte Push-/PR-Updates warten. Kein regelmäßiges Polling.
+- In `Freigabe` keine weiteren Codeänderungen vornehmen; auf den manuellen Commit warten. Kein regelmäßiges Polling.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
