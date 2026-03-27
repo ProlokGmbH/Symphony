@@ -116,8 +116,11 @@ defmodule SymphonyElixir.CoreTest do
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
+    assert Map.get(hooks, "after_create") =~ "set -eu"
     assert Map.get(hooks, "after_create") =~ "branch=\"symphony/$issue_key\""
     assert Map.get(hooks, "after_create") =~ "source_repo=\"$SYMPHONY_PROJECT_ROOT\""
+    assert Map.get(hooks, "after_create") =~ "git -C \"$workspace\" rev-parse --is-inside-work-tree"
+    assert Map.get(hooks, "after_create") =~ "rm -rf \"$workspace\""
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" fetch origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add \"$workspace\" \"$branch\""
     assert Map.get(hooks, "after_create") =~ "refs/remotes/origin/$branch"
@@ -2091,7 +2094,12 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        hook_after_create: ~s(git -C "#{template_repo}" worktree add -b "symphony/MT-BRANCH-SYNC" "$PWD" main),
+        hook_after_create: """
+        workspace="$PWD"
+        cd "$(dirname "$workspace")"
+        rm -rf "$workspace"
+        git -C "#{template_repo}" worktree add -b "symphony/MT-BRANCH-SYNC" "$workspace" main
+        """,
         codex_command: "#{codex_binary} app-server",
         max_turns: 1
       )

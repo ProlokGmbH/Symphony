@@ -22,10 +22,14 @@ workspace:
   root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:
   after_create: |
+    set -eu
     workspace="$PWD"
     issue_key="$(basename "$workspace")"
     branch="symphony/$issue_key"
     source_repo="$SYMPHONY_PROJECT_ROOT"
+    if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      rm -rf "$workspace"
+    fi
     git -C "$source_repo" fetch origin
     if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
       git -C "$source_repo" worktree add "$workspace" "$branch"

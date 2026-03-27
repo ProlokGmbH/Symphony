@@ -2,6 +2,7 @@ defmodule SymCodexScriptTest do
   use ExUnit.Case, async: true
 
   @script_source Path.expand("../sym-codex", __DIR__)
+  @mcp_script_source Path.expand("../sym-codex-mcp", __DIR__)
 
   test "sym-codex reaches codex when invoked directly from the script repository" do
     %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
@@ -66,18 +67,106 @@ defmodule SymCodexScriptTest do
     refute output =~ "source sym-codex"
   end
 
+  test "sym-codex configures a repo-local MCP server for direct execution" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"], env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}])
+
+    assert output =~ ~s(mcp_servers.symphony_linear.command="#{repo_dir}/sym-codex-mcp")
+    assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
+    assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+  end
+
+  test "sym-codex prefers the current Symphony worktree for MCP server wiring" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(worktree, "sym-codex"), bin_dir, [],
+               cd: worktree,
+               env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
+             )
+
+    assert output =~ ~s(mcp_servers.symphony_linear.command="#{worktree}/sym-codex-mcp")
+    assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{worktree}")
+    assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{worktree}/WORKFLOW.md")
+  end
+
+  test "sym-codex resolves worktrees from the local project root when launched from another repo" do
+    %{
+      repo_dir: repo_dir,
+      bin_dir: bin_dir,
+      project_root: project_root,
+      worktree: worktree
+    } = build_external_project_fixture!("PRO-28")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(Path.dirname(project_root))
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-28"], cd: project_root)
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{worktree}"
+  end
+
+  test "sym-codex infers the issue identifier from an external project worktree" do
+    %{
+      repo_dir: repo_dir,
+      bin_dir: bin_dir,
+      project_root: project_root,
+      worktree: worktree
+    } = build_external_project_fixture!("PRO-28")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(Path.dirname(project_root))
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, [], cd: worktree)
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{worktree}"
+  end
+
   defp build_script_fixture! do
     repo_dir =
       Path.join(System.tmp_dir!(), "sym-codex-script-#{System.unique_integer([:positive])}")
 
     bin_dir = Path.join(System.tmp_dir!(), "sym-codex-bin-#{System.unique_integer([:positive])}")
     codex_path = Path.join(bin_dir, "codex")
+    mix_path = Path.join(bin_dir, "mix")
+    mise_path = Path.join(bin_dir, "mise")
 
     File.mkdir_p!(repo_dir)
     File.mkdir_p!(bin_dir)
     File.cp!(@script_source, Path.join(repo_dir, "sym-codex"))
+    File.cp!(@mcp_script_source, Path.join(repo_dir, "sym-codex-mcp"))
     File.write!(codex_path, "#!/usr/bin/env bash\nprintf 'codex-stub pwd=%s args=%s\\n' \"$PWD\" \"$*\"\n")
+    File.write!(mix_path, "#!/usr/bin/env bash\nprintf '%s' \"${SYMPHONY_PROJECT_WORKTREES_ROOT:-}\"\n")
+    File.write!(mise_path, "#!/usr/bin/env bash\nif [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--\" ]; then\n  shift 2\n  exec \"$@\"\nfi\nprintf 'unexpected mise args=%s\\n' \"$*\" >&2\nexit 1\n")
     File.chmod!(codex_path, 0o755)
+    File.chmod!(mix_path, 0o755)
+    File.chmod!(mise_path, 0o755)
     File.write!(Path.join(repo_dir, "WORKFLOW.md"), "")
     File.write!(Path.join(repo_dir, "mix.exs"), "")
 
@@ -99,6 +188,36 @@ defmodule SymCodexScriptTest do
     git_cmd!(repo_dir, ["worktree", "add", "-b", "symphony/#{issue_identifier}", worktree, "HEAD"])
 
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree}
+  end
+
+  defp build_external_project_fixture!(issue_identifier) do
+    %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    test_root =
+      Path.join(System.tmp_dir!(), "sym-codex-project-#{System.unique_integer([:positive])}")
+
+    project_root = Path.join(test_root, "project")
+    workspace_root = project_root <> "-worktrees"
+    worktree = Path.join(workspace_root, issue_identifier)
+
+    File.mkdir_p!(project_root)
+    File.mkdir_p!(workspace_root)
+
+    git_cmd!(project_root, ["init", "-b", "main"])
+    git_cmd!(project_root, ["config", "user.name", "SymCodex External Project Test"])
+    git_cmd!(project_root, ["config", "user.email", "sym-codex-external-project-test@example.com"])
+    File.write!(Path.join(project_root, "README.md"), "project\n")
+    git_cmd!(project_root, ["add", "README.md"])
+    git_cmd!(project_root, ["commit", "-m", "Initial commit"])
+    git_cmd!(project_root, ["worktree", "add", "-b", "symphony/#{issue_identifier}", worktree, "HEAD"])
+
+    %{
+      repo_dir: repo_dir,
+      bin_dir: bin_dir,
+      project_root: project_root,
+      workspace_root: workspace_root,
+      worktree: worktree
+    }
   end
 
   defp run_script(script_path, bin_dir, args \\ ["--observer"], opts \\ []) do

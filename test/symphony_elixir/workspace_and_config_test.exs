@@ -396,13 +396,20 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        issue_key="$(basename "$workspace")"
         branch="symphony/$issue_key"
         source_repo="$SYMPHONY_PROJECT_ROOT"
-        if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
-          git -C "$source_repo" worktree add "$PWD" "$branch"
-        else
-          git -C "$source_repo" worktree add -b "$branch" "$PWD" main
+        if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          rm -rf "$workspace"
         fi
+        if git -C "$source_repo" show-ref --verify --quiet "refs/heads/$branch"; then
+          git -C "$source_repo" worktree add "$workspace" "$branch"
+        else
+          git -C "$source_repo" worktree add -b "$branch" "$workspace" main
+        fi
+        cd "$workspace"
         if [ ! -f "#{attempt_marker}" ]; then
           echo first-failure > "#{attempt_marker}"
           exit 17
@@ -1248,6 +1255,71 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     )
 
     assert Config.settings!().workspace.root == project_root <> "-worktrees"
+  end
+
+  test "runtime paths fall back to the invocation directory when git common dir output is empty" do
+    original_cwd = File.cwd!()
+    original_path = System.get_env("PATH")
+    test_root = Path.join(System.tmp_dir!(), "symphony-empty-git-root-#{System.unique_integer([:positive])}")
+    fake_bin = Path.join(test_root, "bin")
+    fake_git = Path.join(fake_bin, "git")
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      restore_env("PATH", original_path)
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(fake_bin)
+    File.write!(fake_git, "#!/bin/sh\nexit 0\n")
+    File.chmod!(fake_git, 0o755)
+    System.put_env("PATH", "#{fake_bin}:#{original_path}")
+    File.cd!(test_root)
+
+    assert SymphonyElixir.RuntimePaths.project_worktrees_root() == test_root <> "-worktrees"
+  end
+
+  test "config resolves built-in project worktrees root from the source repo when invoked from a worktree" do
+    original_cwd = File.cwd!()
+
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-project-worktree-root-#{System.unique_integer([:positive])}"
+      )
+
+    source_repo = Path.join(test_root, "source")
+    worktree_root = source_repo <> "-worktrees"
+    worktree = Path.join(worktree_root, "PRO-49")
+
+    on_exit(fn ->
+      File.cd!(original_cwd)
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(source_repo)
+    assert {_, 0} = System.cmd("git", ["-C", source_repo, "init", "-b", "main"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+    File.write!(Path.join(source_repo, "README.md"), "base\n")
+    assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+    File.mkdir_p!(worktree_root)
+
+    assert {_, 0} =
+             System.cmd(
+               "git",
+               ["-C", source_repo, "worktree", "add", "-b", "symphony/PRO-49", worktree, "HEAD"],
+               stderr_to_stdout: true
+             )
+
+    File.cd!(worktree)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: "$SYMPHONY_PROJECT_WORKTREES_ROOT"
+    )
+
+    assert Config.settings!().workspace.root == worktree_root
   end
 
   test "config supports per-state max concurrent agent overrides" do
