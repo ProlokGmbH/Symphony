@@ -15,22 +15,25 @@ defmodule SymphonyElixir.Workflow do
 
   @spec default_workflow_file_path() :: Path.t()
   def default_workflow_file_path do
-    case escript_script_name() do
-      [] ->
-        Path.join(File.cwd!(), @workflow_file_name)
+    cwd = File.cwd!()
 
-      script_name ->
-        script_path = List.to_string(script_name)
+    self_hosting_workflow_path(cwd) ||
+      case escript_script_name() do
+        [] ->
+          Path.join(cwd, @workflow_file_name)
 
-        if Path.basename(script_path) == "symphony" do
-          script_path
-          |> Path.dirname()
-          |> Path.join("../#{@workflow_file_name}")
-          |> Path.expand()
-        else
-          Path.join(File.cwd!(), @workflow_file_name)
-        end
-    end
+        script_name ->
+          script_path = List.to_string(script_name)
+
+          if Path.basename(script_path) == "symphony" do
+            script_path
+            |> Path.dirname()
+            |> Path.join("../#{@workflow_file_name}")
+            |> Path.expand()
+          else
+            Path.join(cwd, @workflow_file_name)
+          end
+      end
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok
@@ -139,6 +142,51 @@ defmodule SymphonyElixir.Workflow do
     end
 
     :ok
+  end
+
+  defp self_hosting_workflow_path(start_dir) when is_binary(start_dir) do
+    start_dir
+    |> Path.expand()
+    |> ancestor_directories()
+    |> Enum.find_value(&self_hosting_workflow_candidate/1)
+  end
+
+  defp ancestor_directories(path) when is_binary(path) do
+    do_ancestor_directories(path, [])
+  end
+
+  defp do_ancestor_directories(path, acc) when is_binary(path) do
+    parent = Path.dirname(path)
+    next_acc = [path | acc]
+
+    if parent == path do
+      Enum.reverse(next_acc)
+    else
+      do_ancestor_directories(parent, next_acc)
+    end
+  end
+
+  defp self_hosting_workflow_candidate(directory) when is_binary(directory) do
+    [directory, Path.join(directory, "elixir")]
+    |> Enum.find_value(fn candidate ->
+      workflow_path = Path.join(candidate, @workflow_file_name)
+      mix_path = Path.join(candidate, "mix.exs")
+
+      if File.regular?(workflow_path) and symphony_mix_project?(mix_path) do
+        workflow_path
+      end
+    end)
+  end
+
+  defp symphony_mix_project?(path) when is_binary(path) do
+    case File.read(path) do
+      {:ok, contents} ->
+        String.contains?(contents, "defmodule SymphonyElixir.MixProject") and
+          String.contains?(contents, "app: :symphony_elixir")
+
+      {:error, _reason} ->
+        false
+    end
   end
 
   defp escript_script_name do

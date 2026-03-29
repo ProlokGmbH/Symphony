@@ -125,6 +125,7 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
+    assert Map.get(hooks, "after_create") =~ "cp \"$source_repo/.env.local\" \"$workspace/.env.local\""
     assert Map.get(hooks, "on_worktree_commit") =~ "mix workspace.on_worktree_commit"
     assert Map.get(hooks, "on_worktree_commit") =~ "--source-repo \"$SYMPHONY_PROJECT_ROOT\""
     assert Map.get(hooks, "on_worktree_commit") =~ "--workspace \"$SYMPHONY_WORKSPACE\""
@@ -294,9 +295,13 @@ defmodule SymphonyElixir.CoreTest do
   test "workflow file path defaults to WORKFLOW.md in the current working directory outside escript mode" do
     original_workflow_path = Workflow.workflow_file_path()
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    temp_root = Path.join(System.tmp_dir!(), "symphony-workflow-no-escript-#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(temp_root)
 
       if is_nil(original_script_name) do
         Application.delete_env(:symphony_elixir, :escript_script_name)
@@ -305,6 +310,8 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
+    File.mkdir_p!(temp_root)
+    File.cd!(temp_root)
     Workflow.clear_workflow_file_path()
     Application.put_env(:symphony_elixir, :escript_script_name, [])
 
@@ -312,6 +319,101 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "workflow file path defaults relative to the launched symphony binary" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    temp_root = Path.join(System.tmp_dir!(), "symphony-workflow-default-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(temp_root)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    File.mkdir_p!(temp_root)
+    File.cd!(temp_root)
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    assert Workflow.workflow_file_path() == "/opt/symphony/WORKFLOW.md"
+  end
+
+  test "workflow file path ignores non-Symphony projects even when they contain a workflow file" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    temp_root = Path.join(System.tmp_dir!(), "symphony-workflow-generic-project-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(temp_root)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    File.mkdir_p!(temp_root)
+    File.write!(Path.join(temp_root, "WORKFLOW.md"), "---\n---\n")
+
+    File.write!(
+      Path.join(temp_root, "mix.exs"),
+      """
+      defmodule GenericProject.MixProject do
+        use Mix.Project
+
+        def project do
+          [app: :generic_project]
+        end
+      end
+      """
+    )
+
+    File.cd!(temp_root)
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    assert Workflow.workflow_file_path() == "/opt/symphony/WORKFLOW.md"
+  end
+
+  test "workflow file path ignores plain workflow files without a Symphony mix project" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    temp_root = Path.join(System.tmp_dir!(), "symphony-workflow-no-mix-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(temp_root)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    File.mkdir_p!(temp_root)
+    File.write!(Path.join(temp_root, "WORKFLOW.md"), "---\n---\n")
+
+    File.cd!(temp_root)
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    assert Workflow.workflow_file_path() == "/opt/symphony/WORKFLOW.md"
+  end
+
+  test "workflow file path prefers the current Symphony worktree when launched from a Symphony checkout" do
     original_workflow_path = Workflow.workflow_file_path()
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
 
@@ -328,15 +430,18 @@ defmodule SymphonyElixir.CoreTest do
     Workflow.clear_workflow_file_path()
     Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
 
-    assert Workflow.workflow_file_path() == "/opt/symphony/WORKFLOW.md"
+    assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
   end
 
-  test "workflow file path falls back to cwd for non-symphony executables" do
+  test "workflow file path prefers the Symphony elixir workflow when launched from the repo root" do
     original_workflow_path = Workflow.workflow_file_path()
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    repo_root = Path.expand("..", File.cwd!())
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
 
       if is_nil(original_script_name) do
         Application.delete_env(:symphony_elixir, :escript_script_name)
@@ -345,6 +450,33 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
+    File.cd!(repo_root)
+    Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    assert Workflow.workflow_file_path() == Path.join(repo_root, "elixir/WORKFLOW.md")
+  end
+
+  test "workflow file path falls back to cwd for non-symphony executables" do
+    original_workflow_path = Workflow.workflow_file_path()
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_cwd = File.cwd!()
+    temp_root = Path.join(System.tmp_dir!(), "symphony-workflow-cwd-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+      File.cd!(original_cwd)
+      File.rm_rf(temp_root)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    File.mkdir_p!(temp_root)
+    File.cd!(temp_root)
     Workflow.clear_workflow_file_path()
     Application.put_env(:symphony_elixir, :escript_script_name, ~c"/usr/bin/elixir")
 
