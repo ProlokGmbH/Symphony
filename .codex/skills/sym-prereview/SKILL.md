@@ -12,7 +12,7 @@ diesem Repository.
 
 ## Checkliste
 
-1. `mix build`
+1. `make all`
 
 Fuehre die Checkliste strikt nacheinander aus. Falls es beim Review zu
 Abweichungen kommt, behebe diese direkt. Wiederhole danach nur den

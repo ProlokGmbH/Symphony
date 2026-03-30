@@ -19,7 +19,7 @@ Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
 - Führe die dort definierte Review-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Review` jeden Review-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
-- Wenn der Review-Zyklus Fixes erzeugt, committe den resultierenden Stand vor Abschluss dieses Status mit `symphony-commit` und veröffentliche ihn anschließend mit `symphony-push`, damit Branch und PR auf dem aktuellen Stand sind oder erstmals angelegt werden.
+- Lasse dabei alle entstehenden Änderungen ungecommittet; automatische Commits bleiben in diesem Status verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 
@@ -53,14 +53,14 @@ Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/sym-review/SKILL.md` definierten Schritt.
-4. Wenn während der Schleife lokale Fixes entstanden sind, committe den finalen Stand vor dem Abschluss dieses Status mit `symphony-commit` und veröffentliche ihn anschließend mit `symphony-push`.
+4. Wenn während der Schleife lokale Fixes entstanden sind, lasse sie ungecommittet im Workspace bestehen.
 5. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist das Review abgeschlossen.
 6. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde:
    - dokumentiere die verbleibenden Abweichungen im Workpad,
-   - committe und veröffentliche zuvor entstandene lokale Fixes noch mit `symphony-commit` und `symphony-push`, sofern das innerhalb dieses Turns noch möglich ist,
-   - übergib nur dann nach `Test (AI)`, wenn kein unveröffentlichter lokaler Review-Fix mehr offen ist; andernfalls stoppe ohne Statuswechsel.
+   - lasse zuvor entstandene lokale Fixes ungecommittet im Workspace,
+   - stoppe ohne Statuswechsel.
 
 ## Abschlussbedingung
 
 - Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Test (AI)`.
-- Lasse den Workspace vor der Übergabe nach `Test (AI)` nicht mit offenen lokalen Git-Änderungen zurück.
+- Offene lokale Git-Änderungen sind bei der Übergabe nach `Test (AI)` zulässig.

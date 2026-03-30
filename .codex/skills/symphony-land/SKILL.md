@@ -2,7 +2,7 @@
 name: symphony-land
 description:
   Land a PR by monitoring conflicts, resolving them, waiting for checks, and
-  squash-merging when green; use when asked to land, merge, or shepherd a PR to
+  merging when green; use when asked to land, merge, or shepherd a PR to
   completion.
 ---
 
@@ -12,7 +12,7 @@ description:
 
 - Ensure the PR is conflict-free with main.
 - Keep CI green and fix failures when they occur.
-- Squash-merge the PR once checks pass.
+- Merge the PR with a merge commit once checks pass.
 - Do not yield to the user until the PR is merged; keep the watcher loop running
   unless blocked.
 - No need to delete remote branches after merge; the repo auto-deletes head
@@ -21,24 +21,25 @@ description:
 ## Preconditions
 
 - `gh` CLI is authenticated.
-- You are on the PR branch with a clean working tree.
+- You are on the PR branch.
 
 ## Steps
 
 1. Locate the PR for the current branch.
 2. Confirm the full gauntlet is green locally before any push.
-3. If the working tree has uncommitted changes, commit with the `symphony-commit` skill
-   and push with the `symphony-push` skill before proceeding.
+3. If the working tree has uncommitted changes, commit them immediately in this status with
+   `git commit -am "Merge (AI) Autocommit"` or `git add -A && git commit -m "Merge (AI) Autocommit"`,
+   then push with the `symphony-push` skill before proceeding.
 4. Check mergeability and conflicts against main.
 5. If conflicts exist, use the `symphony-pull` skill to fetch/merge `origin/main` and
    resolve conflicts, then use the `symphony-push` skill to publish the updated branch.
 6. Ensure Codex review comments (if present) are acknowledged and any required
    fixes are handled before merging.
 7. Watch checks until complete.
-8. If checks fail, pull logs, fix the issue, commit with the `symphony-commit` skill,
-   push with the `symphony-push` skill, and re-run checks.
-9. When all checks are green and review feedback is addressed, squash-merge and
-   delete the branch using the PR title/body for the merge subject/body.
+8. If checks fail, pull logs, fix the issue, commit any resulting changes in this status with
+   the message `Merge (AI) Autocommit`, push with the `symphony-push` skill, and re-run checks.
+9. When all checks are green and review feedback is addressed, merge and delete the branch
+   using the merge-commit subject `<IssueId>: <IssueTitle>`.
 10. **Context guard:** Before implementing review feedback, confirm it does not
     conflict with the user’s stated intent or task context. If it conflicts,
     respond inline with a justification and ask the user before changing code.
@@ -61,8 +62,10 @@ description:
 # Ensure branch and PR context
 branch=$(git branch --show-current)
 pr_number=$(gh pr view --json number -q .number)
-pr_title=$(gh pr view --json title -q .title)
 pr_body=$(gh pr view --json body -q .body)
+issue_identifier="<IssueId from current task context>"
+issue_title="<IssueTitle from current task context>"
+merge_subject="$issue_identifier: $issue_title"
 
 # Check mergeability and conflicts
 mergeable=$(gh pr view --json mergeable -q .mergeable)
@@ -94,8 +97,8 @@ if ! gh pr checks --watch; then
   exit 1
 fi
 
-# Squash-merge (remote branches auto-delete on merge in this repo)
-gh pr merge --squash --subject "$pr_title" --body "$pr_body"
+# Merge-commit with Linear issue subject (remote branches auto-delete on merge in this repo)
+gh pr merge --merge --subject "$merge_subject" --body "$pr_body"
 ```
 
 ## Async Watch Helper
@@ -116,7 +119,7 @@ Exit codes:
 ## Failure Handling
 
 - If checks fail, pull details with `gh pr checks` and `gh run view --log`, then
-  fix locally, commit with the `symphony-commit` skill, push with the `symphony-push` skill, and
+  fix locally, commit the result in this status with `Merge (AI) Autocommit`, push with the `symphony-push` skill, and
   re-run the watch.
 - Use judgment to identify flaky failures. If a failure is a flake (e.g., a
   timeout on only one platform), you may proceed without fixing it.
