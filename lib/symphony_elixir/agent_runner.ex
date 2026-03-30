@@ -5,19 +5,15 @@ defmodule SymphonyElixir.AgentRunner do
 
   require Logger
   alias SymphonyElixir.Codex.AppServer
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workflow, Workspace}
 
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
-  @prereview_handoff_state_name "Freigabe Implementierung"
   @review_codex_state_name "review (ai)"
-  @review_handoff_state_name "Test (AI)"
   @test_codex_state_name "test (ai)"
-  @test_handoff_state_name "Freigabe Final"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @merge_handoff_preflight_state_name @implementation_handoff_state_name
   @merge_codex_state_name "merge (ai)"
-  @merge_handoff_state_name "Review"
   @ignored_manual_state_names [
     "todo",
     "in arbeit",
@@ -293,11 +289,11 @@ defmodule SymphonyElixir.AgentRunner do
        )
        when is_binary(issue_id) do
     case codex_issue_finalize_mode(issue.state) do
-      {:transition, handoff_state_name, error_event, log_label} ->
+      {:transition, error_event, log_label} ->
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          handoff_state_name,
+          resolve_next_handoff_state(issue),
           error_event,
           log_label,
           :stop
@@ -329,16 +325,16 @@ defmodule SymphonyElixir.AgentRunner do
   defp codex_issue_finalize_mode(state) do
     cond do
       prereview_codex_state?(state) ->
-        {:transition, @prereview_handoff_state_name, :prereview_handoff_state_update_failed, "completed prereview issue"}
+        {:transition, :prereview_handoff_state_update_failed, "completed prereview issue"}
 
       review_codex_state?(state) ->
-        {:transition, @review_handoff_state_name, :review_handoff_state_update_failed, "completed review issue"}
+        {:transition, :review_handoff_state_update_failed, "completed review issue"}
 
       test_codex_state?(state) ->
         :test
 
       merge_codex_state?(state) ->
-        {:transition, @merge_handoff_state_name, :merge_handoff_state_update_failed, "completed merge issue"}
+        {:transition, :merge_handoff_state_update_failed, "completed merge issue"}
 
       true ->
         :normal
@@ -369,9 +365,9 @@ defmodule SymphonyElixir.AgentRunner do
     with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
       {next_state, reason_label} =
         if workspace_signature == "" do
-          {@test_handoff_state_name, "completed test issue"}
+          {resolve_next_handoff_state(issue), "completed test issue"}
         else
-          {@implementation_handoff_state_name, "redirected test issue with dirty workspace after completion"}
+          {resolve_handoff_target(issue, @implementation_handoff_state_name), "redirected test issue with dirty workspace after completion"}
         end
 
       transition_issue_state(
@@ -429,7 +425,7 @@ defmodule SymphonyElixir.AgentRunner do
       case transition_issue_state(
              issue,
              issue_state_fetcher,
-             handoff_state_name,
+             resolve_handoff_target(issue, handoff_state_name),
              :dirty_workspace_handoff_state_update_failed,
              "redirected issue with dirty workspace before #{issue.state}",
              :stop
@@ -553,6 +549,25 @@ defmodule SymphonyElixir.AgentRunner do
     state_name
     |> String.trim()
     |> String.downcase()
+  end
+
+  defp resolve_next_handoff_state(%Issue{} = issue) do
+    Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) ||
+      default_next_handoff_state(issue.state)
+  end
+
+  defp resolve_handoff_target(%Issue{} = issue, target_state) when is_binary(target_state) do
+    Workflow.resolve_target_status(target_state, Issue.label_names(issue)) || target_state
+  end
+
+  defp default_next_handoff_state(state_name) when is_binary(state_name) do
+    cond do
+      prereview_codex_state?(state_name) -> @implementation_handoff_state_name
+      review_codex_state?(state_name) -> "Test (AI)"
+      test_codex_state?(state_name) -> "Freigabe Final"
+      merge_codex_state?(state_name) -> "Review"
+      true -> state_name
+    end
   end
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
