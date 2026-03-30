@@ -34,6 +34,9 @@ description:
 9. Summarize the merge:
    - Call out the most challenging conflicts/files and how they were resolved.
    - Note any assumptions or follow-ups.
+10. Add a short `pull skill evidence` note to the active workpad:
+   - merge source(s)
+   - result: `clean` or `conflicts resolved`
 
 ## Conflict Resolution Guidance (Best Practices)
 

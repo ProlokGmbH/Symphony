@@ -167,10 +167,10 @@ werden in derselben Reihenfolge nacheinander ausgewertet.
 | `In Arbeit (AI)` | Ja | Implementierung des bestehenden, zuvor manuell geprüften Plans läuft aktiv. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Test (AI)` |
-| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen. | `Freigabe Final` |
-| `Freigabe Final` | Nein | Manueller Final-Checkpoint vor dem Merge; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; nur in diesem Status sind automatische Commits zulässig. | `Review` |
+| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Freigabe Review` |
+| `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | Warten auf menschliches Verschieben |
+| `Test (AI)` | Ja | Branch vor den Tests per Pull auf den späteren Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
@@ -192,8 +192,8 @@ werden in derselben Reihenfolge nacheinander ausgewertet.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Freigabe Implementierung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
+   - `Freigabe Review` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
-   - `Freigabe Final` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
    - `Review` -> nichts tun und beenden.
@@ -340,7 +340,7 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Ziel
 
-Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das Issue danach nach `Test (AI)` übergeben.
+Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das Issue danach nach `Freigabe Review` übergeben.
 
 ### Voraussetzungen
 
@@ -354,18 +354,44 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Test (AI)`.
-  - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Test (AI)`.
+- Verschiebe das Issue erst danach nach `Freigabe Review`.
+  - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`.
 
 ### Sonderfälle
 
-- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den Statuswechsel nach `Test (AI)` als Fallback automatisch.
+- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Review` als Fallback automatisch.
+
+## Ablauf für `Freigabe Review`
+
+### Ziel
+
+Die manuelle Freigabe der reviewten Version vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Freigabe Review`.
+
+### Ablauf
+
+1. Weder coden noch den Ticket-Inhalt ändern.
+2. In diesem Status übernimmt der Entwickler die manuelle Freigabe des reviewten Branches für den anschließenden Test-/Merge-Zyklus.
+3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
+
+### Abschluss und nächster Status
+
+- Nach der manuellen Freigabe verschiebt ein Mensch das Issue regulär nach `Test (AI)`.
+- Wenn Freigabe-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
+- Wenn Freigabe-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
+
+### Sonderfälle
+
+- Keine.
 
 ## Ablauf für `Test (AI)`
 
 ### Ziel
 
-Den repository-spezifischen Test-/Fix-Zyklus ausführen und das Issue danach nach `Freigabe Final` übergeben.
+Den Branch vor dem Test gegen `origin/main` synchronisieren, den repository-spezifischen Test-/Fix-Zyklus auf dem späteren Merge-Stand ausführen und das Issue danach nach `Merge (AI)` übergeben.
 
 ### Voraussetzungen
 
@@ -373,18 +399,21 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen und das Issue danach nac
 
 ### Ablauf
 
-1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
-2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Automatische Commits bleiben in diesem Status verboten. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
+1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht `Test (AI) Autocommit`.
+2. Führe anschließend den Skill `symphony-pull` aus, damit der Branch den aktuellen `origin/main`-Stand enthält.
+   - Ergänze danach eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis (`clean` oder `conflicts resolved`) im Workpad.
+3. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
+4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
+5. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `Test (AI) Autocommit` committet werden.
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue nach `Freigabe Final`, auch wenn der getestete Stand noch offene Änderungen enthält.
-  - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Freigabe Final`.
+- Verschiebe das Issue nach `Merge (AI)`.
+  - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Merge (AI)`.
 
 ### Sonderfälle
 
-- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Freigabe Final` als Fallback automatisch.
+- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch.
 
 ## Ablauf für `Freigabe Planung`
 
@@ -437,37 +466,11 @@ Den manuellen Review- und Commit-Schritt nach der Umsetzung vollständig dem Ent
 
 - Keine.
 
-## Ablauf für `Freigabe Final`
-
-### Ziel
-
-Die manuelle Finalfreigabe vor dem Merge vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
-
-### Voraussetzungen
-
-- Das Issue befindet sich aktuell in `Freigabe Final`.
-
-### Ablauf
-
-1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler die manuelle Finalprüfung des getesteten Branches.
-3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
-
-### Abschluss und nächster Status
-
-- Nach der manuellen Finalfreigabe verschiebt ein Mensch das Issue regulär nach `Merge (AI)`.
-- Wenn Final-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
-- Wenn Final-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
-
-### Sonderfälle
-
-- Keine.
-
 ## Ablauf für `Merge (AI)`
 
 ### Ziel
 
-Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits ausschließlich in diesem Status durchführen und das Issue danach nach `Review` verschieben.
+Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in diesem Status durchführen und bei mergebedingten Codeänderungen sauber nach `Test (AI)` zurückspringen.
 
 ### Voraussetzungen
 
@@ -478,6 +481,7 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits au
 1. Öffne `.codex/skills/symphony-land/SKILL.md` und befolge den dort definierten Ablauf.
 2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht `Merge (AI) Autocommit`.
 3. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+4. Falls ein erneuter Pull oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit der Commit-Nachricht `Merge (AI) Autocommit`, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
@@ -563,11 +567,11 @@ Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Automatische Commits sind ausschließlich in `Merge (AI)` zulässig. In allen anderen Status bleiben sie verboten.
+- Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Verwende dafür nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Final` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
+- In `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
 - In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.

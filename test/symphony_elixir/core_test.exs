@@ -176,8 +176,8 @@ defmodule SymphonyElixir.CoreTest do
       "PreReview (AI)",
       "Freigabe Implementierung",
       "Review (AI)",
+      "Freigabe Review",
       "Test (AI)",
-      "Freigabe Final",
       "Merge (AI)",
       "BLOCKER",
       "Abbruch (AI)",
@@ -208,10 +208,15 @@ defmodule SymphonyElixir.CoreTest do
         ~s(skip "freigabe implementierung")
       ])
 
-    target_status = Workflow.resolve_target_status("Freigabe Final", [~s(skip "freigabe final")])
+    plan_skip_status =
+      Workflow.resolve_next_status("Planung (AI)", [~s(skip "freigabe planung")])
+
+    review_skip_status =
+      Workflow.resolve_next_status("Review (AI)", [~s(skip "freigabe review")])
 
     assert next_status == "Review (AI)"
-    assert target_status == "Merge (AI)"
+    assert plan_skip_status == "In Arbeit (AI)"
+    assert review_skip_status == "Test (AI)"
   end
 
   test "workflow falls back to built-in transitions when the prompt has no status overview" do
@@ -227,8 +232,8 @@ defmodule SymphonyElixir.CoreTest do
              "PreReview (AI)",
              "Freigabe Implementierung",
              "Review (AI)",
+             "Freigabe Review",
              "Test (AI)",
-             "Freigabe Final",
              "Merge (AI)",
              "BLOCKER",
              "Abbruch (AI)",
@@ -1863,7 +1868,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ".codex/skills/symphony-review/SKILL.md"
     assert prompt =~ ".codex/skills/symphony-workpad/SKILL.md"
     assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
+    assert prompt =~ "Freigabe Review"
     assert prompt =~ "`gh pr merge`"
+    assert prompt =~ "`Test (AI) Autocommit`"
     assert prompt =~ "`Merge (AI) Autocommit`"
     assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
     assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
@@ -2724,7 +2731,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Review (AI) issues to Test (AI) after a clean review turn" do
+  test "agent runner moves Review (AI) issues to Freigabe Review after a clean review turn" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2815,7 +2822,105 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Test (AI)"}
+      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips Freigabe Review after a clean review turn when the label is set" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-skip-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      labels = [~s(skip "freigabe review")]
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-skip-handoff",
+             identifier: "MT-REVIEW-SKIP",
+             title: "Review handoff with skip",
+             description: "Advance directly to test when review approval is skipped",
+             state: current_state,
+             labels: labels
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-skip-handoff",
+        identifier: "MT-REVIEW-SKIP",
+        title: "Review handoff with skip",
+        description: "Advance directly to test when review approval is skipped",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-SKIP",
+        labels: labels
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-skip-handoff", "Test (AI)"}
       assert "Test (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -2923,7 +3028,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Test (AI) issues to Freigabe Final after a clean test turn without code changes" do
+  test "agent runner moves Test (AI) issues to Merge (AI) after a clean test turn without code changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3010,105 +3115,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Freigabe Final"}
-      assert "Freigabe Final" == Agent.get(state_agent, & &1)
-    after
-      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
-      File.rm_rf(test_root)
-    end
-  end
-
-  test "agent runner skips Freigabe Final after a clean test turn when the label is set" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "symphony-elixir-agent-runner-test-skip-merge-handoff-#{System.unique_integer([:positive])}"
-      )
-
-    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
-
-    try do
-      template_repo = Path.join(test_root, "source")
-      workspace_root = Path.join(test_root, "workspaces")
-      codex_binary = Path.join(test_root, "fake-codex")
-
-      File.mkdir_p!(template_repo)
-      File.write!(Path.join(template_repo, "README.md"), "# test")
-
-      File.write!(codex_binary, """
-      #!/bin/sh
-      count=0
-
-      while IFS= read -r _line; do
-        count=$((count + 1))
-        case "$count" in
-          1)
-            printf '%s\\n' '{"id":1,"result":{}}'
-            ;;
-          2)
-            ;;
-          3)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-skip-clean"}}}'
-            ;;
-          4)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-skip-clean"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
-            ;;
-        esac
-      done
-      """)
-
-      File.chmod!(codex_binary, 0o755)
-
-      write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "memory",
-        workspace_root: workspace_root,
-        hook_after_create:
-          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
-        codex_command: "#{codex_binary} app-server",
-        max_turns: 3
-      )
-
-      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
-      parent = self()
-
-      recipient =
-        spawn(fn ->
-          review_handoff_test_recipient(parent, state_agent)
-        end)
-
-      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
-
-      labels = [~s(skip "freigabe final")]
-
-      state_fetcher = fn [_issue_id] ->
-        current_state = Agent.get(state_agent, & &1)
-
-        {:ok,
-         [
-           %Issue{
-             id: "issue-test-skip-clean-handoff",
-             identifier: "MT-TEST-SKIP",
-             title: "Test handoff clean with skip",
-             description: "Advance directly to merge when final approval is skipped",
-             state: current_state,
-             labels: labels
-           }
-         ]}
-      end
-
-      issue = %Issue{
-        id: "issue-test-skip-clean-handoff",
-        identifier: "MT-TEST-SKIP",
-        title: "Test handoff clean with skip",
-        description: "Advance directly to merge when final approval is skipped",
-        state: "Test (AI)",
-        url: "https://example.org/issues/MT-TEST-SKIP",
-        labels: labels
-      }
-
-      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-skip-clean-handoff", "Merge (AI)"}
+      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Merge (AI)"}
       assert "Merge (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -3116,7 +3123,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Test (AI) issues to Freigabe Final after a test turn that leaves a dirty workspace" do
+  test "agent runner moves Test (AI) issues to Merge (AI) after a test turn that leaves a dirty workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3204,15 +3211,15 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Final"}
-      assert "Freigabe Final" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Merge (AI)"}
+      assert "Merge (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner still runs Codex for dirty Test (AI) workspaces and hands off to Freigabe Final" do
+  test "agent runner still runs Codex for dirty Test (AI) workspaces and hands off to Merge (AI)" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3306,9 +3313,109 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe Final"}
-      assert "Freigabe Final" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Merge (AI)"}
+      assert "Merge (AI)" == Agent.get(state_agent, & &1)
       assert File.exists?(trace_file)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner respects a status change from Merge (AI) to Test (AI) during the turn" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-merge-to-test-rerun-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-merge-rerun"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-merge-rerun"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-merge-rerun-handoff",
+             identifier: "MT-MERGE-RERUN",
+             title: "Merge rerun handoff",
+             description: "Respect the explicit rerun to test after merge changes",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-merge-rerun-handoff",
+        identifier: "MT-MERGE-RERUN",
+        title: "Merge rerun handoff",
+        description: "Respect the explicit rerun to test after merge changes",
+        state: "Merge (AI)",
+        url: "https://example.org/issues/MT-MERGE-RERUN",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-merge-rerun-handoff", _state_name}, 100
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)

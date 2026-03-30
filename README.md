@@ -74,7 +74,7 @@ mix specs.check
 
 ## Workflow
 
-Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Finalisierung. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
+Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Review-Freigabe. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
@@ -86,10 +86,10 @@ Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen 
 | `In Arbeit (AI)` | AI | Umsetzung des bestehenden, zuvor manuell geprueften Plans, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
-| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Test (AI)` |
-| `Test (AI)` | AI | Repository-spezifischer Test-/Fix-Zyklus auf sauberem Workspace. | `Freigabe Final` |
-| `Freigabe Final` | Mensch | Manueller Final-Checkpoint vor dem Merge. | `Merge (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
-| `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen. | `Review` |
+| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Freigabe Review` |
+| `Freigabe Review` | Mensch | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | `Test (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
+| `Test (AI)` | AI | Vor den Tests per Pull auf den spaeteren Merge-Stand synchronisieren und den Test-/Fix-Zyklus auf diesem Stand ausfuehren. | `Merge (AI)` |
+| `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen; bei mergebedingten Codeaenderungen zurueck nach `Test (AI)`. | `Review` |
 | `BLOCKER` | Mensch | Kritische Abweichung oder externer Blocker; keine weitere Automatisierung, bis das Problem manuell geloest ist. | wartet auf menschliches Verschieben |
 | `Abbruch (AI)` | AI | Stoppt laufende Arbeit und fuehrt Cleanup aus. | `Abgebrochen` |
 | `Review` | Mensch | Manueller Endstatus nach dem Merge, bevor das Ticket ganz abgeschlossen wird. | `Fertig` |
@@ -98,7 +98,7 @@ Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen 
 
 Der typische Pfad ist damit:
 
-`Todo (AI)` -> `Planung (AI)` -> `Freigabe Planung` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe Implementierung` -> `Review (AI)` -> `Test (AI)` -> `Freigabe Final` -> `Merge (AI)` -> `Review` -> `Fertig`
+`Todo (AI)` -> `Planung (AI)` -> `Freigabe Planung` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe Implementierung` -> `Review (AI)` -> `Freigabe Review` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
 
 ## Zentrale Dateien
 

@@ -12,8 +12,8 @@ defmodule SymphonyElixir.AgentRunner do
   @review_codex_state_name "review (ai)"
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
-  @review_handoff_state_name "Test (AI)"
-  @test_handoff_state_name "Freigabe Final"
+  @review_handoff_state_name "Freigabe Review"
+  @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
   @ignored_manual_state_names [
@@ -22,6 +22,7 @@ defmodule SymphonyElixir.AgentRunner do
     "freigabe",
     "freigabe planung",
     "freigabe implementierung",
+    "freigabe review",
     "freigabe final"
   ]
 
@@ -200,7 +201,7 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp continue_with_issue?(
-         %Issue{id: issue_id} = issue,
+         %Issue{id: issue_id} = started_issue,
          issue_state_fetcher,
          workspace,
          worker_host
@@ -209,6 +210,7 @@ defmodule SymphonyElixir.AgentRunner do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         resolve_issue_continuation(
+          started_issue,
           refreshed_issue,
           issue_state_fetcher,
           workspace,
@@ -216,7 +218,7 @@ defmodule SymphonyElixir.AgentRunner do
         )
 
       {:ok, []} ->
-        {:done, issue}
+        {:done, started_issue}
 
       {:error, reason} ->
         {:error, {:issue_state_refresh_failed, reason}}
@@ -224,14 +226,15 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp continue_with_issue?(
-         issue,
+         started_issue,
          _issue_state_fetcher,
          _workspace,
          _worker_host
        ),
-       do: {:done, issue}
+       do: {:done, started_issue}
 
   defp resolve_issue_continuation(
+         %Issue{} = started_issue,
          %Issue{} = issue,
          issue_state_fetcher,
          workspace,
@@ -239,6 +242,7 @@ defmodule SymphonyElixir.AgentRunner do
        ) do
     with {:ok, %Issue{} = current_issue, continuation_mode} <-
            maybe_finalize_active_codex_issue(
+             started_issue,
              issue,
              issue_state_fetcher,
              workspace,
@@ -261,37 +265,43 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp maybe_finalize_active_codex_issue(
+         %Issue{} = started_issue,
          %Issue{id: issue_id} = issue,
          issue_state_fetcher,
          workspace,
          worker_host
        )
        when is_binary(issue_id) do
-    case codex_issue_finalize_mode(issue.state) do
-      {:transition, error_event, log_label} ->
-        transition_issue_state(
-          issue,
-          issue_state_fetcher,
-          resolve_next_handoff_state(issue),
-          error_event,
-          log_label,
-          :stop
-        )
+    if state_changed_during_turn?(started_issue, issue) do
+      {:ok, issue, :normal}
+    else
+      case codex_issue_finalize_mode(started_issue.state) do
+        {:transition, error_event, log_label} ->
+          transition_issue_state(
+            issue,
+            issue_state_fetcher,
+            resolve_next_handoff_state(issue),
+            error_event,
+            log_label,
+            :stop
+          )
 
-      :test ->
-        maybe_finalize_test_codex_issue(
-          issue,
-          issue_state_fetcher,
-          workspace,
-          worker_host
-        )
+        :test ->
+          maybe_finalize_test_codex_issue(
+            issue,
+            issue_state_fetcher,
+            workspace,
+            worker_host
+          )
 
-      :normal ->
-        {:ok, issue, :normal}
+        :normal ->
+          {:ok, issue, :normal}
+      end
     end
   end
 
   defp maybe_finalize_active_codex_issue(
+         _started_issue,
          %Issue{} = issue,
          _issue_state_fetcher,
          _workspace,
@@ -453,6 +463,13 @@ defmodule SymphonyElixir.AgentRunner do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp state_changed_during_turn?(%Issue{state: started_state}, %Issue{state: current_state})
+       when is_binary(started_state) and is_binary(current_state) do
+    normalize_issue_state(started_state) != normalize_issue_state(current_state)
+  end
+
+  defp state_changed_during_turn?(_started_issue, _current_issue), do: false
 
   defp resolve_next_handoff_state(%Issue{} = issue) do
     Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) ||
