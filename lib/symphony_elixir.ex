@@ -22,7 +22,7 @@ defmodule SymphonyElixir.Application do
 
   @spec startup_preflight() :: :ok | {:error, term()}
   def startup_preflight do
-    case EnvFile.load(File.cwd!()) do
+    case EnvFile.load(EnvFile.config_dir(File.cwd!())) do
       :ok -> Config.validate_startup_requirements()
       {:error, reason} -> {:error, reason}
     end

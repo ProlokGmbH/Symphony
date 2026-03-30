@@ -69,9 +69,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       File.write!(Path.join(source_repo, "README.md"), "base\n")
       write_minimal_mix_project!(source_repo, :worktree_tracking)
+      install_current_worktree_scripts!(source_repo)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mix.exs"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mise.toml"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", ".symphony"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
@@ -115,7 +117,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "current WORKFLOW after_create hook copies .env.local into new worktrees" do
+  test "current WORKFLOW after_create hook runs .symphony/on_create_worktree.py to copy .env.local into new worktrees" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -145,10 +147,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       File.write!(Path.join(source_repo, "README.md"), "base\n")
       write_minimal_mix_project!(source_repo, :worktree_env_local)
-      File.write!(Path.join(source_repo, ".env.local"), env_local_contents)
+      install_current_worktree_scripts!(source_repo)
+      File.write!(Path.join(source_repo, ".symphony/.env.local"), env_local_contents)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mix.exs"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mise.toml"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", ".symphony"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
@@ -164,10 +168,31 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                  Workspace.create_for_issue("MT-ENV")
                end)
 
-      assert File.read!(Path.join(workspace, ".env.local")) == env_local_contents
+      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
 
-      File.write!(Path.join(source_repo, ".env.local"), "SELF_HOSTED=2\n")
-      assert File.read!(Path.join(workspace, ".env.local")) == env_local_contents
+      File.write!(Path.join(source_repo, ".symphony/.env.local"), "SELF_HOSTED=2\n")
+      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "project on_remove_worktree script accepts source repo and workspace arguments as a no-op" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-on-remove-worktree-#{System.unique_integer([:positive])}"
+      )
+
+    script_path = project_worktree_script_path("on_remove_worktree.py")
+    source_repo = Path.join(test_root, "source")
+    workspace = Path.join(test_root, "workspace")
+
+    try do
+      File.mkdir_p!(source_repo)
+      File.mkdir_p!(workspace)
+
+      assert {"", 0} = System.cmd("python3", [script_path, source_repo, workspace], stderr_to_stdout: true)
     after
       File.rm_rf(test_root)
     end
@@ -1817,5 +1842,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       elixir = "1.19.5-otp-28"
       """
     )
+  end
+
+  defp install_current_worktree_scripts!(repo_root) when is_binary(repo_root) do
+    symphony_dir = Path.join(repo_root, ".symphony")
+    File.mkdir_p!(symphony_dir)
+    File.cp!(project_worktree_script_path("on_create_worktree.py"), Path.join(symphony_dir, "on_create_worktree.py"))
+    File.cp!(project_worktree_script_path("on_remove_worktree.py"), Path.join(symphony_dir, "on_remove_worktree.py"))
+  end
+
+  defp project_worktree_script_path(filename) when is_binary(filename) do
+    Path.expand("../../.symphony/#{filename}", __DIR__)
   end
 end
