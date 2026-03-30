@@ -163,10 +163,10 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | `In Arbeit (AI)` | Ja | Implementierung des bestehenden, zuvor manuell geprüften Plans läuft aktiv. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor der Übergabe veröffentlicht. | `Test (AI)` |
-| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor `Freigabe Final` veröffentlicht. | `Freigabe Final` |
+| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Test (AI)` |
+| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen. | `Freigabe Final` |
 | `Freigabe Final` | Nein | Manueller Final-Checkpoint vor dem Merge; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind in diesem Status zulässig. | `Review` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; nur in diesem Status sind automatische Commits zulässig. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
@@ -336,7 +336,7 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Ziel
 
-Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Test (AI)` übergeben.
+Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das Issue danach nach `Test (AI)` übergeben.
 
 ### Voraussetzungen
 
@@ -346,7 +346,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendi
 
 1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-3. Wenn der Review-Lauf Fixes erzeugt, darfst du diese in diesem Status committen; veröffentliche den aktualisierten Stand anschließend mit `symphony-push`, damit der Remote-Branch auf dem aktuellen Stand ist.
+3. Automatische Commits bleiben in diesem Status verboten. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
@@ -361,7 +361,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendi
 
 ### Ziel
 
-Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Freigabe Final` übergeben.
+Den repository-spezifischen Test-/Fix-Zyklus ausführen und das Issue danach nach `Freigabe Final` übergeben.
 
 ### Voraussetzungen
 
@@ -371,11 +371,11 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes 
 
 1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Freigabe Final` ein landbarer Remote-Branch existiert.
+3. Automatische Commits bleiben in diesem Status verboten. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue nur mit sauberem Workspace nach `Freigabe Final`.
+- Verschiebe das Issue nach `Freigabe Final`, auch wenn der getestete Stand noch offene Änderungen enthält.
   - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Freigabe Final`.
 
 ### Sonderfälle
@@ -463,17 +463,17 @@ Die manuelle Finalfreigabe vor dem Merge vollständig dem Entwickler überlassen
 
 ### Ziel
 
-Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen und das Issue danach nach `Review` verschieben.
+Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits ausschließlich in diesem Status durchführen und das Issue danach nach `Review` verschieben.
 
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `Merge (AI)`.
-- Prüfe zuerst zuverlässig, dass im Workspace keine offenen Git-Änderungen mehr vorhanden sind.
 
 ### Ablauf
 
-1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Freigabe Final`, damit der manuelle Final-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
-2. Nur mit sauberem Workspace `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+1. Öffne `.codex/skills/symphony-land/SKILL.md` und befolge den dort definierten Ablauf.
+2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht `Merge (AI) Autocommit`.
+3. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
 
 ### Abschluss und nächster Status
 
@@ -559,7 +559,7 @@ Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Automatische Commits sind ausschließlich in `Review (AI)`, `Test (AI)` und `Merge (AI)` zulässig. In allen anderen Status bleiben sie verboten.
+- Automatische Commits sind ausschließlich in `Merge (AI)` zulässig. In allen anderen Status bleiben sie verboten.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.

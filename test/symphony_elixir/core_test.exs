@@ -1718,6 +1718,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ".codex/skills/symphony-workpad/SKILL.md"
     assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
     assert prompt =~ "`gh pr merge`"
+    assert prompt =~ "`Merge (AI) Autocommit`"
     assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
     assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
   end
@@ -2769,7 +2770,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Test (AI) issues back to Freigabe Implementierung after a test turn that leaves a dirty workspace" do
+  test "agent runner moves Test (AI) issues to Freigabe Final after a test turn that leaves a dirty workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2840,7 +2841,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-test-fix-handoff",
              identifier: "MT-TEST-FIX",
              title: "Test handoff with fix",
-             description: "Return to implementation handoff when tests required an uncommitted fix",
+             description: "Advance to final handoff when tests leave open changes",
              state: current_state
            }
          ]}
@@ -2850,22 +2851,22 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-test-fix-handoff",
         identifier: "MT-TEST-FIX",
         title: "Test handoff with fix",
-        description: "Return to implementation handoff when tests required an uncommitted fix",
+        description: "Advance to final handoff when tests leave open changes",
         state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-FIX",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Implementierung"}
-      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Final"}
+      assert "Freigabe Final" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test (AI) issues back to Freigabe Implementierung before running Codex when the workspace is dirty" do
+  test "agent runner still runs Codex for dirty Test (AI) workspaces and hands off to Freigabe Final" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2942,7 +2943,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-test-dirty-preflight",
              identifier: "MT-TEST-DIRTY",
              title: "Test preflight dirty workspace",
-             description: "Return to review before testing when manual commit is missing",
+             description: "Allow testing to proceed with open changes",
              state: current_state
            }
          ]}
@@ -2952,23 +2953,23 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-test-dirty-preflight",
         identifier: "MT-TEST-DIRTY",
         title: "Test preflight dirty workspace",
-        description: "Return to review before testing when manual commit is missing",
+        description: "Allow testing to proceed with open changes",
         state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe Implementierung"}
-      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
-      refute File.exists?(trace_file)
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe Final"}
+      assert "Freigabe Final" == Agent.get(state_agent, & &1)
+      assert File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Merge (AI) issues back to Freigabe Implementierung before running Codex when the workspace is dirty" do
+  test "agent runner still runs Codex for dirty Merge (AI) workspaces and hands off to Review" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3045,7 +3046,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-merge-dirty-preflight",
              identifier: "MT-MERGE-DIRTY",
              title: "Merge preflight dirty workspace",
-             description: "Return to review before merge when manual commit is missing",
+             description: "Allow merge phase to autocommit open changes",
              state: current_state
            }
          ]}
@@ -3055,16 +3056,16 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-merge-dirty-preflight",
         identifier: "MT-MERGE-DIRTY",
         title: "Merge preflight dirty workspace",
-        description: "Return to review before merge when manual commit is missing",
+        description: "Allow merge phase to autocommit open changes",
         state: "Merge (AI)",
         url: "https://example.org/issues/MT-MERGE-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe Implementierung"}
-      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
-      refute File.exists?(trace_file)
+      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Review"}
+      assert "Review" == Agent.get(state_agent, & &1)
+      assert File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)

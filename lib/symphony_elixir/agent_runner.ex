@@ -14,8 +14,6 @@ defmodule SymphonyElixir.AgentRunner do
   @review_handoff_state_name "Test (AI)"
   @test_codex_state_name "test (ai)"
   @test_handoff_state_name "Freigabe Final"
-  @implementation_handoff_state_name "Freigabe Implementierung"
-  @merge_handoff_preflight_state_name @implementation_handoff_state_name
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
   @ignored_manual_state_names [
@@ -104,31 +102,17 @@ defmodule SymphonyElixir.AgentRunner do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    with {:ok, initial_workspace_signature} <-
-           maybe_capture_initial_workspace_signature(issue, workspace, worker_host),
-         {:ok, preflight_result} <-
-           maybe_ensure_clean_workspace_before_handoff_phase(
-             issue,
-             issue_state_fetcher,
-             workspace,
-             worker_host,
-             initial_workspace_signature
-           ) do
-      turn_context = %{
-        workspace: workspace,
-        codex_update_recipient: codex_update_recipient,
-        opts: opts,
-        issue_state_fetcher: issue_state_fetcher,
-        worker_host: worker_host,
-        initial_workspace_signature: initial_workspace_signature,
-        max_turns: max_turns
-      }
+    turn_context = %{
+      workspace: workspace,
+      codex_update_recipient: codex_update_recipient,
+      opts: opts,
+      issue_state_fetcher: issue_state_fetcher,
+      worker_host: worker_host,
+      max_turns: max_turns
+    }
 
-      continue_run_codex_turns(preflight_result, turn_context, issue)
-    end
+    continue_run_codex_turns(:continue, turn_context, issue)
   end
-
-  defp continue_run_codex_turns(:stop, _turn_context, _issue), do: :ok
 
   defp continue_run_codex_turns(:continue, turn_context, issue) when is_map(turn_context) do
     workspace = turn_context.workspace
@@ -142,7 +126,6 @@ defmodule SymphonyElixir.AgentRunner do
         opts: turn_context.opts,
         issue_state_fetcher: turn_context.issue_state_fetcher,
         worker_host: worker_host,
-        initial_workspace_signature: turn_context.initial_workspace_signature,
         max_turns: turn_context.max_turns
       }
 
@@ -161,7 +144,6 @@ defmodule SymphonyElixir.AgentRunner do
     opts = turn_context.opts
     issue_state_fetcher = turn_context.issue_state_fetcher
     worker_host = turn_context.worker_host
-    initial_workspace_signature = turn_context.initial_workspace_signature
     max_turns = turn_context.max_turns
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
@@ -178,8 +160,7 @@ defmodule SymphonyElixir.AgentRunner do
              issue,
              issue_state_fetcher,
              workspace,
-             worker_host,
-             initial_workspace_signature
+             worker_host
            ) do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
@@ -222,8 +203,7 @@ defmodule SymphonyElixir.AgentRunner do
          %Issue{id: issue_id} = issue,
          issue_state_fetcher,
          workspace,
-         worker_host,
-         initial_workspace_signature
+         worker_host
        )
        when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
@@ -232,8 +212,7 @@ defmodule SymphonyElixir.AgentRunner do
           refreshed_issue,
           issue_state_fetcher,
           workspace,
-          worker_host,
-          initial_workspace_signature
+          worker_host
         )
 
       {:ok, []} ->
@@ -248,8 +227,7 @@ defmodule SymphonyElixir.AgentRunner do
          issue,
          _issue_state_fetcher,
          _workspace,
-         _worker_host,
-         _initial_workspace_signature
+         _worker_host
        ),
        do: {:done, issue}
 
@@ -257,16 +235,14 @@ defmodule SymphonyElixir.AgentRunner do
          %Issue{} = issue,
          issue_state_fetcher,
          workspace,
-         worker_host,
-         initial_workspace_signature
+         worker_host
        ) do
     with {:ok, %Issue{} = current_issue, continuation_mode} <-
            maybe_finalize_active_codex_issue(
              issue,
              issue_state_fetcher,
              workspace,
-             worker_host,
-             initial_workspace_signature
+             worker_host
            ) do
       continuation_status(current_issue, continuation_mode)
     end
@@ -288,8 +264,7 @@ defmodule SymphonyElixir.AgentRunner do
          %Issue{id: issue_id} = issue,
          issue_state_fetcher,
          workspace,
-         worker_host,
-         initial_workspace_signature
+         worker_host
        )
        when is_binary(issue_id) do
     case codex_issue_finalize_mode(issue.state) do
@@ -308,8 +283,7 @@ defmodule SymphonyElixir.AgentRunner do
           issue,
           issue_state_fetcher,
           workspace,
-          worker_host,
-          initial_workspace_signature
+          worker_host
         )
 
       :normal ->
@@ -321,8 +295,7 @@ defmodule SymphonyElixir.AgentRunner do
          %Issue{} = issue,
          _issue_state_fetcher,
          _workspace,
-         _worker_host,
-         _initial_workspace_signature
+         _worker_host
        ),
        do: {:ok, issue, :normal}
 
@@ -363,80 +336,17 @@ defmodule SymphonyElixir.AgentRunner do
          %Issue{} = issue,
          issue_state_fetcher,
          workspace,
-         worker_host,
-         _initial_workspace_signature
+         worker_host
        ) do
-    with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
-      {next_state, reason_label} =
-        if workspace_signature == "" do
-          {@test_handoff_state_name, "completed test issue"}
-        else
-          {@implementation_handoff_state_name, "redirected test issue with dirty workspace after completion"}
-        end
-
+    with {:ok, _workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
       transition_issue_state(
         issue,
         issue_state_fetcher,
-        next_state,
+        @test_handoff_state_name,
         :test_handoff_state_update_failed,
-        reason_label,
+        "completed test issue",
         :stop
       )
-    end
-  end
-
-  defp maybe_ensure_clean_workspace_before_handoff_phase(
-         %Issue{} = issue,
-         issue_state_fetcher,
-         workspace,
-         worker_host,
-         initial_workspace_signature
-       ) do
-    cond do
-      test_codex_state?(issue.state) and is_binary(initial_workspace_signature) ->
-        maybe_redirect_dirty_workspace_to_review(
-          issue,
-          issue_state_fetcher,
-          initial_workspace_signature,
-          @implementation_handoff_state_name
-        )
-
-      merge_codex_state?(issue.state) ->
-        with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
-          maybe_redirect_dirty_workspace_to_review(
-            issue,
-            issue_state_fetcher,
-            workspace_signature,
-            @merge_handoff_preflight_state_name
-          )
-        end
-
-      true ->
-        {:ok, :continue}
-    end
-  end
-
-  defp maybe_redirect_dirty_workspace_to_review(
-         %Issue{} = issue,
-         issue_state_fetcher,
-         workspace_signature,
-         handoff_state_name
-       )
-       when is_binary(workspace_signature) and is_binary(handoff_state_name) do
-    if workspace_signature == "" do
-      {:ok, :continue}
-    else
-      case transition_issue_state(
-             issue,
-             issue_state_fetcher,
-             handoff_state_name,
-             :dirty_workspace_handoff_state_update_failed,
-             "redirected issue with dirty workspace before #{issue.state}",
-             :stop
-           ) do
-        {:ok, _refreshed_issue, :stop} -> {:ok, :stop}
-        {:error, reason} -> {:error, reason}
-      end
     end
   end
 
@@ -461,15 +371,6 @@ defmodule SymphonyElixir.AgentRunner do
         Logger.warning("Failed auto-transition for #{reason_label}: #{issue_context(issue)} next_state=#{next_state} reason=#{inspect(reason)}")
 
         {:error, {error_tag, next_state, reason}}
-    end
-  end
-
-  defp maybe_capture_initial_workspace_signature(%Issue{} = issue, workspace, worker_host)
-       when is_binary(workspace) do
-    if test_codex_state?(issue.state) do
-      Workspace.git_status_snapshot(workspace, worker_host)
-    else
-      {:ok, nil}
     end
   end
 
