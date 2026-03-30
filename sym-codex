@@ -121,11 +121,45 @@ sym_codex_source_repo() {
 }
 
 sym_codex_run_mix() {
+  local source_repo="$1"
+  local config_file="$source_repo/mise.toml"
+  local common_dir=""
+  local shared_repo=""
+  shift
+
+  if [[ -z "${MIX_DEPS_PATH:-}" ]]; then
+    common_dir="$(git -C "$source_repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+
+    if [[ -n "$common_dir" ]]; then
+      shared_repo="$(
+        cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
+      )" || shared_repo=""
+
+      if [[ -n "$shared_repo" && -d "$shared_repo/deps" ]]; then
+        export MIX_DEPS_PATH="$shared_repo/deps"
+      fi
+
+      if [[ -n "$shared_repo" && -z "${MIX_BUILD_ROOT:-}" && -d "$shared_repo/_build" ]]; then
+        export MIX_BUILD_ROOT="$shared_repo/_build"
+      fi
+    fi
+  fi
+
   if command -v mise >/dev/null 2>&1; then
+    if [[ -f "$config_file" ]]; then
+      mise trust -q -y "$config_file" >/dev/null
+    fi
+
     mise exec -- mix "$@"
   else
     mix "$@"
   fi
+}
+
+sym_codex_prepare_mix() {
+  local source_repo="$1"
+
+  sym_codex_run_mix "$source_repo" compile 1>&2
 }
 
 sym_codex_project_root() {
@@ -170,7 +204,8 @@ sym_codex_workspace_root() {
     cd "$source_repo" || exit 1
     export SYMPHONY_PROJECT_ROOT="$project_root"
     export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
-    sym_codex_run_mix run --no-start -e '
+    sym_codex_prepare_mix "$source_repo"
+    sym_codex_run_mix "$source_repo" run --no-compile --no-start -e '
       workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
       env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
 
@@ -199,7 +234,8 @@ sym_codex_build_manual_prompt() {
     export SYMPHONY_WORKFLOW_FILE="$workflow_file"
     export SYMPHONY_WORKFLOW_DIR
     SYMPHONY_WORKFLOW_DIR="$(cd "$(dirname "$workflow_file")" >/dev/null 2>&1 && pwd -P)"
-    sym_codex_run_mix run --no-start -e '
+    sym_codex_prepare_mix "$source_repo"
+    sym_codex_run_mix "$source_repo" run --no-compile --no-start -e '
       workflow_path = Enum.at(System.argv(), 0) || raise "missing workflow file"
       interactive_workflow_path = Enum.at(System.argv(), 1) || raise "missing interactive workflow file"
       issue_identifier = Enum.at(System.argv(), 2) || raise "missing issue identifier"

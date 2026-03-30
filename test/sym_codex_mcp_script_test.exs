@@ -40,7 +40,11 @@ defmodule SymCodexMcpScriptTest do
         stderr_to_stdout: true
       )
 
-    [initialize_line, tools_list_line] = String.split(output, "\n", trim: true)
+    [initialize_line, tools_list_line] =
+      output
+      |> String.split("\n", trim: true)
+      |> Enum.filter(&String.starts_with?(&1, "{"))
+
     initialize = Jason.decode!(initialize_line)
     tools_list = Jason.decode!(tools_list_line)
 

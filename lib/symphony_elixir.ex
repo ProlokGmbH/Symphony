@@ -56,10 +56,7 @@ defmodule SymphonyElixir.Application do
   end
 
   defp maybe_run_startup_preflight do
-    if Application.get_env(:symphony_elixir, :run_startup_preflight_on_boot, true) do
-      startup_preflight()
-    else
-      :ok
-    end
+    (Application.get_env(:symphony_elixir, :run_startup_preflight_on_boot, true) &&
+       startup_preflight()) || :ok
   end
 end

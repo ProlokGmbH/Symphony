@@ -15,12 +15,61 @@ sym_codex_mcp_activate_venv() {
   fi
 }
 
+sym_codex_mcp_trust_mise_config() {
+  local source_repo="$1"
+  local config_file="$source_repo/mise.toml"
+
+  if [[ -f "$config_file" ]]; then
+    mise trust -q -y "$config_file" >/dev/null
+  fi
+}
+
+sym_codex_mcp_configure_mix_paths() {
+  local source_repo="$1"
+  local common_dir=""
+  local shared_repo=""
+
+  if [[ -n "${MIX_DEPS_PATH:-}" ]]; then
+    return 0
+  fi
+
+  common_dir="$(git -C "$source_repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+
+  if [[ -z "$common_dir" ]]; then
+    return 0
+  fi
+
+  shared_repo="$(
+    cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
+  )" || return 0
+
+  if [[ -d "$shared_repo/deps" ]]; then
+    export MIX_DEPS_PATH="$shared_repo/deps"
+  fi
+
+  if [[ -z "${MIX_BUILD_ROOT:-}" && -d "$shared_repo/_build" ]]; then
+    export MIX_BUILD_ROOT="$shared_repo/_build"
+  fi
+}
+
 sym_codex_mcp_run_mix() {
+  local source_repo="$1"
+  shift
+
   if command -v mise >/dev/null 2>&1; then
+    sym_codex_mcp_trust_mise_config "$source_repo"
+    sym_codex_mcp_configure_mix_paths "$source_repo"
     mise exec -- mix "$@"
   else
+    sym_codex_mcp_configure_mix_paths "$source_repo"
     mix "$@"
   fi
+}
+
+sym_codex_mcp_prepare_mix() {
+  local source_repo="$1"
+
+  sym_codex_mcp_run_mix "$source_repo" compile 1>&2
 }
 
 main() {
@@ -36,7 +85,8 @@ main() {
 
   cd "$source_repo" || sym_codex_mcp_die "cannot change into $source_repo"
   sym_codex_mcp_activate_venv "$source_repo"
-  sym_codex_mcp_run_mix run --no-start -e 'SymphonyElixir.Codex.MCPServer.main()'
+  sym_codex_mcp_prepare_mix "$source_repo"
+  sym_codex_mcp_run_mix "$source_repo" run --no-compile --no-start -e 'SymphonyElixir.Codex.MCPServer.main()'
 }
 
 main "$@"
