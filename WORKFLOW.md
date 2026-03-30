@@ -153,6 +153,12 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 ## Statusübersicht
 
+Automatische Statuswechsel leiten ihre Reihenfolge ausschließlich aus dieser
+Tabelle ab. Wenn für den vorgesehenen Zielstatus ein Label `Skip "<Status>"`
+existiert, überspringt Symphony diesen Status und läuft zum nächsten nicht
+übersprungenen Tabellenstatus weiter; mehrere aufeinanderfolgende Skip-Labels
+werden in derselben Reihenfolge nacheinander ausgewertet.
+
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |

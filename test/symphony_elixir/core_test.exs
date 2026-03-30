@@ -150,6 +150,137 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
   end
 
+  test "workflow derives ordered states from the current WORKFLOW.md status overview" do
+    original_workflow_path = Workflow.workflow_file_path()
+    repo_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
+    Workflow.set_workflow_file_path(repo_workflow_path)
+
+    assert {:ok, status_overview} = Workflow.status_overview()
+
+    expected_statuses = [
+      "Backlog",
+      "Todo",
+      "Todo (AI)",
+      "Planung (AI)",
+      "Freigabe Planung",
+      "In Arbeit (AI)",
+      "PreReview (AI)",
+      "Freigabe Implementierung",
+      "Review (AI)",
+      "Test (AI)",
+      "Freigabe Final",
+      "Merge (AI)",
+      "BLOCKER",
+      "Abbruch (AI)",
+      "Review",
+      "Fertig",
+      "Abgebrochen"
+    ]
+
+    actual_statuses = Enum.map(status_overview, & &1.status)
+
+    assert actual_statuses == expected_statuses
+
+    in_arbeit_status = Enum.find(status_overview, &(&1.status == "In Arbeit (AI)"))
+
+    assert in_arbeit_status.next_regular_status == "PreReview (AI)"
+  end
+
+  test "workflow resolves chained skip labels from the status overview order" do
+    original_workflow_path = Workflow.workflow_file_path()
+    repo_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
+    Workflow.set_workflow_file_path(repo_workflow_path)
+
+    next_status =
+      Workflow.resolve_next_status("In Arbeit (AI)", [
+        ~s|skip "prereview (ai)"|,
+        ~s(skip "freigabe implementierung")
+      ])
+
+    target_status = Workflow.resolve_target_status("Freigabe Final", [~s(skip "freigabe final")])
+
+    assert next_status == "Review (AI)"
+    assert target_status == "Merge (AI)"
+  end
+
+  test "workflow falls back to built-in transitions when the prompt has no status overview" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Prompt without status table")
+
+    assert Workflow.ordered_statuses() == [
+             "Backlog",
+             "Todo",
+             "Todo (AI)",
+             "Planung (AI)",
+             "Freigabe Planung",
+             "In Arbeit (AI)",
+             "PreReview (AI)",
+             "Freigabe Implementierung",
+             "Review (AI)",
+             "Test (AI)",
+             "Freigabe Final",
+             "Merge (AI)",
+             "BLOCKER",
+             "Abbruch (AI)",
+             "Review",
+             "Fertig",
+             "Abgebrochen"
+           ]
+
+    assert Workflow.resolve_next_status("Merge (AI)", []) == "Review"
+    assert Workflow.resolve_next_status("Freigabe Planung", []) == nil
+    assert Workflow.resolve_target_status("Review", [nil, "skip review"]) == "Fertig"
+    assert Workflow.resolve_next_status(nil, []) == nil
+    assert Workflow.resolve_target_status(nil, []) == nil
+  end
+
+  test "workflow status overview parser returns an error when no status table exists" do
+    assert {:error, :status_overview_not_found} =
+             Workflow.status_overview_from_prompt("Prompt without status table")
+  end
+
+  test "workflow status overview parser accepts direct rows without a header and ignores malformed rows" do
+    prompt = """
+    ## Statusübersicht
+
+    | `Direkt` | Ja |  |  |
+    | kaputt |
+    """
+
+    assert {:ok,
+            [
+              %{
+                status: "Direkt",
+                in_scope: true,
+                description: nil,
+                next_regular_status: nil
+              }
+            ]} = Workflow.status_overview_from_prompt(prompt)
+  end
+
+  test "workflow status overview parser rejects header-only tables" do
+    prompt = """
+    ## Statusübersicht
+
+    | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
+    """
+
+    assert {:error, :status_overview_not_found} = Workflow.status_overview_from_prompt(prompt)
+  end
+
+  test "workflow status overview parser rejects tables without any parseable rows" do
+    prompt = """
+    ## Statusübersicht
+
+    | --- | --- | --- | --- |
+    """
+
+    assert {:error, :status_overview_not_found} = Workflow.status_overview_from_prompt(prompt)
+  end
+
   test "linear api token resolves from LINEAR_API_KEY env var" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     env_api_key = "test-linear-api-key"
@@ -2475,6 +2606,108 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner skips Freigabe Implementierung after a clean prereview turn when the label is set" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-prereview-skip-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-prereview-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-prereview-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "PreReview (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      labels = [~s(skip "freigabe implementierung")]
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-prereview-skip-handoff",
+             identifier: "MT-PREREVIEW-SKIP",
+             title: "PreReview handoff with skip",
+             description: "Skip the manual implementation handoff after prereview",
+             state: current_state,
+             labels: labels
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-prereview-skip-handoff",
+        identifier: "MT-PREREVIEW-SKIP",
+        title: "PreReview handoff with skip",
+        description: "Skip the manual implementation handoff after prereview",
+        state: "PreReview (AI)",
+        url: "https://example.org/issues/MT-PREREVIEW-SKIP",
+        labels: labels
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-prereview-skip-handoff", "Review (AI)"}
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner moves Review (AI) issues to Test (AI) after a clean review turn" do
     test_root =
       Path.join(
@@ -2769,6 +3002,104 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner skips Freigabe Final after a clean test turn when the label is set" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-test-skip-merge-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-skip-clean"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-skip-clean"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      labels = [~s(skip "freigabe final")]
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-test-skip-clean-handoff",
+             identifier: "MT-TEST-SKIP",
+             title: "Test handoff clean with skip",
+             description: "Advance directly to merge when final approval is skipped",
+             state: current_state,
+             labels: labels
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-test-skip-clean-handoff",
+        identifier: "MT-TEST-SKIP",
+        title: "Test handoff clean with skip",
+        description: "Advance directly to merge when final approval is skipped",
+        state: "Test (AI)",
+        url: "https://example.org/issues/MT-TEST-SKIP",
+        labels: labels
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-test-skip-clean-handoff", "Merge (AI)"}
+      assert "Merge (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner moves Test (AI) issues back to Freigabe Implementierung after a test turn that leaves a dirty workspace" do
     test_root =
       Path.join(
@@ -2961,6 +3292,113 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe Implementierung"}
       assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
+      refute File.exists?(trace_file)
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips Freigabe Implementierung before running Test (AI) when the dirty-workspace redirect is labeled to skip it" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-test-dirty-skip-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-TEST-DIRTY-SKIP")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'RAN\\n' >> "$trace_file"
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-test-dirty-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-test-dirty-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Test (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      labels = [~s(skip "freigabe implementierung")]
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-test-dirty-skip-preflight",
+             identifier: "MT-TEST-DIRTY-SKIP",
+             title: "Test preflight dirty workspace with skip",
+             description: "Return directly to review when the manual implementation gate is skipped",
+             state: current_state,
+             labels: labels
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-test-dirty-skip-preflight",
+        identifier: "MT-TEST-DIRTY-SKIP",
+        title: "Test preflight dirty workspace with skip",
+        description: "Return directly to review when the manual implementation gate is skipped",
+        state: "Test (AI)",
+        url: "https://example.org/issues/MT-TEST-DIRTY-SKIP",
+        labels: labels
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-skip-preflight", "Review (AI)"}
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
