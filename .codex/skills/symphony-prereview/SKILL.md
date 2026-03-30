@@ -53,9 +53,9 @@ Verwende diesen Skill, wenn ein Ticket den Status `PreReview (AI)` erreicht.
    - wiederhole nur den fehlgeschlagenen Schritt,
    - setze danach mit den verbleibenden Schritten in Reihenfolge fort.
 4. Wenn alle Schritte in einem vollstaendigen Durchlauf erfolgreich sind, ist das PreReview abgeschlossen.
-5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und uebergib nach `Freigabe`.
+5. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und uebergib nach `Freigabe Implementierung`.
 
 ## Abschlussbedingung
 
-- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `PreReview (AI)` nach `Freigabe`.
-- Erstelle keine Commits. Der manuelle Commit-Schritt bleibt beim Entwickler im Status `Freigabe`.
+- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `PreReview (AI)` nach `Freigabe Implementierung`.
+- Erstelle keine Commits. Der manuelle Commit-Schritt bleibt beim Entwickler im Status `Freigabe Implementierung`.

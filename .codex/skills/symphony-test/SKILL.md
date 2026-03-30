@@ -18,7 +18,7 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
-- Wenn der Test-Zyklus Fixes erzeugt, committe den resultierenden Stand vor Abschluss dieses Status mit `symphony-commit` und veröffentliche ihn anschließend mit `symphony-push`, damit `Merge (AI)` einen landbaren Branch mit PR vorfindet.
+- Wenn der Test-Zyklus Fixes erzeugt, committe den resultierenden Stand vor Abschluss dieses Status mit `symphony-commit` und veröffentliche ihn anschließend mit `symphony-push`, damit `Freigabe Final` einen landbaren Branch mit PR vorfindet.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 
@@ -58,4 +58,4 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 
 ## Abschlussbedingung
 
-- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`. Das gilt auch dann, wenn der Testlauf hierfür notwendige Fixes in diesem Status committed hat.
+- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Freigabe Final`. Das gilt auch dann, wenn der Testlauf hierfür notwendige Fixes in diesem Status committed hat.

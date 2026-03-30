@@ -9,16 +9,23 @@ defmodule SymphonyElixir.AgentRunner do
 
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
-  @prereview_handoff_state_name "Freigabe"
+  @prereview_handoff_state_name "Freigabe Implementierung"
   @review_codex_state_name "review (ai)"
   @review_handoff_state_name "Test (AI)"
   @test_codex_state_name "test (ai)"
-  @test_codex_clean_handoff_state_name "Merge (AI)"
-  @freigabe_state_name "Freigabe"
-  @test_codex_changed_handoff_state_name @freigabe_state_name
+  @test_handoff_state_name "Freigabe Final"
+  @implementation_handoff_state_name "Freigabe Implementierung"
+  @merge_handoff_preflight_state_name @implementation_handoff_state_name
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
-  @ignored_manual_state_name "in arbeit"
+  @ignored_manual_state_names [
+    "todo",
+    "in arbeit",
+    "freigabe",
+    "freigabe planung",
+    "freigabe implementierung",
+    "freigabe final"
+  ]
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -357,15 +364,14 @@ defmodule SymphonyElixir.AgentRunner do
          issue_state_fetcher,
          workspace,
          worker_host,
-         initial_workspace_signature
+         _initial_workspace_signature
        ) do
-    with {:ok, workspace_changed?} <-
-           workspace_changed_since?(workspace, worker_host, initial_workspace_signature) do
-      next_state =
-        if workspace_changed? do
-          @test_codex_changed_handoff_state_name
+    with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
+      {next_state, reason_label} =
+        if workspace_signature == "" do
+          {@test_handoff_state_name, "completed test issue"}
         else
-          @test_codex_clean_handoff_state_name
+          {@implementation_handoff_state_name, "redirected test issue with dirty workspace after completion"}
         end
 
       transition_issue_state(
@@ -373,7 +379,7 @@ defmodule SymphonyElixir.AgentRunner do
         issue_state_fetcher,
         next_state,
         :test_handoff_state_update_failed,
-        "completed test issue workspace_changed=#{workspace_changed?}",
+        reason_label,
         :stop
       )
     end
@@ -391,12 +397,18 @@ defmodule SymphonyElixir.AgentRunner do
         maybe_redirect_dirty_workspace_to_review(
           issue,
           issue_state_fetcher,
-          initial_workspace_signature
+          initial_workspace_signature,
+          @implementation_handoff_state_name
         )
 
       merge_codex_state?(issue.state) ->
         with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
-          maybe_redirect_dirty_workspace_to_review(issue, issue_state_fetcher, workspace_signature)
+          maybe_redirect_dirty_workspace_to_review(
+            issue,
+            issue_state_fetcher,
+            workspace_signature,
+            @merge_handoff_preflight_state_name
+          )
         end
 
       true ->
@@ -407,16 +419,17 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_redirect_dirty_workspace_to_review(
          %Issue{} = issue,
          issue_state_fetcher,
-         workspace_signature
+         workspace_signature,
+         handoff_state_name
        )
-       when is_binary(workspace_signature) do
+       when is_binary(workspace_signature) and is_binary(handoff_state_name) do
     if workspace_signature == "" do
       {:ok, :continue}
     else
       case transition_issue_state(
              issue,
              issue_state_fetcher,
-             @freigabe_state_name,
+             handoff_state_name,
              :dirty_workspace_handoff_state_update_failed,
              "redirected issue with dirty workspace before #{issue.state}",
              :stop
@@ -449,21 +462,6 @@ defmodule SymphonyElixir.AgentRunner do
 
         {:error, {error_tag, next_state, reason}}
     end
-  end
-
-  defp workspace_changed_since?(workspace, worker_host, initial_workspace_signature)
-       when is_binary(workspace) and is_binary(initial_workspace_signature) do
-    case Workspace.git_status_snapshot(workspace, worker_host) do
-      {:ok, current_workspace_signature} ->
-        {:ok, current_workspace_signature != initial_workspace_signature}
-
-      {:error, reason} ->
-        {:error, {:workspace_status_snapshot_failed, reason}}
-    end
-  end
-
-  defp workspace_changed_since?(_workspace, _worker_host, nil) do
-    {:error, :missing_initial_workspace_signature}
   end
 
   defp maybe_capture_initial_workspace_signature(%Issue{} = issue, workspace, worker_host)
@@ -526,7 +524,8 @@ defmodule SymphonyElixir.AgentRunner do
   defp merge_codex_state?(_state_name), do: false
 
   defp ignored_manual_state?(state_name) when is_binary(state_name) do
-    normalize_issue_state(state_name) == @ignored_manual_state_name
+    normalized_state = normalize_issue_state(state_name)
+    Enum.any?(@ignored_manual_state_names, &(&1 == normalized_state))
   end
 
   defp ignored_manual_state?(_state_name), do: false
