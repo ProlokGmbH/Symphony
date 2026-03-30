@@ -43,7 +43,7 @@ defmodule SymphonyElixir.Codex.MCPServer do
     source_repo = System.get_env("SYMPHONY_SOURCE_REPO") || File.cwd!()
     workflow_file = System.get_env("SYMPHONY_WORKFLOW_FILE") || Workflow.default_workflow_file_path()
 
-    with :ok <- env_loader.(source_repo),
+    with :ok <- env_loader.(EnvFile.config_dir(source_repo)),
          :ok <- workflow_setter.(workflow_file),
          {:ok, _apps} <- Application.ensure_all_started(:req) do
       :ok

@@ -1,8 +1,9 @@
 defmodule SymphonyElixir.EnvFile do
   @moduledoc """
-  Loads `.env` defaults and optional `.env.local` overrides from a startup directory.
+  Loads `.env` defaults and optional `.env.local` overrides from a Symphony config directory.
   """
 
+  @config_dir_name ".symphony"
   @env_files [
     {".env", :defaults},
     {".env.local", :local_override}
@@ -10,8 +11,13 @@ defmodule SymphonyElixir.EnvFile do
 
   @type load_mode :: :defaults | :local_override
 
+  @spec config_dir(Path.t()) :: Path.t()
+  def config_dir(project_root) when is_binary(project_root) do
+    Path.join(project_root, @config_dir_name)
+  end
+
   @spec load(String.t()) :: :ok | {:error, term()}
-  def load(workflow_dir) when is_binary(workflow_dir) do
+  def load(config_dir) when is_binary(config_dir) do
     existing_keys =
       System.get_env()
       |> Map.keys()
@@ -19,7 +25,7 @@ defmodule SymphonyElixir.EnvFile do
 
     @env_files
     |> Enum.reduce_while({:ok, MapSet.new()}, fn {filename, mode}, {:ok, loaded_keys} ->
-      workflow_dir
+      config_dir
       |> Path.join(filename)
       |> load_file(mode, existing_keys, loaded_keys)
       |> case do

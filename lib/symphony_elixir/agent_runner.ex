@@ -5,14 +5,14 @@ defmodule SymphonyElixir.AgentRunner do
 
   require Logger
   alias SymphonyElixir.Codex.AppServer
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workflow, Workspace}
 
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
-  @prereview_handoff_state_name "Freigabe Implementierung"
   @review_codex_state_name "review (ai)"
-  @review_handoff_state_name "Test (AI)"
   @test_codex_state_name "test (ai)"
+  @implementation_handoff_state_name "Freigabe Implementierung"
+  @review_handoff_state_name "Test (AI)"
   @test_handoff_state_name "Freigabe Final"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
@@ -268,11 +268,11 @@ defmodule SymphonyElixir.AgentRunner do
        )
        when is_binary(issue_id) do
     case codex_issue_finalize_mode(issue.state) do
-      {:transition, handoff_state_name, error_event, log_label} ->
+      {:transition, error_event, log_label} ->
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          handoff_state_name,
+          resolve_next_handoff_state(issue),
           error_event,
           log_label,
           :stop
@@ -302,16 +302,16 @@ defmodule SymphonyElixir.AgentRunner do
   defp codex_issue_finalize_mode(state) do
     cond do
       prereview_codex_state?(state) ->
-        {:transition, @prereview_handoff_state_name, :prereview_handoff_state_update_failed, "completed prereview issue"}
+        {:transition, :prereview_handoff_state_update_failed, "completed prereview issue"}
 
       review_codex_state?(state) ->
-        {:transition, @review_handoff_state_name, :review_handoff_state_update_failed, "completed review issue"}
+        {:transition, :review_handoff_state_update_failed, "completed review issue"}
 
       test_codex_state?(state) ->
         :test
 
       merge_codex_state?(state) ->
-        {:transition, @merge_handoff_state_name, :merge_handoff_state_update_failed, "completed merge issue"}
+        {:transition, :merge_handoff_state_update_failed, "completed merge issue"}
 
       true ->
         :normal
@@ -335,19 +335,17 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_finalize_test_codex_issue(
          %Issue{} = issue,
          issue_state_fetcher,
-         workspace,
-         worker_host
+         _workspace,
+         _worker_host
        ) do
-    with {:ok, _workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
-      transition_issue_state(
-        issue,
-        issue_state_fetcher,
-        @test_handoff_state_name,
-        :test_handoff_state_update_failed,
-        "completed test issue",
-        :stop
-      )
-    end
+    transition_issue_state(
+      issue,
+      issue_state_fetcher,
+      resolve_next_handoff_state(issue),
+      :test_handoff_state_update_failed,
+      "completed test issue",
+      :stop
+    )
   end
 
   defp transition_issue_state(
@@ -454,6 +452,21 @@ defmodule SymphonyElixir.AgentRunner do
     state_name
     |> String.trim()
     |> String.downcase()
+  end
+
+  defp resolve_next_handoff_state(%Issue{} = issue) do
+    Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) ||
+      default_next_handoff_state(issue.state)
+  end
+
+  defp default_next_handoff_state(state_name) when is_binary(state_name) do
+    cond do
+      prereview_codex_state?(state_name) -> @implementation_handoff_state_name
+      review_codex_state?(state_name) -> @review_handoff_state_name
+      test_codex_state?(state_name) -> @test_handoff_state_name
+      merge_codex_state?(state_name) -> @merge_handoff_state_name
+      true -> state_name
+    end
   end
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do

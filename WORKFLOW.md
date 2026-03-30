@@ -43,13 +43,11 @@ hooks:
     if git -C "$source_repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       git -C "$workspace" pull --ff-only origin "$branch"
     fi
-    if [ -f "$source_repo/.env.local" ]; then
-      cp "$source_repo/.env.local" "$workspace/.env.local"
-      chmod 600 "$workspace/.env.local"
-    fi
+    python3 "$workspace/.symphony/on_create_worktree.py" "$source_repo" "$workspace"
   before_remove: |
-    # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     workspace="$PWD"
+    python3 "$workspace/.symphony/on_remove_worktree.py" "$SYMPHONY_PROJECT_ROOT" "$workspace"
+    # Closes open PRs, deletes the matching remote and local branches, and removes the linked worktree.
     cd "$SYMPHONY_WORKFLOW_DIR" && mise exec -- mix workspace.before_remove --workspace "$workspace" --source-repo "$SYMPHONY_PROJECT_ROOT"
 agent:
   max_concurrent_agents: 10
@@ -152,6 +150,12 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
 
 ## Statusübersicht
+
+Automatische Statuswechsel leiten ihre Reihenfolge ausschließlich aus dieser
+Tabelle ab. Wenn für den vorgesehenen Zielstatus ein Label `Skip "<Status>"`
+existiert, überspringt Symphony diesen Status und läuft zum nächsten nicht
+übersprungenen Tabellenstatus weiter; mehrere aufeinanderfolgende Skip-Labels
+werden in derselben Reihenfolge nacheinander ausgewertet.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
