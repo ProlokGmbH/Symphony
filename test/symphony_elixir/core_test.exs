@@ -296,6 +296,10 @@ defmodule SymphonyElixir.CoreTest do
     assert path == Path.join([invocation_root, ".symphony", ".env"])
   end
 
+  test "test config disables startup preflight during automatic application boot" do
+    refute Application.get_env(:symphony_elixir, :run_startup_preflight_on_boot, true)
+  end
+
   test "workflow file path defaults to WORKFLOW.md in the current working directory outside escript mode" do
     original_workflow_path = Workflow.workflow_file_path()
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)

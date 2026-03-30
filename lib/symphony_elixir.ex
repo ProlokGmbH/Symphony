@@ -30,7 +30,7 @@ defmodule SymphonyElixir.Application do
 
   @impl true
   def start(_type, _args) do
-    with :ok <- startup_preflight(),
+    with :ok <- maybe_run_startup_preflight(),
          :ok <- SymphonyElixir.LogFile.configure() do
       children = [
         {Phoenix.PubSub, name: SymphonyElixir.PubSub},
@@ -53,5 +53,13 @@ defmodule SymphonyElixir.Application do
   def stop(_state) do
     SymphonyElixir.StatusDashboard.render_offline_status()
     :ok
+  end
+
+  defp maybe_run_startup_preflight do
+    if Application.get_env(:symphony_elixir, :run_startup_preflight_on_boot, true) do
+      startup_preflight()
+    else
+      :ok
+    end
   end
 end
