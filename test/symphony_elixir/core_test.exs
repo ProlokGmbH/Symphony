@@ -2020,6 +2020,68 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner ignores Todo without creating a workspace" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-todo-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      remote_repo = Path.join(test_root, "remote.git")
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+
+      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      File.write!(Path.join(source_repo, "README.md"), "todo\n")
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "sh -lc 'touch #{codex_stamp}'"
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      issue = %Issue{
+        id: "issue-todo-1",
+        identifier: "MT-TODO",
+        title: "Todo only",
+        description: "Wait for a human move into Todo (AI)",
+        state: "Todo",
+        url: "https://example.org/issues/MT-TODO",
+        labels: ["backend"]
+      }
+
+      assert :ok =
+               File.cd!(source_repo, fn ->
+                 AgentRunner.run(issue)
+               end)
+
+      workspace = Path.join(workspace_root, "MT-TODO")
+
+      refute File.dir?(workspace)
+
+      assert {worktree_list, 0} =
+               System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
+
+      refute worktree_list =~ workspace
+      refute_receive {:memory_tracker_branch_update, "issue-todo-1", _branch}, 100
+      refute_receive {:memory_tracker_comment, "issue-todo-1", _body}, 100
+      refute File.exists?(codex_stamp)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner surfaces ssh startup failures instead of silently hopping hosts" do
     test_root =
       Path.join(
@@ -2707,7 +2769,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Test (AI) issues to Freigabe Final after a test turn with code changes" do
+  test "agent runner moves Test (AI) issues back to Freigabe Implementierung after a test turn that leaves a dirty workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2778,7 +2840,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-test-fix-handoff",
              identifier: "MT-TEST-FIX",
              title: "Test handoff with fix",
-             description: "Return to review when tests required a fix",
+             description: "Return to implementation handoff when tests required an uncommitted fix",
              state: current_state
            }
          ]}
@@ -2788,15 +2850,15 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-test-fix-handoff",
         identifier: "MT-TEST-FIX",
         title: "Test handoff with fix",
-        description: "Return to review when tests required a fix",
+        description: "Return to implementation handoff when tests required an uncommitted fix",
         state: "Test (AI)",
         url: "https://example.org/issues/MT-TEST-FIX",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Final"}
-      assert "Freigabe Final" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Implementierung"}
+      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
@@ -2906,7 +2968,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Merge (AI) issues back to Freigabe Final before running Codex when the workspace is dirty" do
+  test "agent runner moves Merge (AI) issues back to Freigabe Implementierung before running Codex when the workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3000,8 +3062,8 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe Final"}
-      assert "Freigabe Final" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe Implementierung"}
+      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)

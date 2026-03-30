@@ -375,7 +375,7 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes 
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Freigabe Final`.
+- Verschiebe das Issue nur mit sauberem Workspace nach `Freigabe Final`.
   - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Freigabe Final`.
 
 ### Sonderfälle

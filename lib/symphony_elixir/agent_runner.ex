@@ -15,10 +15,11 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_state_name "test (ai)"
   @test_handoff_state_name "Freigabe Final"
   @implementation_handoff_state_name "Freigabe Implementierung"
-  @merge_handoff_preflight_state_name "Freigabe Final"
+  @merge_handoff_preflight_state_name @implementation_handoff_state_name
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
   @ignored_manual_state_names [
+    "todo",
     "in arbeit",
     "freigabe",
     "freigabe planung",
@@ -361,18 +362,27 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_finalize_test_codex_issue(
          %Issue{} = issue,
          issue_state_fetcher,
-         _workspace,
-         _worker_host,
+         workspace,
+         worker_host,
          _initial_workspace_signature
        ) do
-    transition_issue_state(
-      issue,
-      issue_state_fetcher,
-      @test_handoff_state_name,
-      :test_handoff_state_update_failed,
-      "completed test issue",
-      :stop
-    )
+    with {:ok, workspace_signature} <- Workspace.git_status_snapshot(workspace, worker_host) do
+      {next_state, reason_label} =
+        if workspace_signature == "" do
+          {@test_handoff_state_name, "completed test issue"}
+        else
+          {@implementation_handoff_state_name, "redirected test issue with dirty workspace after completion"}
+        end
+
+      transition_issue_state(
+        issue,
+        issue_state_fetcher,
+        next_state,
+        :test_handoff_state_update_failed,
+        reason_label,
+        :stop
+      )
+    end
   end
 
   defp maybe_ensure_clean_workspace_before_handoff_phase(
