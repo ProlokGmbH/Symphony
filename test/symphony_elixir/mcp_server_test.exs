@@ -318,7 +318,7 @@ defmodule SymphonyElixir.Codex.MCPServerTest do
            ]
   end
 
-  test "bootstrap loads env files and workflow path from the source repo environment" do
+  test "bootstrap loads .symphony env files and workflow path from the source repo environment" do
     source_repo =
       Path.join(System.tmp_dir!(), "symphony-mcp-source-#{System.unique_integer([:positive])}")
 
@@ -328,7 +328,8 @@ defmodule SymphonyElixir.Codex.MCPServerTest do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
 
     File.mkdir_p!(source_repo)
-    File.write!(Path.join(source_repo, ".env"), "LINEAR_API_KEY=bootstrap-token\n")
+    File.mkdir_p!(Path.join(source_repo, ".symphony"))
+    File.write!(Path.join(source_repo, ".symphony/.env"), "LINEAR_API_KEY=bootstrap-token\n")
     write_workflow_file!(workflow_file)
 
     on_exit(fn ->

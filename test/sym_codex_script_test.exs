@@ -289,8 +289,28 @@ defmodule SymCodexScriptTest do
 
     File.write!(mix_path, """
     #!/usr/bin/env bash
-    if [ "$1" = "run" ] && [ "$2" = "--no-start" ] && [ "$3" = "-e" ]; then
-      shift 4
+    if [ "$1" = "compile" ]; then
+      exit 0
+    fi
+
+    if [ "$1" = "run" ]; then
+      shift
+
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --no-start|--no-compile)
+            shift
+            ;;
+          -e)
+            shift 2
+            break
+            ;;
+          *)
+            printf 'unexpected mix args=%s\\n' "run $*" >&2
+            exit 1
+            ;;
+        esac
+      done
 
       if [ "$1" = "--" ]; then
         shift

@@ -131,9 +131,16 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" worktree add -b \"$branch\" \"$workspace\" origin/main"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.remote\" origin"
     assert Map.get(hooks, "after_create") =~ "git -C \"$source_repo\" config \"branch.$branch.merge\" \"refs/heads/$branch\""
-    assert Map.get(hooks, "after_create") =~ "cp \"$source_repo/.env.local\" \"$workspace/.env.local\""
+
+    assert Map.get(hooks, "after_create") =~
+             "python3 \"$workspace/.symphony/on_create_worktree.py\" \"$source_repo\" \"$workspace\""
+
     refute Map.has_key?(hooks, "on_worktree_commit")
     assert Map.get(hooks, "before_remove") =~ "workspace=\"$PWD\""
+
+    assert Map.get(hooks, "before_remove") =~
+             "python3 \"$workspace/.symphony/on_remove_worktree.py\" \"$SYMPHONY_PROJECT_ROOT\" \"$workspace\""
+
     assert Map.get(hooks, "before_remove") =~ "cd \"$SYMPHONY_WORKFLOW_DIR\" && mise exec -- mix workspace.before_remove --workspace \"$workspace\" --source-repo \"$SYMPHONY_PROJECT_ROOT\""
     codex = Map.get(config, "codex", %{})
     assert is_map(codex)
@@ -328,7 +335,7 @@ defmodule SymphonyElixir.CoreTest do
     assert :ok = Config.validate_startup_requirements()
   end
 
-  test "application startup preflight loads env files before validating assignee" do
+  test "application startup preflight loads env files from .symphony before validating assignee" do
     previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
     previous_workflow_path = Workflow.workflow_file_path()
     original_cwd = File.cwd!()
@@ -355,7 +362,7 @@ defmodule SymphonyElixir.CoreTest do
 
     System.delete_env("LINEAR_ASSIGNEE")
     File.mkdir_p!(workflow_root)
-    File.mkdir_p!(invocation_root)
+    File.mkdir_p!(Path.join(invocation_root, ".symphony"))
 
     workflow_path = Path.join(workflow_root, "WORKFLOW.md")
 
@@ -365,7 +372,7 @@ defmodule SymphonyElixir.CoreTest do
       codex_command: "/bin/sh app-server"
     )
 
-    File.write!(Path.join(invocation_root, ".env.local"), "LINEAR_ASSIGNEE=dev@example.com\n")
+    File.write!(Path.join([invocation_root, ".symphony", ".env.local"]), "LINEAR_ASSIGNEE=dev@example.com\n")
     Workflow.set_workflow_file_path(workflow_path)
     File.cd!(invocation_root)
 
@@ -373,7 +380,7 @@ defmodule SymphonyElixir.CoreTest do
     assert System.get_env("LINEAR_ASSIGNEE") == "dev@example.com"
   end
 
-  test "application startup preflight returns env file errors from the invocation directory" do
+  test "application startup preflight returns env file errors from .symphony under the invocation directory" do
     previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
     previous_workflow_path = Workflow.workflow_file_path()
     original_cwd = File.cwd!()
@@ -400,7 +407,7 @@ defmodule SymphonyElixir.CoreTest do
 
     System.delete_env("LINEAR_ASSIGNEE")
     File.mkdir_p!(workflow_root)
-    File.mkdir_p!(invocation_root)
+    File.mkdir_p!(Path.join(invocation_root, ".symphony"))
 
     workflow_path = Path.join(workflow_root, "WORKFLOW.md")
 
@@ -410,14 +417,18 @@ defmodule SymphonyElixir.CoreTest do
       codex_command: "/bin/sh app-server"
     )
 
-    File.write!(Path.join(invocation_root, ".env"), "LINEAR_ASSIGNEE\n")
+    File.write!(Path.join([invocation_root, ".symphony", ".env"]), "LINEAR_ASSIGNEE\n")
     Workflow.set_workflow_file_path(workflow_path)
     File.cd!(invocation_root)
 
     assert {:error, {:invalid_env_file, path, 1, :missing_assignment}} =
              SymphonyElixir.Application.startup_preflight()
 
-    assert path == Path.join(invocation_root, ".env")
+    assert path == Path.join([invocation_root, ".symphony", ".env"])
+  end
+
+  test "test config disables startup preflight during automatic application boot" do
+    refute Application.get_env(:symphony_elixir, :run_startup_preflight_on_boot, true)
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory outside escript mode" do
@@ -1548,7 +1559,7 @@ defmodule SymphonyElixir.CoreTest do
              PromptBuilder.build_prompt_for_issue_identifier("MISSING-1", session_mode: :manual)
   end
 
-  test "script support loads env files from the project root for manual prompts" do
+  test "script support loads env files from .symphony under the project root for manual prompts" do
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     project_root = Path.join(System.tmp_dir!(), "sym-codex-project-root-#{System.unique_integer([:positive])}")
@@ -1561,7 +1572,8 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     File.mkdir_p!(project_root)
-    File.write!(Path.join(project_root, ".env"), "LINEAR_API_KEY=project-root-key\n")
+    File.mkdir_p!(Path.join(project_root, ".symphony"))
+    File.write!(Path.join(project_root, ".symphony/.env"), "LINEAR_API_KEY=project-root-key\n")
     File.write!(interactive_workflow_path, "---\n---\ninteractive={{ issue.identifier }}\n")
     System.delete_env("LINEAR_API_KEY")
 
@@ -1576,7 +1588,7 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-698f",
         identifier: "MT-698F",
         title: "External env directory",
-        description: "Manual prompt should load env files from project root",
+        description: "Manual prompt should load env files from .symphony",
         state: "Freigabe Planung",
         url: "https://example.org/issues/MT-698F",
         labels: []
@@ -1594,7 +1606,7 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.api_key == "project-root-key"
   end
 
-  test "script support resolves workspace root after loading project env files" do
+  test "script support resolves workspace root after loading project .symphony env files" do
     previous_custom_root = System.get_env("SYMP_SCRIPT_WORKSPACE_ROOT")
 
     project_root =
@@ -1605,8 +1617,8 @@ defmodule SymphonyElixir.CoreTest do
       File.rm_rf(project_root)
     end)
 
-    File.mkdir_p!(project_root)
-    File.write!(Path.join(project_root, ".env"), "SYMP_SCRIPT_WORKSPACE_ROOT=external-worktrees\n")
+    File.mkdir_p!(Path.join(project_root, ".symphony"))
+    File.write!(Path.join(project_root, ".symphony/.env"), "SYMP_SCRIPT_WORKSPACE_ROOT=external-worktrees\n")
     System.delete_env("SYMP_SCRIPT_WORKSPACE_ROOT")
 
     write_workflow_file!(Workflow.workflow_file_path(),

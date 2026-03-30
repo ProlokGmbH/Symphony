@@ -44,7 +44,7 @@ defmodule SymphonyElixir.CLITest do
     assert :ok = CLI.evaluate([], deps)
     assert_received :file_checked
     assert_received {:env_loaded, env_path}
-    assert env_path == "/tmp/project"
+    assert env_path == "/tmp/project/.symphony"
     assert_received :workflow_set
     assert_received :validated
     refute_received :logs_root_set
@@ -105,7 +105,7 @@ defmodule SymphonyElixir.CLITest do
     assert message == "Usage: symphony [--logs-root <path>] [--port <port>]"
   end
 
-  test "loads env files from the invocation directory instead of the workflow directory" do
+  test "loads env files from .symphony under the invocation directory instead of the workflow directory" do
     parent = self()
 
     deps = %{
@@ -134,7 +134,7 @@ defmodule SymphonyElixir.CLITest do
 
     assert :ok = CLI.evaluate([], deps)
     assert_received {:workflow_checked, "/tmp/symphony-install/WORKFLOW.md"}
-    assert_received {:env_loaded, "/tmp/project"}
+    assert_received {:env_loaded, "/tmp/project/.symphony"}
     assert_received {:workflow_set, "/tmp/symphony-install/WORKFLOW.md"}
     assert_received :validated
   end
@@ -218,7 +218,9 @@ defmodule SymphonyElixir.CLITest do
       default_workflow_path: fn -> "/tmp/symphony-install/WORKFLOW.md" end,
       env_files_dir: fn -> "/tmp/project" end,
       file_regular?: fn _path -> true end,
-      load_env_files: fn _path -> {:error, {:invalid_env_file, "/tmp/.env.local", 3, :missing_assignment}} end,
+      load_env_files: fn _path ->
+        {:error, {:invalid_env_file, "/tmp/project/.symphony/.env.local", 3, :missing_assignment}}
+      end,
       set_workflow_file_path: fn _path -> :ok end,
       validate_startup_requirements: fn -> :ok end,
       set_logs_root: fn _path -> :ok end,
@@ -228,7 +230,7 @@ defmodule SymphonyElixir.CLITest do
 
     assert {:error, message} = CLI.evaluate([], deps)
     assert message =~ "Failed to load environment for workflow"
-    assert message =~ "/tmp/.env.local:3"
+    assert message =~ "/tmp/project/.symphony/.env.local:3"
   end
 
   test "fails startup when LINEAR_ASSIGNEE is missing" do

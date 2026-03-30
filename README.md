@@ -42,7 +42,7 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    mix setup
    ```
 
-2. Umgebungsvariablen vorbereiten, zum Beispiel ueber `.env.local`.
+2. Umgebungsvariablen vorbereiten, zum Beispiel ueber `.symphony/.env.local`.
    Typisch benoetigt werden:
    - `LINEAR_API_KEY`
    - `LINEAR_PROJECT_SLUG`

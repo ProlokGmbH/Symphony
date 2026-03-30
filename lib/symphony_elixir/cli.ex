@@ -3,7 +3,7 @@ defmodule SymphonyElixir.CLI do
   Escript entrypoint for running Symphony with a repo-managed WORKFLOW.md.
   """
 
-  alias SymphonyElixir.{LogFile, Workflow}
+  alias SymphonyElixir.{EnvFile, LogFile, Workflow}
 
   # Keep the legacy acknowledgement flag accepted so older scripts still parse.
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
@@ -51,7 +51,11 @@ defmodule SymphonyElixir.CLI do
   @spec run(String.t(), String.t(), deps()) :: :ok | {:error, String.t()}
   def run(workflow_path, env_files_dir, deps) do
     expanded_path = Path.expand(workflow_path)
-    expanded_env_files_dir = Path.expand(env_files_dir)
+
+    expanded_env_files_dir =
+      env_files_dir
+      |> Path.expand()
+      |> EnvFile.config_dir()
 
     case deps.file_regular?.(expanded_path) do
       true -> load_and_start(expanded_path, expanded_env_files_dir, deps)
@@ -111,7 +115,7 @@ defmodule SymphonyElixir.CLI do
   end
 
   defp format_run_error(workflow_path, :missing_linear_assignee_env) do
-    "Failed to start Symphony with workflow #{workflow_path}: LINEAR_ASSIGNEE must be set in the environment, .env, or .env.local"
+    "Failed to start Symphony with workflow #{workflow_path}: LINEAR_ASSIGNEE must be set in the environment, .symphony/.env, or .symphony/.env.local"
   end
 
   defp format_run_error(workflow_path, :missing_linear_assignee) do

@@ -206,7 +206,7 @@ defmodule SymphonyElixir.Config do
   end
 
   defp format_simple_config_error(:missing_linear_assignee_env) do
-    "Invalid WORKFLOW.md config: LINEAR_ASSIGNEE must be set in the environment, .env, or .env.local"
+    "Invalid WORKFLOW.md config: LINEAR_ASSIGNEE must be set in the environment, .symphony/.env, or .symphony/.env.local"
   end
 
   defp format_simple_config_error(other) do
