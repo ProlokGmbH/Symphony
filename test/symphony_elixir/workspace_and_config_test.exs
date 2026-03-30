@@ -1435,7 +1435,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "config keeps only AI/Codex managed active states" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["Todo", "Freigabe Planung", "Freigabe Final", "Review (AI)", "Abbruch (AI)", "Fertig"]
+      tracker_active_states: ["Todo", "Freigabe Planung", "Freigabe Review", "Review (AI)", "Abbruch (AI)", "Fertig"]
     )
 
     assert Config.settings!().tracker.active_states == ["Review (AI)", "Abbruch (AI)"]

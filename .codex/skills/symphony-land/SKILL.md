@@ -32,7 +32,9 @@ description:
    then push with the `symphony-push` skill before proceeding.
 4. Check mergeability and conflicts against main.
 5. If conflicts exist, use the `symphony-pull` skill to fetch/merge `origin/main` and
-   resolve conflicts, then use the `symphony-push` skill to publish the updated branch.
+   resolve conflicts. If that pull or its conflict resolution changes files, commit them with
+   `Merge (AI) Autocommit`, move the issue back to `Test (AI)`, and stop so the test cycle reruns on the merged code.
+   Only if no rerun is needed, use the `symphony-push` skill to publish the updated branch.
 6. Ensure Codex review comments (if present) are acknowledged and any required
    fixes are handled before merging.
 7. Watch checks until complete.

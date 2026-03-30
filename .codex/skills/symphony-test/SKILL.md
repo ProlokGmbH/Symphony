@@ -15,10 +15,12 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 
 - Lies die repository-spezifischen Anweisungen aus dem Skill `sym-test` unter
   `.codex/skills/sym-test/SKILL.md`.
+- Committe bestehende oder neu entstehende Änderungen in diesem Status bei Bedarf mit `Test (AI) Autocommit`.
+- Führe vor der eigentlichen Test-Checkliste den Skill `symphony-pull` aus, damit der Branch den späteren Merge-Stand enthält.
+- Halte danach im Workpad eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis (`clean` oder `conflicts resolved`) fest.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
-- Lasse dabei alle entstehenden Änderungen ungecommittet; automatische Commits bleiben in diesem Status verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 
@@ -45,17 +47,17 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 ## Test-Schleife
 
 1. Lies `.codex/skills/sym-test/SKILL.md` und beginne mit dem ersten dort
-   definierten Schritt.
+   definierten Schritt, nachdem der Pull-Schritt abgeschlossen und dokumentiert ist.
 2. Aktualisiere nach jedem Schritt zuerst den zugehörigen Checklistenpunkt unter `### Test` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
 3. Wenn ein Schritt fehlschlägt oder konkrete Änderungen verlangt:
    - setze den Fix sofort um,
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
    - starte die Checkliste wieder beim ersten in
      `.codex/skills/sym-test/SKILL.md` definierten Schritt.
-4. Wenn während der Schleife lokale Fixes entstanden sind, lasse sie ungecommittet im Workspace bestehen.
+4. Wenn während der Schleife lokale Fixes entstanden sind, committe sie bei Bedarf in diesem Status mit `Test (AI) Autocommit`, bevor der nächste Pull- oder Merge-Schritt sie aufnimmt.
 5. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
 6. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und stoppe ohne Statuswechsel.
 
 ## Abschlussbedingung
 
-- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Freigabe Final`. Offene lokale Git-Änderungen sind bei der Übergabe zulässig.
+- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`.

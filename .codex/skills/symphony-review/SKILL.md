@@ -62,5 +62,5 @@ Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
 
 ## Abschlussbedingung
 
-- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Test (AI)`.
-- Offene lokale Git-Änderungen sind bei der Übergabe nach `Test (AI)` zulässig.
+- Wenn die Schleife abgeschlossen ist, verschiebe das Ticket von `Review (AI)` nach `Freigabe Review`.
+- Offene lokale Git-Änderungen sind bei der Übergabe nach `Freigabe Review` zulässig.
