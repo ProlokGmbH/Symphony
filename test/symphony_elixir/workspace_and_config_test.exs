@@ -693,7 +693,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                    "identifier" => "PRO-49",
                    "title" => "Shared prompt context",
                    "description" => "Load prompt for manual sessions",
-                   "state" => %{"name" => "Freigabe"},
+                   "state" => %{"name" => "Freigabe Planung"},
                    "labels" => %{"nodes" => [%{"name" => "workflow"}]},
                    "inverseRelations" => %{"nodes" => []}
                  }
@@ -704,7 +704,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
        }}
     end)
 
-    assert {:ok, %Issue{identifier: "PRO-49", state: "Freigabe"} = issue} =
+    assert {:ok, %Issue{identifier: "PRO-49", state: "Freigabe Planung"} = issue} =
              Client.fetch_issue_by_identifier("PRO-49")
 
     assert issue.title == "Shared prompt context"
@@ -1170,7 +1170,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       poll_interval_ms: %{bad: true},
       workspace_root: 123,
       max_retry_backoff_ms: 0,
-      max_concurrent_agents_by_state: %{"Todo" => "1", "Freigabe" => 0, "Fertig" => "bad"},
+      max_concurrent_agents_by_state: %{"Todo" => "1", "Freigabe Planung" => 0, "Fertig" => "bad"},
       hook_timeout_ms: 0,
       observability_enabled: "maybe",
       observability_refresh_ms: %{bad: true},
@@ -1410,7 +1410,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "config keeps only AI/Codex managed active states" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["Todo", "In Arbeit", "Freigabe", "Review (AI)", "Abbruch (AI)", "Fertig"]
+      tracker_active_states: ["Todo", "Freigabe Planung", "Freigabe Final", "Review (AI)", "Abbruch (AI)", "Fertig"]
     )
 
     assert Config.settings!().tracker.active_states == ["Review (AI)", "Abbruch (AI)"]

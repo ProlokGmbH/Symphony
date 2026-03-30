@@ -50,7 +50,7 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Freigabe,")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Freigabe Planung,")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"
 
@@ -1320,7 +1320,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-698C",
       title: "Session mode",
       description: "Expose manual and automated modes",
-      state: "Freigabe",
+      state: "Freigabe Planung",
       url: "https://example.org/issues/MT-698C",
       labels: []
     }
@@ -1332,15 +1332,15 @@ defmodule SymphonyElixir.CoreTest do
              "session=manual workflow=interactive automated=false interactive=true"
   end
 
-  test "prompt builder treats In Arbeit as interactive in orchestrated and manual sessions" do
+  test "prompt builder treats Freigabe Planung as interactive in orchestrated and manual sessions" do
     workflow_prompt = "{% if runtime.automated %}AUTO{% else %}INTERACTIVE{% endif %}"
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
     issue = %Issue{
       identifier: "MT-698D",
-      title: "In Arbeit bootstrap",
+      title: "Freigabe Planung bootstrap",
       description: "Session mode changes behavior",
-      state: "In Arbeit",
+      state: "Freigabe Planung",
       url: "https://example.org/issues/MT-698D",
       labels: []
     }
@@ -1398,7 +1398,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698E",
         title: "Resolve by identifier",
         description: "Manual prompt lookup",
-        state: "Freigabe",
+        state: "Freigabe Planung",
         url: "https://example.org/issues/MT-698E",
         labels: []
       }
@@ -1443,7 +1443,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698F",
         title: "External env directory",
         description: "Manual prompt should load env files from project root",
-        state: "Freigabe",
+        state: "Freigabe Planung",
         url: "https://example.org/issues/MT-698F",
         labels: []
       }
@@ -1747,7 +1747,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698G",
         title: "Interactive workpad skill",
         description: "Manual prompt should mention workpad handling",
-        state: "Freigabe",
+        state: "Freigabe Planung",
         url: "https://example.org/issues/MT-698G",
         labels: []
       }
@@ -1958,7 +1958,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner ignores In Arbeit without creating a workspace" do
+  test "agent runner ignores Freigabe Planung without creating a workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -1994,7 +1994,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-BOOT",
         title: "Bootstrap only",
         description: "Prepare worktree and workpad",
-        state: "In Arbeit",
+        state: "Freigabe Planung",
         url: "https://example.org/issues/MT-BOOT",
         labels: ["backend"]
       }
@@ -2291,7 +2291,7 @@ defmodule SymphonyElixir.CoreTest do
              identifier: "MT-BRANCH-SYNC",
              title: "Branch sync",
              description: "Sync tracker branch name from workspace",
-             state: "Freigabe"
+             state: "Freigabe Implementierung"
            }
          ]}
       end
@@ -2314,7 +2314,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves PreReview (AI) issues to Freigabe after a clean prereview turn" do
+  test "agent runner moves PreReview (AI) issues to Freigabe Implementierung after a clean prereview turn" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2405,8 +2405,8 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-prereview-handoff", "Freigabe"}
-      assert "Freigabe" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-prereview-handoff", "Freigabe Implementierung"}
+      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
@@ -2612,7 +2612,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Test (AI) issues to Merge (AI) after a clean test turn without code changes" do
+  test "agent runner moves Test (AI) issues to Freigabe Final after a clean test turn without code changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2699,15 +2699,15 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Merge (AI)"}
-      assert "Merge (AI)" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-clean-handoff", "Freigabe Final"}
+      assert "Freigabe Final" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test (AI) issues back to Freigabe after a clean test turn with code changes" do
+  test "agent runner moves Test (AI) issues to Freigabe Final after a test turn with code changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2795,15 +2795,15 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe"}
-      assert "Freigabe" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-fix-handoff", "Freigabe Final"}
+      assert "Freigabe Final" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
 
-  test "agent runner moves Test (AI) issues back to Freigabe before running Codex when the workspace is dirty" do
+  test "agent runner moves Test (AI) issues back to Freigabe Implementierung before running Codex when the workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2897,8 +2897,8 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe"}
-      assert "Freigabe" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-test-dirty-preflight", "Freigabe Implementierung"}
+      assert "Freigabe Implementierung" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -2906,7 +2906,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Merge (AI) issues back to Freigabe before running Codex when the workspace is dirty" do
+  test "agent runner moves Merge (AI) issues back to Freigabe Final before running Codex when the workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3000,8 +3000,8 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe"}
-      assert "Freigabe" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-merge-dirty-preflight", "Freigabe Final"}
+      assert "Freigabe Final" == Agent.get(state_agent, & &1)
       refute File.exists?(trace_file)
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)

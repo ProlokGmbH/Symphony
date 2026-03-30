@@ -156,18 +156,20 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
-| Nicht-terminale Stati ohne `(AI)` im Namen, einschließlich `In Arbeit` | Nein | Außerhalb des Scopes dieses Workflows; nicht pollen, nicht bearbeiten und nicht automatisch verschieben. | Warten auf menschliches Verschieben in einen AI-Status |
+| `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
-| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `In Arbeit` |
+| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `Freigabe Planung` |
+| `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `In Arbeit (AI)` | Ja | Implementierung des bestehenden, zuvor manuell geprüften Plans läuft aktiv. | `PreReview (AI)` |
-| `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe` |
-| `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
+| `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
+| `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor der Übergabe veröffentlicht. | `Test (AI)` |
-| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor `Merge (AI)` veröffentlicht. | `Merge (AI)` |
-| `Freigabe` | Nein | Außerhalb des aktiven AI-Scopes; nichts tun und warten, bis ein Mensch weiter verschiebt. | `Review (AI)` oder `Planung (AI)` oder `In Arbeit (AI)` |
+| `Test (AI)` | Ja | Repository-spezifischen Test-/Fix-Zyklus ausführen; automatische Commits sind in diesem Status zulässig und resultierende Fix-Commits werden vor `Freigabe Final` veröffentlicht. | `Freigabe Final` |
+| `Freigabe Final` | Nein | Manueller Final-Checkpoint vor dem Merge; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind in diesem Status zulässig. | `Review` |
-| `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
+| `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
+| `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
 | `Fertig` | Nein | Terminaler Status; keine weitere Aktion erforderlich. | - |
 | `Abgebrochen` | Nein | Terminaler Status nach explizitem Abbruch; keine weitere Aktion erforderlich. | - |
 
@@ -178,13 +180,16 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
-   - Jeder nicht-terminale Status ohne `(AI)` im Namen (zum Beispiel `In Arbeit` oder `Freigabe`) -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
+   - `Freigabe Planung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
+   - `Freigabe Implementierung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
+   - `Freigabe Final` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
    - `Review` -> nichts tun und beenden.
@@ -221,7 +226,7 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
 ### Ziel
 
 Ticketbeschreibung, Workpad-Plan und geplante Validierung so vorbereiten, dass die
-anschließende menschliche Prüfung in `In Arbeit` und danach die Umsetzung in
+anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzung in
 `In Arbeit (AI)` ohne autonome Neuplanung beginnen kann.
 
 ### Voraussetzungen
@@ -244,7 +249,7 @@ anschließende menschliche Prüfung in `In Arbeit` und danach die Umsetzung in
 
 ### Abschluss und nächster Status
 
-- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend vorbereitet sind, verschiebe das Issue nach `In Arbeit`, damit ein Mensch den Plan vor der Umsetzung prüfen kann.
+- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend vorbereitet sind, verschiebe das Issue nach `Freigabe Planung`, damit ein Mensch den Plan vor der Umsetzung prüfen kann.
 
 ### Sonderfälle
 
@@ -260,7 +265,7 @@ nach `PreReview (AI)`.
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `In Arbeit (AI)`.
-- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und anschließend im manuellen Status `In Arbeit` geprüft worden sein.
+- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und anschließend im manuellen Status `Freigabe Planung` geprüft worden sein.
 
 ### Ablauf
 
@@ -276,11 +281,11 @@ nach `PreReview (AI)`.
    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in `### Validierung` und/oder `### Verlauf`.
 7. Wenn die Ausführung neue Erkenntnisse hervorbringt, die eine inhaltliche Neuplanung erfordern, halte das knapp im Workpad fest und verschiebe das Issue zurück nach `Planung (AI)`, statt den Plan in diesem Status autonom umzuschreiben.
-8. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Freigabe-/Commit-Schritt bewusst ungecommittet bleiben.
+8. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Schritt `Freigabe Implementierung` bewusst ungecommittet bleiben.
 9. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
    - Markiere abgeschlossene Punkte in Plan-/Validierungs-Checklisten als erledigt.
    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
-   - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Freigabe-/Commit-Schritt übergeben wird.
+   - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Schritt `Freigabe Implementierung` übergeben wird.
    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
 10. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
@@ -288,7 +293,7 @@ nach `PreReview (AI)`.
 
 ### Abschluss und nächster Status
 
-- Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe`.
+- Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe Implementierung`.
 - Erst dann nach `PreReview (AI)` verschieben.
   - Ein direkter Übergang von `In Arbeit (AI)` nach `BLOCKER` ist nur über den blocked-access escape hatch zulässig.
   - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `BLOCKER` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
@@ -307,7 +312,7 @@ nach `PreReview (AI)`.
 
 ### Ziel
 
-Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und das Issue danach in den manuellen `Freigabe`-Schritt übergeben.
+Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und das Issue danach in den manuellen Schritt `Freigabe Implementierung` übergeben.
 
 ### Voraussetzungen
 
@@ -320,12 +325,12 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Freigabe`.
-  - Nur dieser Schritt verschiebt regulär von `PreReview (AI)` nach `Freigabe`.
+- Verschiebe das Issue erst danach nach `Freigabe Implementierung`.
+  - Nur dieser Schritt verschiebt regulär von `PreReview (AI)` nach `Freigabe Implementierung`.
 
 ### Sonderfälle
 
-- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe` als Fallback automatisch.
+- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Implementierung` als Fallback automatisch.
 
 ## Ablauf für `Review (AI)`
 
@@ -356,7 +361,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen, notwendi
 
 ### Ziel
 
-Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Merge (AI)` übergeben.
+Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes in diesem Status committen dürfen und das Issue danach nach `Freigabe Final` übergeben.
 
 ### Voraussetzungen
 
@@ -366,37 +371,89 @@ Den repository-spezifischen Test-/Fix-Zyklus ausführen, notwendige Folge-Fixes 
 
 1. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Merge (AI)` ein landbarer Remote-Branch existiert.
+3. Wenn der Testlauf Fixes erzeugt, committe den resultierenden Stand in diesem Status und veröffentliche ihn anschließend mit `symphony-push`, damit vor `Freigabe Final` ein landbarer Remote-Branch existiert.
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Merge (AI)`.
-  - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Merge (AI)`.
+- Verschiebe das Issue erst danach nach `Freigabe Final`.
+  - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Freigabe Final`.
 
 ### Sonderfälle
 
-- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
+- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Freigabe Final` als Fallback automatisch.
 
-## Ablauf für `Freigabe`
+## Ablauf für `Freigabe Planung`
 
 ### Ziel
 
-Den manuellen Review- und Commit-Schritt vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+Die manuelle Planprüfung vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
 
 ### Voraussetzungen
 
-- Das Issue befindet sich aktuell in `Freigabe`.
+- Das Issue befindet sich aktuell in `Freigabe Planung`.
 
 ### Ablauf
 
 1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt.
+2. In diesem Status übernimmt der Entwickler die manuelle Planprüfung.
+3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
+
+### Abschluss und nächster Status
+
+- Nach der manuellen Planfreigabe verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
+- Wenn Plan-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Planung (AI)`.
+
+### Sonderfälle
+
+- Keine.
+
+## Ablauf für `Freigabe Implementierung`
+
+### Ziel
+
+Den manuellen Review- und Commit-Schritt nach der Umsetzung vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Freigabe Implementierung`.
+
+### Ablauf
+
+1. Weder coden noch den Ticket-Inhalt ändern.
+2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt nach `PreReview (AI)`.
 3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
 
 ### Abschluss und nächster Status
 
 - Nach der manuellen Freigabe verschiebt ein Mensch das Issue regulär nach `Review (AI)`.
 - Wenn Freigabe-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
+- Wenn Freigabe-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
+
+### Sonderfälle
+
+- Keine.
+
+## Ablauf für `Freigabe Final`
+
+### Ziel
+
+Die manuelle Finalfreigabe vor dem Merge vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+
+### Voraussetzungen
+
+- Das Issue befindet sich aktuell in `Freigabe Final`.
+
+### Ablauf
+
+1. Weder coden noch den Ticket-Inhalt ändern.
+2. In diesem Status übernimmt der Entwickler die manuelle Finalprüfung des getesteten Branches.
+3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
+
+### Abschluss und nächster Status
+
+- Nach der manuellen Finalfreigabe verschiebt ein Mensch das Issue regulär nach `Merge (AI)`.
+- Wenn Final-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
+- Wenn Final-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
 
 ### Sonderfälle
 
@@ -415,7 +472,7 @@ Den Merge-Ablauf mit `symphony-land` auf einem sauberen Workspace abschließen u
 
 ### Ablauf
 
-1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Freigabe`, damit der manuelle Commit-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
+1. Falls noch offene Änderungen vorhanden sind, verschiebe das Issue sofort zurück nach `Freigabe Final`, damit der manuelle Final-Schritt nachgeholt wird; den Merge-Skill in diesem Fall nicht starten.
 2. Nur mit sauberem Workspace `.codex/skills/symphony-land/SKILL.md` öffnen und befolgen und anschließend den Skill `symphony-land` in einer Schleife ausführen, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
 
 ### Abschluss und nächster Status
@@ -498,7 +555,7 @@ Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 
 ## Leitplanken und Verbote
 
-- Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn nach `Todo (AI)` verschiebt.
+- Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
@@ -506,7 +563,7 @@ Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Freigabe` keine weiteren Codeänderungen vornehmen; auf den manuellen Commit warten. Kein regelmäßiges Polling.
+- In `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Final` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
 - In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
