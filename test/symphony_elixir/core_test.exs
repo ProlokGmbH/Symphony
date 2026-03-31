@@ -1641,6 +1641,45 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.api_key == "project-root-key"
   end
 
+  test "script support exposes the workflow step alongside the manual prompt context" do
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    project_root = Path.join(System.tmp_dir!(), "sym-codex-prompt-context-#{System.unique_integer([:positive])}")
+    interactive_workflow_path = Path.join(project_root, "WORKFLOW_INTERACTIVE.md")
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      File.rm_rf(project_root)
+    end)
+
+    File.mkdir_p!(Path.join(project_root, ".symphony"))
+    File.write!(interactive_workflow_path, "---\n---\ninteractive={{ issue.identifier }}\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      prompt: "{{ issue.identifier }}"
+    )
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      %Issue{
+        id: "issue-698fa",
+        identifier: "MT-698FA",
+        title: "Manual prompt context",
+        description: "Workflow step should be exposed",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-698FA",
+        labels: []
+      }
+    ])
+
+    assert {:ok, %{prompt: "interactive=MT-698FA", workflow_step: "Review (AI)"}} =
+             ScriptSupport.manual_prompt_context(
+               Workflow.workflow_file_path(),
+               interactive_workflow_path,
+               "MT-698FA",
+               project_root
+             )
+  end
+
   test "script support resolves workspace root after loading project .symphony env files" do
     previous_custom_root = System.get_env("SYMP_SCRIPT_WORKSPACE_ROOT")
 

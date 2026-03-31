@@ -1,43 +1,47 @@
 ---
 name: symphony-linear
 description: |
-  Use Symphony's `linear_graphql` client tool for raw Linear GraphQL
-  operations such as comment editing and upload flows.
+  Nutze Symphonys `linear_graphql`-Client-Tool für rohe Linear-GraphQL-
+  Operationen wie Kommentarbearbeitung und Upload-Abläufe.
 ---
 
 # Linear GraphQL
 
-Use this skill for raw Linear GraphQL work during Symphony app-server sessions.
+Nutze diesen Skill für rohe Linear-GraphQL-Arbeit in Symphony-app-server-
+Sessions.
 
-## Primary tool
+## Primäres Tool
 
-Use the `linear_graphql` client tool exposed by Symphony's app-server session.
-It reuses Symphony's configured Linear auth for the session.
+Nutze das von Symphonys app-server-Session bereitgestellte
+`linear_graphql`-Client-Tool. Es verwendet die in Symphony konfigurierte
+Linear-Authentifizierung der Session wieder.
 
-Tool input:
+Tool-Eingabe:
 
 ```json
 {
-  "query": "query or mutation document",
+  "query": "Query- oder Mutation-Dokument",
   "variables": {
-    "optional": "graphql variables object"
+    "optional": "GraphQL-Variablenobjekt"
   }
 }
 ```
 
-Tool behavior:
+Tool-Verhalten:
 
-- Send one GraphQL operation per tool call.
-- Treat a top-level `errors` array as a failed GraphQL operation even if the
-  tool call itself completed.
-- Keep queries/mutations narrowly scoped; ask only for the fields you need.
+- Sende pro Tool-Call genau eine GraphQL-Operation.
+- Behandle ein Top-Level-Array `errors` als fehlgeschlagene GraphQL-Operation,
+  auch wenn der Tool-Call selbst erfolgreich war.
+- Halte Queries/Mutations eng im Scope; frage nur die Felder ab, die du
+  brauchst.
 
-## Discovering unfamiliar operations
+## Unbekannte Operationen erschließen
 
-When you need an unfamiliar mutation, input type, or object field, use targeted
-introspection through `linear_graphql`.
+Wenn du eine unbekannte Mutation, einen unbekannten Input-Typ oder ein
+unbekanntes Objektfeld brauchst, nutze gezielte Introspection über
+`linear_graphql`.
 
-List mutation names:
+Mutations auflisten:
 
 ```graphql
 query ListMutations {
@@ -49,7 +53,7 @@ query ListMutations {
 }
 ```
 
-Inspect a specific input object:
+Ein bestimmtes Input-Objekt prüfen:
 
 ```graphql
 query CommentCreateInputShape {
@@ -69,17 +73,18 @@ query CommentCreateInputShape {
 }
 ```
 
-## Common workflows
+## Häufige Abläufe
 
-### Query an issue by key, identifier, or id
+### Ein Issue per Key, Identifier oder id abfragen
 
-Use these progressively:
+Nutze sie in dieser Reihenfolge:
 
-- Start with `issue(id: $key)` when you have a ticket key such as `MT-686`.
-- Fall back to `issues(filter: ...)` when you need identifier search semantics.
-- Once you have the internal issue id, prefer `issue(id: $id)` for narrower reads.
+- Starte mit `issue(id: $key)`, wenn du einen Ticket-Key wie `MT-686` hast.
+- Weiche auf `issues(filter: ...)` aus, wenn du Identifier-Suche brauchst.
+- Sobald du die interne Issue-id hast, bevorzuge `issue(id: $id)` für engere
+  Abfragen.
 
-Lookup by issue key:
+Abfrage per Issue-Key:
 
 ```graphql
 query IssueByKey($key: String!) {
@@ -111,7 +116,7 @@ query IssueByKey($key: String!) {
 }
 ```
 
-Lookup by identifier filter:
+Abfrage per Identifier-Filter:
 
 ```graphql
 query IssueByIdentifier($identifier: String!) {
@@ -138,7 +143,7 @@ query IssueByIdentifier($identifier: String!) {
 }
 ```
 
-Resolve a key to an internal id:
+Einen Key in eine interne id auflösen:
 
 ```graphql
 query IssueByIdOrKey($id: String!) {
@@ -150,7 +155,7 @@ query IssueByIdOrKey($id: String!) {
 }
 ```
 
-Read the issue once the internal id is known:
+Das Issue lesen, sobald die interne id bekannt ist:
 
 ```graphql
 query IssueDetails($id: String!) {
@@ -181,9 +186,9 @@ query IssueDetails($id: String!) {
 }
 ```
 
-### Query team workflow states for an issue
+### Team-Workflow-Status eines Issues abfragen
 
-Use this before changing issue state when you need the exact `stateId`:
+Nutze dies vor einem Statuswechsel, wenn du die exakte `stateId` brauchst:
 
 ```graphql
 query IssueTeamStates($id: String!) {
@@ -205,9 +210,9 @@ query IssueTeamStates($id: String!) {
 }
 ```
 
-### Edit an existing comment
+### Einen bestehenden Kommentar bearbeiten
 
-Use `commentUpdate` through `linear_graphql`:
+Nutze `commentUpdate` über `linear_graphql`:
 
 ```graphql
 mutation UpdateComment($id: String!, $body: String!) {
@@ -221,9 +226,9 @@ mutation UpdateComment($id: String!, $body: String!) {
 }
 ```
 
-### Create a comment
+### Einen Kommentar erstellen
 
-Use `commentCreate` through `linear_graphql`:
+Nutze `commentCreate` über `linear_graphql`:
 
 ```graphql
 mutation CreateComment($issueId: String!, $body: String!) {
@@ -237,9 +242,9 @@ mutation CreateComment($issueId: String!, $body: String!) {
 }
 ```
 
-### Move an issue to a different state
+### Ein Issue in einen anderen Status verschieben
 
-Use `issueUpdate` with the destination `stateId`:
+Nutze `issueUpdate` mit der Ziel-`stateId`:
 
 ```graphql
 mutation MoveIssueToState($id: String!, $stateId: String!) {
@@ -257,9 +262,9 @@ mutation MoveIssueToState($id: String!, $stateId: String!) {
 }
 ```
 
-### Attach a GitHub PR to an issue
+### Eine GitHub-PR an ein Issue anhängen
 
-Use the GitHub-specific attachment mutation when linking a PR:
+Nutze beim Verlinken einer PR die GitHub-spezifische Attachment-Mutation:
 
 ```graphql
 mutation AttachGitHubPR($issueId: String!, $url: String!, $title: String) {
@@ -279,8 +284,8 @@ mutation AttachGitHubPR($issueId: String!, $url: String!, $title: String) {
 }
 ```
 
-If you only need a plain URL attachment and do not care about GitHub-specific
-link metadata, use:
+Wenn du nur ein einfaches URL-Attachment brauchst und
+GitHub-spezifische Link-Metadaten egal sind, nutze:
 
 ```graphql
 mutation AttachURL($issueId: String!, $url: String!, $title: String) {
@@ -295,9 +300,9 @@ mutation AttachURL($issueId: String!, $url: String!, $title: String) {
 }
 ```
 
-### Introspection patterns used during schema discovery
+### Introspection-Muster für Schema-Erkundung
 
-Use these when the exact field or mutation shape is unclear:
+Nutze diese Muster, wenn die exakte Feld- oder Mutationsform unklar ist:
 
 ```graphql
 query QueryFields {
@@ -334,18 +339,18 @@ query IssueFieldArgs {
 }
 ```
 
-### Upload a video to a comment
+### Ein Video an einen Kommentar hochladen
 
-Do this in three steps:
+Gehe in drei Schritten vor:
 
-1. Call `linear_graphql` with `fileUpload` to get `uploadUrl`, `assetUrl`, and
-   any required upload headers.
-2. Upload the local file bytes to `uploadUrl` with `curl -X PUT` and the exact
-   headers returned by `fileUpload`.
-3. Call `linear_graphql` again with `commentCreate` (or `commentUpdate`) and
-   include the resulting `assetUrl` in the comment body.
+1. Rufe `linear_graphql` mit `fileUpload` auf, um `uploadUrl`, `assetUrl` und
+   nötige Upload-Header zu erhalten.
+2. Lade die lokalen Dateibytes mit `curl -X PUT` an `uploadUrl` hoch und nutze
+   exakt die von `fileUpload` zurückgegebenen Header.
+3. Rufe `linear_graphql` erneut mit `commentCreate` (oder `commentUpdate`) auf
+   und nimm die resultierende `assetUrl` in den Kommentartext auf.
 
-Useful mutations:
+Nützliche Mutationen:
 
 ```graphql
 mutation FileUpload(
@@ -373,16 +378,17 @@ mutation FileUpload(
 }
 ```
 
-## Usage rules
+## Nutzungsregeln
 
-- Use `linear_graphql` for comment edits, uploads, and ad-hoc Linear API
-  queries.
-- Prefer the narrowest issue lookup that matches what you already know:
-  key -> identifier search -> internal id.
-- For state transitions, fetch team states first and use the exact `stateId`
-  instead of hardcoding names inside mutations.
-- Prefer `attachmentLinkGitHubPR` over a generic URL attachment when linking a
-  GitHub PR to a Linear issue.
-- Do not introduce new raw-token shell helpers for GraphQL access.
-- If you need shell work for uploads, only use it for signed upload URLs
-  returned by `fileUpload`; those URLs already carry the needed authorization.
+- Nutze `linear_graphql` für Kommentarbearbeitungen, Uploads und ad-hoc-
+  Abfragen an die Linear-API.
+- Bevorzuge den engsten Issue-Lookup, der zu deinem Wissensstand passt:
+  Key -> Identifier-Suche -> interne id.
+- Hole für Statuswechsel zuerst die Team-States und nutze die exakte `stateId`,
+  statt Namen in Mutations fest zu verdrahten.
+- Bevorzuge `attachmentLinkGitHubPR` gegenüber einem generischen
+  URL-Attachment, wenn du eine GitHub-PR an ein Linear-Issue hängst.
+- Führe keine neuen Shell-Helper mit Raw-Tokens für GraphQL-Zugriff ein.
+- Wenn du Shell-Arbeit für Uploads brauchst, nutze sie nur für signierte
+  Upload-URLs aus `fileUpload`; diese URLs tragen die nötige Autorisierung
+  bereits mit.

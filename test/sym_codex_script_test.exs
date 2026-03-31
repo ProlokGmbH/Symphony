@@ -109,6 +109,54 @@ defmodule SymCodexScriptTest do
     assert output =~ "manual-prompt-for-PRO-49"
   end
 
+  test "sym-codex keeps the default launch profile for non-review workflow steps" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    prompt_output = manual_prompt_context("In Arbeit (AI)", "manual-prompt-for-PRO-49")
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+               ]
+             )
+
+    assert output =~ "--model gpt-5.4"
+    assert output =~ "--config model_reasoning_effort=high"
+  end
+
+  test "sym-codex uses xhigh reasoning for Review (AI)" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    prompt_output = manual_prompt_context("Review (AI)", "manual-prompt-for-PRO-49")
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+               ]
+             )
+
+    assert output =~ "--model gpt-5.4"
+    assert output =~ "--config model_reasoning_effort=xhigh"
+  end
+
   test "sym-codex resolves worktrees from the local project root when launched from another repo" do
     %{
       repo_dir: repo_dir,
@@ -322,7 +370,11 @@ defmodule SymCodexScriptTest do
           exit 0
           ;;
         3)
-          printf 'manual-prompt-for-%s' "$3"
+          if [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT:-}" ]; then
+            printf '%s' "$SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT"
+          else
+            printf 'manual-prompt-for-%s' "$3"
+          fi
           exit 0
           ;;
       esac
@@ -438,5 +490,9 @@ defmodule SymCodexScriptTest do
 
     File.chmod!(venv_codex_path, 0o755)
     File.chmod!(venv_python_path, 0o755)
+  end
+
+  defp manual_prompt_context(workflow_step, prompt) do
+    "SYM_CODEX_CONTEXT_V1\n#{workflow_step}\nSYM_CODEX_PROMPT_V1\n#{prompt}"
   end
 end

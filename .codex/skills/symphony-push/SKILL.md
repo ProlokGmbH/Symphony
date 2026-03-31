@@ -1,119 +1,132 @@
 ---
 name: symphony-push
 description:
-  Push current branch changes to origin and create or update the corresponding
-  pull request; use when asked to push, publish updates, or create pull request.
+  Push aktuelle Branch-Änderungen nach origin und erstelle oder aktualisiere
+  die zugehörige Pull Request; nutze den Skill bei Push-, Publish- oder
+  Pull-Request-Aufgaben.
 ---
 
 # Push
 
-## Prerequisites
+## Voraussetzungen
 
-- `gh` CLI is installed and available in `PATH`.
-- `gh auth status` succeeds for GitHub operations in this repo.
+- `gh` CLI ist installiert und in `PATH` verfügbar.
+- `gh auth status` läuft für GitHub-Operationen in diesem Repo erfolgreich durch.
 
-## Goals
+## Ziele
 
-- Push current branch changes to `origin` safely.
-- Create a PR if none exists for the branch, otherwise update the existing PR.
-- Keep branch history clean when remote has moved.
+- Pushe aktuelle Branch-Änderungen sicher nach `origin`.
+- Erstelle eine PR, wenn für den Branch noch keine existiert, sonst
+  aktualisiere die bestehende.
+- Halte die Branch-Historie sauber, wenn sich der Remote bewegt hat.
 
-## Related Skills
+## Verwandte Skills
 
-- `symphony-pull`: use this when push is rejected or sync is not clean (non-fast-forward,
-  merge conflict risk, or stale branch).
-- `symphony-linear`: use this to attach a newly created GitHub PR to the active
-  Linear issue when the branch did not already have a linked PR.
+- `symphony-pull`: nutze diesen Skill, wenn ein Push abgelehnt wird oder die
+  Synchronisierung nicht sauber ist (non-fast-forward, Merge-Konfliktrisiko
+  oder veralteter Branch).
+- `symphony-linear`: nutze diesen Skill, um eine neu erzeugte GitHub-PR mit
+  dem aktiven Linear-Issue zu verknüpfen, wenn der Branch dort noch keine PR
+  angehängt hat.
 
-## Linear Issue Context
+## Linear-Issue-Kontext
 
-- When this skill runs inside a Symphony issue workflow, use the active Linear
-  issue from the current task context.
-- If you already have the internal Linear `issueId`, reuse it directly.
-- Otherwise resolve it with `symphony-linear` before attaching the PR:
-  - query `issue(id: $key) { id attachments { nodes { url } } }` using the
-    current issue key from the task context (for example `PRO-45`).
-  - compare the PR URL from `gh pr view --json url -q .url` against the returned
-    attachment URLs.
-  - only call `attachmentLinkGitHubPR` when that PR URL is not already attached.
+- Wenn dieser Skill innerhalb eines Symphony-Issue-Workflows läuft, nutze das
+  aktive Linear-Issue aus dem aktuellen Aufgabenkontext.
+- Wenn du die interne Linear-`issueId` schon hast, verwende sie direkt weiter.
+- Andernfalls löse sie mit `symphony-linear` auf, bevor du die PR anhängst:
+  - frage `issue(id: $key) { id attachments { nodes { url } } }` mit dem
+    aktuellen Issue-Key aus dem Aufgabenkontext ab (zum Beispiel `PRO-45`).
+  - vergleiche die PR-URL aus `gh pr view --json url -q .url` mit den
+    zurückgegebenen Attachment-URLs.
+  - rufe `attachmentLinkGitHubPR` nur auf, wenn diese PR-URL dort noch nicht
+    angehängt ist.
 
-## Steps
+## Schritte
 
-1. Identify current branch and confirm remote state.
-2. Run local validation (`make all`) before pushing.
-3. Push branch to `origin` with upstream tracking if needed, using whatever
-   remote URL is already configured.
-4. If push is not clean/rejected:
-   - If the failure is a non-fast-forward or sync problem, run the `symphony-pull`
-     skill to merge `origin/main`, resolve conflicts, and rerun validation.
-   - Push again; use `--force-with-lease` only when history was rewritten.
-   - If the failure is due to auth, permissions, or workflow restrictions on
-     the configured remote, stop and surface the exact error instead of
-     rewriting remotes or switching protocols as a workaround.
+1. Ermittle den aktuellen Branch und bestätige den Remote-Status.
+2. Führe vor dem Push die lokale Validierung (`make all`) aus.
+3. Pushe den Branch bei Bedarf mit Upstream-Tracking nach `origin` und nutze
+   dabei die bereits konfigurierte Remote-URL.
+4. Falls der Push nicht sauber läuft oder abgelehnt wird:
+   - Wenn der Fehler ein non-fast-forward- oder Synchronisationsproblem ist,
+     führe den Skill `symphony-pull` aus, merge `origin/main`, löse Konflikte
+     und führe die Validierung erneut aus.
+   - Pushe erneut; nutze `--force-with-lease` nur, wenn Historie umgeschrieben
+     wurde.
+   - Falls der Fehler auf Auth, Berechtigungen oder Workflow-Restriktionen des
+     konfigurierten Remotes beruht, stoppe und nenne den exakten Fehler, statt
+     Remotes umzuschreiben oder als Workaround das Protokoll zu wechseln.
 
-5. Ensure a PR exists for the branch:
-   - If no PR exists, create one.
-   - If a PR exists and is open, update it.
-   - If branch is tied to a closed/merged PR, create a new branch + PR.
-   - Write a proper PR title that clearly describes the change outcome
-   - For branch updates, explicitly reconsider whether current PR title still
-     matches the latest scope; update it if it no longer does.
-6. When the PR was newly created or the current issue is still missing that PR
-   as an attachment, use `symphony-linear` to resolve the internal Linear
-   `issueId`, inspect existing attachments, and then link the PR URL back to
-   the active Linear issue with `attachmentLinkGitHubPR`.
-7. Write/update PR body explicitly using `.github/pull_request_template.md`:
-   - Fill every section with concrete content for this change.
-   - Replace all placeholder comments (`<!-- ... -->`).
-   - Keep bullets/checkboxes where template expects them.
-   - If PR already exists, refresh body content so it reflects the total PR
-     scope (all intended work on the branch), not just the newest commits,
-     including newly added work, removed work, or changed approach.
-   - Do not reuse stale description text from earlier iterations.
-8. Validate PR body with `mix pr_body.check` and fix all reported issues.
-9. Reply with the PR URL from `gh pr view`.
+5. Stelle sicher, dass für den Branch eine PR existiert:
+   - Wenn keine PR existiert, erstelle eine.
+   - Wenn eine PR existiert und offen ist, aktualisiere sie.
+   - Wenn der Branch an eine geschlossene/gemergte PR gebunden ist, erstelle
+     einen neuen Branch + PR.
+   - Schreibe einen sauberen PR-Titel, der das Änderungsergebnis klar beschreibt.
+   - Prüfe bei Branch-Updates explizit, ob der aktuelle PR-Titel noch zum
+     neuesten Scope passt; aktualisiere ihn andernfalls.
+6. Wenn die PR neu erstellt wurde oder dem aktuellen Issue diese PR noch als
+   Attachment fehlt, nutze `symphony-linear`, um die interne Linear-`issueId`
+   aufzulösen, bestehende Attachments zu prüfen und die PR-URL dann mit
+   `attachmentLinkGitHubPR` an das aktive Linear-Issue zurückzuverknüpfen.
+7. Schreibe/aktualisiere den PR-Body explizit anhand von
+   `.github/pull_request_template.md`:
+   - Fülle jeden Abschnitt mit konkretem Inhalt für diese Änderung.
+   - Ersetze alle Platzhalterkommentare (`<!-- ... -->`).
+   - Behalte Bullets/Checkboxen bei, wo die Vorlage sie erwartet.
+   - Wenn bereits eine PR existiert, aktualisiere den Body so, dass er den
+     gesamten PR-Scope widerspiegelt (alle beabsichtigten Änderungen auf dem
+     Branch), nicht nur die neuesten Commits, einschließlich neu
+     hinzugekommener Arbeit, entfallener Arbeit oder geänderter Vorgehensweise.
+   - Verwende keinen veralteten Beschreibungstext aus früheren Iterationen
+     wieder.
+8. Validiere den PR-Body mit `mix pr_body.check` und behebe alle gemeldeten
+   Probleme.
+9. Antworte mit der PR-URL aus `gh pr view`.
 
-## Commands
+## Befehle
 
 ```sh
-# Identify branch
+# Branch bestimmen
 branch=$(git branch --show-current)
 
-# Minimal validation gate
+# Minimales Validierungsgate
 make all
 
-# Initial push: respect the current origin remote.
+# Erster Push: den aktuellen origin-Remote respektieren.
 git push -u origin HEAD
 
-# If that failed because the remote moved, use the symphony-pull skill. After
-# symphony-pull-skill resolution and re-validation, retry the normal push:
+# Falls das fehlschlug, weil sich der Remote bewegt hat, nutze den
+# symphony-pull-Skill. Nach symphony-pull-Auflösung und erneuter Validierung
+# den normalen Push wiederholen:
 git push -u origin HEAD
 
-# If the configured remote rejects the push for auth, permissions, or workflow
-# restrictions, stop and surface the exact error.
+# Wenn der konfigurierte Remote den Push wegen Auth, Berechtigungen oder
+# Workflow-Restriktionen ablehnt, stoppen und den exakten Fehler nennen.
 
-# Only if history was rewritten locally:
+# Nur wenn die Historie lokal umgeschrieben wurde:
 git push --force-with-lease origin HEAD
 
-# Ensure a PR exists (create only if missing)
+# Sicherstellen, dass eine PR existiert (nur erstellen, wenn sie fehlt)
 pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)
 if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
-  echo "Current branch is tied to a closed PR; create a new branch + PR." >&2
+  echo "Aktueller Branch ist an eine geschlossene PR gebunden; erstelle einen neuen Branch + PR." >&2
   exit 1
 fi
 
-# Write a clear, human-friendly title that summarizes the shipped change.
-pr_title="<clear PR title written for this change>"
+# Einen klaren, menschenlesbaren Titel schreiben, der die gelieferte Änderung zusammenfasst.
+pr_title="<klarer PR-Titel für diese Änderung>"
 if [ -z "$pr_state" ]; then
   gh pr create --title "$pr_title"
 else
-  # Reconsider title on every branch update; edit if scope shifted.
+  # Titel bei jedem Branch-Update neu prüfen; bei geändertem Scope anpassen.
   gh pr edit --title "$pr_title"
 fi
 
 pr_url=$(gh pr view --json url -q .url)
 
-# Resolve the active Linear issue and inspect existing attachments first:
+# Zuerst das aktive Linear-Issue auflösen und vorhandene Attachments prüfen:
 #
 # query IssueWithAttachments($key: String!) {
 #   issue(id: $key) {
@@ -126,8 +139,8 @@ pr_url=$(gh pr view --json url -q .url)
 #   }
 # }
 #
-# If this PR was newly created for the active Linear issue or the attachment is
-# missing from that attachment list, use symphony-linear to link it back:
+# Wenn diese PR für das aktive Linear-Issue neu erstellt wurde oder das
+# Attachment in der Liste fehlt, mit symphony-linear zurückverknüpfen:
 #
 # mutation AttachGitHubPR($issueId: String!, $url: String!, $title: String) {
 #   attachmentLinkGitHubPR(
@@ -140,25 +153,27 @@ pr_url=$(gh pr view --json url -q .url)
 #   }
 # }
 
-# Write/edit PR body to match .github/pull_request_template.md before validation.
-# Example workflow:
-# 1) open the template and draft body content for this PR
+# PR-Body vor der Validierung passend zu .github/pull_request_template.md
+# schreiben/bearbeiten.
+# Beispielablauf:
+# 1) Vorlage öffnen und Body-Inhalt für diese PR entwerfen
 # 2) gh pr edit --body-file /tmp/pr_body.md
-# 3) for branch updates, re-check that title/body still match current diff
+# 3) bei Branch-Updates erneut prüfen, ob Titel/Body noch zum aktuellen Diff passen
 
 tmp_pr_body=$(mktemp)
 gh pr view --json body -q .body > "$tmp_pr_body"
 mix pr_body.check --file "$tmp_pr_body"
 rm -f "$tmp_pr_body"
 
-# Show PR URL for the reply
+# PR-URL für die Antwort ausgeben
 printf '%s\n' "$pr_url"
 ```
 
-## Notes
+## Hinweise
 
-- Do not use `--force`; only use `--force-with-lease` as the last resort.
-- Distinguish sync problems from remote auth/permission problems:
-  - Use the `symphony-pull` skill for non-fast-forward or stale-branch issues.
-  - Surface auth, permissions, or workflow restrictions directly instead of
-    changing remotes or protocols.
+- Nutze nicht `--force`; verwende `--force-with-lease` nur als letztes Mittel.
+- Unterscheide Synchronisationsprobleme von Remote-Auth-/Berechtigungsproblemen:
+  - Nutze den Skill `symphony-pull` bei non-fast-forward- oder
+    Stale-Branch-Problemen.
+  - Nenne Auth-, Berechtigungs- oder Workflow-Restriktionen direkt, statt
+    Remotes oder Protokolle zu ändern.

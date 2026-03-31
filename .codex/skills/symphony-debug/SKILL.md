@@ -1,118 +1,120 @@
 ---
 name: symphony-debug
 description:
-  Investigate stuck runs and execution failures by tracing Symphony and Codex
-  logs with issue/session identifiers; use when runs stall, retry repeatedly, or
-  fail unexpectedly.
+  Untersuche hängende Läufe und Ausführungsfehler über Symphony- und
+  Codex-Logs mit Issue-/Session-IDs; nutze den Skill bei Hängern,
+  Wiederholschleifen oder unerwarteten Fehlschlägen.
 ---
 
 # Debug
 
-## Goals
+## Ziele
 
-- Find why a run is stuck, retrying, or failing.
-- Correlate Linear issue identity to a Codex session quickly.
-- Read the right logs in the right order to isolate root cause.
+- Finde heraus, warum ein Lauf hängt, wiederholt oder fehlschlägt.
+- Ordne eine Linear-Issue-Identität schnell einer Codex-Session zu.
+- Lies die richtigen Logs in der richtigen Reihenfolge, um die Ursache zu
+  isolieren.
 
-## Log Sources
+## Logquellen
 
-- Primary runtime log: `log/symphony.log`
-  - Default comes from `SymphonyElixir.LogFile` (`log/symphony.log`).
-  - Includes orchestrator, agent runner, and Codex app-server lifecycle logs.
-- Rotated runtime logs: `log/symphony.log*`
-  - Check these when the relevant run is older.
+- Primäres Runtime-Log: `log/symphony.log`
+  - Der Standard kommt aus `SymphonyElixir.LogFile` (`log/symphony.log`).
+  - Enthält Orchestrator-, Agent-Runner- und Codex-app-server-Lifecycle-Logs.
+- Rotierte Runtime-Logs: `log/symphony.log*`
+  - Prüfe sie, wenn der relevante Lauf älter ist.
 
-## Correlation Keys
+## Korrelationsschlüssel
 
-- `issue_identifier`: human ticket key (example: `MT-625`)
-- `issue_id`: Linear UUID (stable internal ID)
-- `session_id`: Codex thread-turn pair (`<thread_id>-<turn_id>`)
+- `issue_identifier`: menschlicher Ticket-Key (Beispiel: `MT-625`)
+- `issue_id`: Linear-UUID (stabile interne ID)
+- `session_id`: Codex-Thread-/Turn-Paar (`<thread_id>-<turn_id>`)
 
-`docs/logging.md` requires these fields for issue/session lifecycle logs. Use
-them as your join keys during debugging.
+`docs/logging.md` verlangt diese Felder für Issue-/Session-Lifecycle-Logs.
+Nutze sie beim Debugging als Join-Keys.
 
-## Quick Triage (Stuck Run)
+## Schnelle Triage (hängender Lauf)
 
-1. Confirm scheduler/worker symptoms for the ticket.
-2. Find recent lines for the ticket (`issue_identifier` first).
-3. Extract `session_id` from matching lines.
-4. Trace that `session_id` across start, stream, completion/failure, and stall
-   handling logs.
-5. Decide class of failure: timeout/stall, app-server startup failure, turn
-   failure, or orchestrator retry loop.
+1. Bestätige Scheduler-/Worker-Symptome für das Ticket.
+2. Finde aktuelle Zeilen für das Ticket (zuerst `issue_identifier`).
+3. Ziehe `session_id` aus passenden Zeilen.
+4. Verfolge diese `session_id` über Start-, Stream-, Abschluss-/Fehler- und
+   Stall-Handling-Logs.
+5. Ordne die Fehlerklasse zu: Timeout/Stall, app-server-Startfehler,
+   Turn-Fehler oder Orchestrator-Retry-Schleife.
 
-## Commands
+## Befehle
 
 ```bash
-# 1) Narrow by ticket key (fastest entry point)
+# 1) Nach Ticket-Key eingrenzen (schnellster Einstieg)
 rg -n "issue_identifier=MT-625" log/symphony.log*
 
-# 2) If needed, narrow by Linear UUID
+# 2) Bei Bedarf nach Linear-UUID eingrenzen
 rg -n "issue_id=<linear-uuid>" log/symphony.log*
 
-# 3) Pull session IDs seen for that ticket
+# 3) Session-IDs für dieses Ticket sammeln
 rg -o "session_id=[^ ;]+" log/symphony.log* | sort -u
 
-# 4) Trace one session end-to-end
+# 4) Eine Session Ende-zu-Ende verfolgen
 rg -n "session_id=<thread>-<turn>" log/symphony.log*
 
-# 5) Focus on stuck/retry signals
+# 5) Auf Hänger-/Retry-Signale fokussieren
 rg -n "Issue stalled|scheduling retry|turn_timeout|turn_failed|Codex session failed|Codex session ended with error" log/symphony.log*
 ```
 
-## Investigation Flow
+## Untersuchungsablauf
 
-1. Locate the ticket slice:
-    - Search by `issue_identifier=<KEY>`.
-    - If noise is high, add `issue_id=<UUID>`.
-2. Establish timeline:
-    - Identify first `Codex session started ... session_id=...`.
-    - Follow with `Codex session completed`, `ended with error`, or worker exit
-      lines.
-3. Classify the problem:
-    - Stall loop: `Issue stalled ... restarting with backoff`.
-    - App-server startup: `Codex session failed ...`.
-    - Turn execution failure: `turn_failed`, `turn_cancelled`, `turn_timeout`, or
-      `ended with error`.
-    - Worker crash: `Agent task exited ... reason=...`.
-4. Validate scope:
-    - Check whether failures are isolated to one issue/session or repeating across
-      multiple tickets.
-5. Capture evidence:
-    - Save key log lines with timestamps, `issue_identifier`, `issue_id`, and
-      `session_id`.
-    - Record probable root cause and the exact failing stage.
+1. Lokalisiere den Ticket-Ausschnitt:
+    - Suche nach `issue_identifier=<KEY>`.
+    - Falls das zu viel Rauschen liefert, ergänze `issue_id=<UUID>`.
+2. Stelle die Zeitleiste her:
+    - Identifiziere das erste `Codex session started ... session_id=...`.
+    - Verfolge danach `Codex session completed`, `ended with error` oder
+      Worker-Exit-Zeilen.
+3. Klassifiziere das Problem:
+    - Stall-Schleife: `Issue stalled ... restarting with backoff`.
+    - app-server-Start: `Codex session failed ...`.
+    - Turn-Ausführungsfehler: `turn_failed`, `turn_cancelled`,
+      `turn_timeout` oder `ended with error`.
+    - Worker-Absturz: `Agent task exited ... reason=...`.
+4. Prüfe den Scope:
+    - Ermittle, ob die Fehler auf ein Issue/eine Session begrenzt sind oder
+      mehrere Tickets betreffen.
+5. Sichere Belege:
+    - Speichere die relevanten Logzeilen mit Zeitstempeln, `issue_identifier`,
+      `issue_id` und `session_id`.
+    - Halte die wahrscheinliche Ursache und die exakte Fehlerphase fest.
 
-## Reading Codex Session Logs
+## Codex-Session-Logs lesen
 
-In Symphony, Codex session diagnostics are emitted into `log/symphony.log` and
-keyed by `session_id`. Read them as a lifecycle:
+In Symphony werden Codex-Session-Diagnosen in `log/symphony.log` ausgegeben und
+über `session_id` verknüpft. Lies sie als Lifecycle:
 
 1. `Codex session started ... session_id=...`
-2. Session stream/lifecycle events for the same `session_id`
-3. Terminal event:
+2. Session-Stream-/Lifecycle-Events für dieselbe `session_id`
+3. Terminales Event:
     - `Codex session completed ...`, or
     - `Codex session ended with error ...`, or
     - `Issue stalled ... restarting with backoff`
 
-For one specific session investigation, keep the trace narrow:
+Für die Untersuchung einer konkreten Session halte den Trace eng:
 
-1. Capture one `session_id` for the ticket.
-2. Build a timestamped slice for only that session:
+1. Erfasse eine `session_id` für das Ticket.
+2. Baue einen Zeitstempel-Ausschnitt nur für diese Session:
     - `rg -n "session_id=<thread>-<turn>" log/symphony.log*`
-3. Mark the exact failing stage:
-    - Startup failure before stream events (`Codex session failed ...`).
-    - Turn/runtime failure after stream events (`turn_*` / `ended with error`).
-    - Stall recovery (`Issue stalled ... restarting with backoff`).
-4. Pair findings with `issue_identifier` and `issue_id` from nearby lines to
-   confirm you are not mixing concurrent retries.
+3. Markiere die exakte Fehlerphase:
+    - Startfehler vor Stream-Events (`Codex session failed ...`).
+    - Turn-/Runtime-Fehler nach Stream-Events (`turn_*` / `ended with error`).
+    - Stall-Recovery (`Issue stalled ... restarting with backoff`).
+4. Verbinde die Befunde mit `issue_identifier` und `issue_id` aus benachbarten
+   Zeilen, damit du keine parallelen Retries vermischst.
 
-Always pair session findings with `issue_identifier`/`issue_id` to avoid mixing
-concurrent runs.
+Verbinde Session-Befunde immer mit `issue_identifier`/`issue_id`, damit keine
+parallelen Läufe vermischt werden.
 
-## Notes
+## Hinweise
 
-- Prefer `rg` over `grep` for speed on large logs.
-- Check rotated logs (`log/symphony.log*`) before concluding data is missing.
-- If required context fields are missing in new log statements, align with
-  `docs/logging.md` conventions.
+- Bevorzuge `rg` gegenüber `grep`, weil große Logs schneller durchsucht werden.
+- Prüfe rotierte Logs (`log/symphony.log*`), bevor du von fehlenden Daten
+  ausgehst.
+- Falls in neuen Log-Statements erforderliche Kontextfelder fehlen, richte sie
+  an den Konventionen aus `docs/logging.md` aus.
