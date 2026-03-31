@@ -906,6 +906,26 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "in arbeit ai issue with non-terminal blocker is not dispatch-eligible" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "blocked-in-arbeit-1",
+      identifier: "MT-1001A",
+      title: "Blocked active work",
+      state: "In Arbeit (AI)",
+      blocked_by: [%{id: "blocker-1a", identifier: "MT-1002A", state: "Review (AI)"}]
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
   test "issue assigned to another worker is not dispatch-eligible" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_assignee: "dev@example.com")
 
@@ -943,6 +963,26 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       title: "Ready work",
       state: "Todo (AI)",
       blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Review"}]
+    }
+
+    assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
+  test "in arbeit ai issue with terminal blockers remains dispatch-eligible" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "ready-in-arbeit-1",
+      identifier: "MT-1003A",
+      title: "Ready active work",
+      state: "In Arbeit (AI)",
+      blocked_by: [%{id: "blocker-2a", identifier: "MT-1004A", state: "Review"}]
     }
 
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
@@ -995,6 +1035,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert skipped_issue.identifier == "MT-1005"
     assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Arbeit (AI)"}]
+  end
+
+  test "dispatch revalidation skips stale in arbeit ai issue once a non-terminal blocker appears" do
+    stale_issue = %Issue{
+      id: "blocked-in-arbeit-2",
+      identifier: "MT-1005A",
+      title: "Stale blocked active work",
+      state: "In Arbeit (AI)",
+      blocked_by: []
+    }
+
+    refreshed_issue = %Issue{
+      id: "blocked-in-arbeit-2",
+      identifier: "MT-1005A",
+      title: "Stale blocked active work",
+      state: "In Arbeit (AI)",
+      blocked_by: [%{id: "blocker-3a", identifier: "MT-1006A", state: "Review (AI)"}]
+    }
+
+    fetcher = fn ["blocked-in-arbeit-2"] -> {:ok, [refreshed_issue]} end
+
+    assert {:skip, %Issue{} = skipped_issue} =
+             Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
+
+    assert skipped_issue.identifier == "MT-1005A"
+
+    assert skipped_issue.blocked_by == [
+             %{id: "blocker-3a", identifier: "MT-1006A", state: "Review (AI)"}
+           ]
   end
 
   test "workspace remove returns error information for missing directory" do
