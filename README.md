@@ -72,6 +72,20 @@ Fuer die `@spec`-Pruefung steht zusaetzlich zur Verfuegung:
 mix specs.check
 ```
 
+## Dependency-Updates
+
+Die Dependabot-Konfiguration in `.github/dependabot.yml` deckt die von GitHub
+unterstuetzten Paketquellen dieses Repositories ab:
+
+- `mix` fuer `mix.exs` und `mix.lock` im Repo-Root
+- `docker` fuer `test/support/live_e2e_docker/Dockerfile`
+
+Nicht automatisch durch Dependabot aktualisierbar sind aktuell:
+
+- Toolchain-Versionen in `mise.toml`
+- `apt-get`-Installationen im Dockerfile
+- globales `npm install --global @openai/codex` im Dockerfile
+
 ## Workflow
 
 Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Review-Freigabe. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
