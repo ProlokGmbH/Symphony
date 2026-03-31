@@ -137,7 +137,7 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
-- `symphony-pull`: den Branch vor der Übergabe mit dem neuesten `origin/main` synchronisieren.
+- `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch mit dem neuesten `origin/main` synchronisieren.
 - `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
 - `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
 - `symphony-test`: wenn das Ticket `Test (AI)` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
@@ -164,12 +164,12 @@ werden in derselben Reihenfolge nacheinander ausgewertet.
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `Freigabe Planung` |
 | `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `In Arbeit (AI)` | Ja | Implementierung des bestehenden, zuvor manuell geprüften Plans läuft aktiv. | `PreReview (AI)` |
+| `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den bestehenden, zuvor manuell geprüften Plan ohne weitere automatische Commits umsetzen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Repository-spezifischen Review-/Fix-Zyklus ausführen. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | Warten auf menschliches Verschieben |
-| `Test (AI)` | Ja | Branch vor den Tests per Pull auf den späteren Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
+| `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
@@ -274,26 +274,27 @@ nach `PreReview (AI)`.
 ### Ablauf
 
 1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß `.codex/skills/symphony-workpad/SKILL.md` als aktive Ausführungs-Checkliste.
-2. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
-3. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
-4. Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt `### Verlauf`.
-5. Implementiere entlang der vorhandenen Plan-Checkliste und aktualisiere den Workpad-Kommentar nach jedem wesentlichen Meilenstein.
-6. Führe die für den Scope erforderlichen Validierungen/Tests aus.
+2. Führe anschließend den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
+3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
+4. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
+5. Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt `### Verlauf`.
+6. Implementiere entlang der vorhandenen Plan-Checkliste und aktualisiere den Workpad-Kommentar nach jedem wesentlichen Meilenstein.
+7. Führe die für den Scope erforderlichen Validierungen/Tests aus.
    - Verpflichtendes Gate: Führe alle im Ticket vorgegebenen und in `### Validierung` des Workpads übernommenen Anforderungen aus `Validation`, `Test Plan` oder `Testing` aus; behandle unerfüllte Punkte als unvollständige Arbeit.
    - Bevorzuge einen gezielten Nachweis, der direkt das geänderte Verhalten zeigt.
    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren, wenn das die Sicherheit erhöht.
    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in `### Validierung` und/oder `### Verlauf`.
-7. Wenn die Ausführung neue Erkenntnisse hervorbringt, die eine inhaltliche Neuplanung erfordern, halte das knapp im Workpad fest und verschiebe das Issue zurück nach `Planung (AI)`, statt den Plan in diesem Status autonom umzuschreiben.
-8. Führe in `In Arbeit (AI)` keine automatischen Commits aus. Der Arbeitsstand muss für `PreReview (AI)` und den anschließenden manuellen Schritt `Freigabe Implementierung` bewusst ungecommittet bleiben.
-9. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
+8. Wenn die Ausführung neue Erkenntnisse hervorbringt, die eine inhaltliche Neuplanung erfordern, halte das knapp im Workpad fest und verschiebe das Issue zurück nach `Planung (AI)`, statt den Plan in diesem Status autonom umzuschreiben.
+9. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Der Arbeitsstand aus der eigentlichen Umsetzung muss für `PreReview (AI)` und den anschließenden manuellen Schritt `Freigabe Implementierung` bewusst ungecommittet bleiben.
+10. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
    - Markiere abgeschlossene Punkte in Plan-/Validierungs-Checklisten als erledigt.
    - Füge finale Übergabenotizen (lokaler Stand + Validierungszusammenfassung) im selben Workpad-Kommentar hinzu.
    - Halte explizit fest, dass der Arbeitsstand absichtlich ungecommittet für den `PreReview (AI)`- und anschließenden manuellen Schritt `Freigabe Implementierung` übergeben wird.
    - Füge unten einen kurzen Abschnitt `### Unklarheiten` hinzu, wenn irgendein Teil der Ausführung unklar/verwirrend war, mit knappen Stichpunkten.
    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
-10. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
-11. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan` und `Validierung` exakt zur erledigten Arbeit passen.
+11. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
+12. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan` und `Validierung` exakt zur erledigten Arbeit passen.
 
 ### Abschluss und nächster Status
 
@@ -348,9 +349,10 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 ### Ablauf
 
-1. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
-2. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-3. Automatische Commits bleiben in diesem Status verboten. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
+1. Führe zu Beginn den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
+2. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
+3. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
+4. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
@@ -400,8 +402,7 @@ Den Branch vor dem Test gegen `origin/main` synchronisieren, den repository-spez
 ### Ablauf
 
 1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht `Test (AI) Autocommit`.
-2. Führe anschließend den Skill `symphony-pull` aus, damit der Branch den aktuellen `origin/main`-Stand enthält.
-   - Ergänze danach eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis (`clean` oder `conflicts resolved`) im Workpad.
+2. Führe anschließend den Skill `symphony-pull` aus.
 3. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
 4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
 5. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `Test (AI) Autocommit` committet werden.
@@ -567,7 +568,7 @@ Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Verwende dafür nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
+- Automatische Commits außerhalb des jeweils vorgeschalteten `symphony-pull` sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Verwende dafür nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
