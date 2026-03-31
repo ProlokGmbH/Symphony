@@ -8,6 +8,11 @@ defmodule SymphonyElixir.Workflow do
   @workflow_file_name "WORKFLOW.md"
   @status_overview_heading "## Statusübersicht"
   @status_overview_separator ~r/^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/u
+  @direct_skip_state_names [
+    "freigabe planung",
+    "freigabe implementierung",
+    "freigabe review"
+  ]
   @default_status_overview [
     %{status: "Backlog", next_regular_status: "Todo (AI)"},
     %{status: "Todo", next_regular_status: "Todo (AI)"},
@@ -134,11 +139,20 @@ defmodule SymphonyElixir.Workflow do
   @spec resolve_next_status(String.t(), [String.t()]) :: String.t() | nil
   def resolve_next_status(current_status, labels)
       when is_binary(current_status) and is_list(labels) do
-    status_overview_or_default()
+    entries = status_overview_or_default()
+
+    entries
     |> find_status_entry(current_status)
     |> case do
       %{next_regular_status: next_regular_status} when is_binary(next_regular_status) ->
-        resolve_target_status(next_regular_status, labels)
+        if status_in_overview?(entries, next_regular_status) do
+          resolve_target_status(next_regular_status, labels)
+        else
+          resolve_direct_skip_status(entries, current_status, labels)
+        end
+
+      %{status: status} ->
+        resolve_direct_skip_status(entries, status, labels)
 
       _ ->
         nil
@@ -383,6 +397,37 @@ defmodule SymphonyElixir.Workflow do
     |> String.replace(~r/\s+/u, " ")
     |> String.trim()
     |> String.downcase()
+  end
+
+  defp resolve_direct_skip_status(entries, current_status, labels)
+       when is_list(entries) and is_binary(current_status) and is_list(labels) do
+    if direct_skip_state?(current_status) and skip_label_matches?(labels, current_status) do
+      entries
+      |> next_status_after(current_status)
+      |> case do
+        next_status when is_binary(next_status) -> resolve_target_status(next_status, labels)
+        _ -> nil
+      end
+    end
+  end
+
+  defp direct_skip_state?(status_name) when is_binary(status_name) do
+    normalized_status = normalize_status_name(status_name)
+    Enum.any?(@direct_skip_state_names, &(&1 == normalized_status))
+  end
+
+  defp next_status_after(entries, current_status)
+       when is_list(entries) and is_binary(current_status) do
+    entries
+    |> Enum.drop_while(&(normalize_status_name(&1.status) != normalize_status_name(current_status)))
+    |> case do
+      [_current, %{status: next_status} | _rest] -> next_status
+      _ -> nil
+    end
+  end
+
+  defp status_in_overview?(entries, status_name) when is_list(entries) and is_binary(status_name) do
+    Enum.any?(entries, &(normalize_status_name(&1.status) == normalize_status_name(status_name)))
   end
 
   defp status_overview_or_default do

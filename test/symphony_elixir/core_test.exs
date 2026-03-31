@@ -211,12 +211,24 @@ defmodule SymphonyElixir.CoreTest do
     plan_skip_status =
       Workflow.resolve_next_status("Planung (AI)", [~s(skip "freigabe planung")])
 
+    planning_handoff_skip_status =
+      Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")])
+
+    implementation_handoff_skip_status =
+      Workflow.resolve_next_status("Freigabe Implementierung", [~s(skip "freigabe implementierung")])
+
     review_skip_status =
       Workflow.resolve_next_status("Review (AI)", [~s(skip "freigabe review")])
 
+    review_handoff_skip_status =
+      Workflow.resolve_next_status("Freigabe Review", [~s(skip "freigabe review")])
+
     assert next_status == "Review (AI)"
     assert plan_skip_status == "In Arbeit (AI)"
+    assert planning_handoff_skip_status == "In Arbeit (AI)"
+    assert implementation_handoff_skip_status == "Review (AI)"
     assert review_skip_status == "Test (AI)"
+    assert review_handoff_skip_status == "Test (AI)"
   end
 
   test "workflow falls back to built-in transitions when the prompt has no status overview" do
@@ -247,6 +259,24 @@ defmodule SymphonyElixir.CoreTest do
     assert Workflow.resolve_target_status("Review", [nil, "skip review"]) == "Fertig"
     assert Workflow.resolve_next_status(nil, []) == nil
     assert Workflow.resolve_target_status(nil, []) == nil
+  end
+
+  test "workflow returns nil for unknown current statuses" do
+    assert Workflow.resolve_next_status("Unbekannt", []) == nil
+  end
+
+  test "workflow returns nil when a skipped manual handoff has no following table status" do
+    prompt = """
+    ## Statusübersicht
+
+    | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
+    | --- | --- | --- | --- |
+    | `Freigabe Planung` | Nein | Manueller Freigabepunkt | Warten auf menschliches Verschieben |
+    """
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: prompt)
+
+    assert Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")]) == nil
   end
 
   test "workflow status overview parser returns an error when no status table exists" do
@@ -2170,6 +2200,143 @@ defmodule SymphonyElixir.CoreTest do
       refute_receive {:memory_tracker_comment, "issue-bootstrap-1", _body}, 100
       refute File.exists?(codex_stamp)
     after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips direct manual approval states with matching labels and continues into the next AI state" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-manual-skip-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      remote_repo = Path.join(test_root, "remote.git")
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_log = Path.join(test_root, "codex.log")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      File.write!(Path.join(source_repo, "README.md"), "manual-skip\n")
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      pwd >> #{codex_log}
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-manual-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-manual-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      run_case = fn issue_id, start_state, label, expected_state ->
+        File.rm(codex_log)
+
+        {:ok, state_agent} = Agent.start_link(fn -> start_state end)
+        parent = self()
+
+        recipient =
+          spawn(fn ->
+            review_handoff_test_recipient(parent, state_agent)
+          end)
+
+        Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+        labels = [label]
+
+        state_fetcher = fn [_requested_issue_id] ->
+          current_state = Agent.get(state_agent, & &1)
+
+          {:ok,
+           [
+             %Issue{
+               id: issue_id,
+               identifier: String.upcase(issue_id),
+               title: "Manual skip handoff",
+               description: "Skip a manual approval state immediately",
+               state: current_state,
+               labels: labels
+             }
+           ]}
+        end
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: String.upcase(issue_id),
+          title: "Manual skip handoff",
+          description: "Skip a manual approval state immediately",
+          state: start_state,
+          url: "https://example.org/issues/#{issue_id}",
+          labels: labels
+        }
+
+        assert :ok =
+                 File.cd!(source_repo, fn ->
+                   AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+                 end)
+
+        assert_receive {:memory_tracker_state_update, ^issue_id, ^expected_state}
+        assert File.exists?(codex_log)
+
+        Agent.stop(state_agent)
+      end
+
+      run_case.(
+        "issue-skip-planning",
+        "Freigabe Planung",
+        ~s(skip "freigabe planung"),
+        "In Arbeit (AI)"
+      )
+
+      run_case.(
+        "issue-skip-implementation",
+        "Freigabe Implementierung",
+        ~s(skip "freigabe implementierung"),
+        "Review (AI)"
+      )
+
+      run_case.(
+        "issue-skip-review",
+        "Freigabe Review",
+        ~s(skip "freigabe review"),
+        "Test (AI)"
+      )
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
