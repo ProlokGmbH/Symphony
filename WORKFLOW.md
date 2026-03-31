@@ -123,21 +123,21 @@ Keine Beschreibung vorhanden.
 
 ### Linear-Zugriff
 
-Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, stoppe und fordere den Nutzer auf, Linear zu konfigurieren.
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Codex Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
 
 ### Git-Branch-Kontrakt
 
 - Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
 - Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
 - Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
-- Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
-- Wenn Linear oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
+- Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt, synchronisiert Symphony das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch.
+- Wenn die aktuelle Linear-API dieses Feld nicht unterstützt oder Linear bzw. ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an; der lokale Branchname und die dazugehörige PR bleiben maßgeblich.
 
 ### Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
-- `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch mit dem neuesten `origin/main` synchronisieren.
+- `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch mit dem neuesten `origin/main` synchronisieren. Wenn der Pull einen Konflikt nicht autonom auflösen kann und der aufrufende Ablauf keinen spezielleren manuellen Rücksprung definiert, dokumentiere den Blocker im Workpad und verschiebe nach `BLOCKER`.
 - `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
 - `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
 - `symphony-test`: wenn das Ticket `Test (AI)` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
@@ -184,7 +184,7 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 
 1. Hole das Issue über die explizite Ticket-ID.
 2. Lies den aktuellen Status.
-3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
+3. Halte knapp fest, wenn Status und Issue-Inhalt nicht konsistent sind: im bestehenden Workpad oder, falls vor dem ersten Workpad-Bootstrap noch kein Workpad existiert, beim Anlegen des ersten Workpads. Fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
@@ -390,7 +390,7 @@ Die manuelle Freigabe der reviewten Version vollständig dem Entwickler überlas
 
 ### Sonderfälle
 
-- Keine.
+- Wenn Review-Feedback in `Merge (AI)` trotz Ticketkontext, Plan, Code, Tests und lokaler Dokumentation semantisch nicht sicher autonom auflösbar ist, dokumentiere die offene Klärung im Workpad und im Review-Thread, verschiebe das Issue zurück nach `Freigabe Review` und beende den Merge-Lauf ohne weiteren Statuswechsel.
 
 ## Ablauf für `Test (AI)`
 
@@ -547,7 +547,10 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
   - was fehlt,
   - warum dadurch erforderliche Validierung blockiert wird,
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
-- Halte den Hinweis knapp und handlungsorientiert; füge keine zusätzlichen Top-Level-Kommentare außerhalb des Workpads hinzu.
+- Wenn kein Linear-MCP-Server und kein `linear_graphql` bereits vor dem ersten Workpad-Zugriff verfügbar sind, nutze stattdessen den lokalen Repo-Tracker-Fallback (`mise exec -- mix run --no-start -e` mit vorgeschaltetem Repo-Root-Resolve via `git rev-parse --show-toplevel`, anschließend `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))`, `Application.ensure_all_started(:req)`, danach `SymphonyElixir.Tracker.fetch_issue_by_identifier/1`, vollständig paginierter `workpad_exists?/1`-Prüfung, `create_comment/2` und `update_issue_state/2`), um zuerst zwischen Erstkontakt und bestehendem Workpad zu unterscheiden. Wenn `workpad_exists?/1` bestätigt, dass noch kein Workpad existiert, erstelle den kanonischen `## Codex Workpad`-Kommentar mit dem Blocker-Hinweis darin; existiert bereits ein Workpad, erstelle stattdessen einen dedizierten Blocker-Kommentar außerhalb des Workpads. Persistiere in beiden Fällen den Statuswechsel nach `BLOCKER`.
+- Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt, nutze den lokalen Tracker-Fallback ebenfalls über `mise exec -- mix run --no-start -e` mit derselben Env-/`:req`-Bootstrap-Sequenz, um einen dedizierten Blocker-Kommentar außerhalb des Workpads anzulegen und den Statuswechsel nach `BLOCKER` zu persistieren. Halte in der Abschlussnachricht zusätzlich fest, dass der bestehende Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte.
+- Nur wenn auch dieser lokale Tracker-Fallback scheitert, dokumentiere den Blocker in der Abschlussnachricht; ohne irgendeinen funktionierenden Schreibpfad können weder Statuswechsel noch Blocker-Hinweis persistiert werden.
+- Halte den Hinweis knapp und handlungsorientiert; füge außerhalb des Workpads nur dann einen zusätzlichen Top-Level-Kommentar hinzu, wenn dieser dedizierte Blocker-Kommentar gemäß diesem Escape Hatch erforderlich ist.
 
 ## Workpad-Handhabung
 

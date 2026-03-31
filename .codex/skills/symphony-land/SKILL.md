@@ -46,26 +46,22 @@ description:
 8. Falls Checks fehlschlagen, ziehe die Logs, behebe das Problem, committe
    daraus entstehende Änderungen in diesem Status mit `Merge (AI) Autocommit`,
    veröffentliche sie mit `symphony-push` und starte die Checks erneut.
-9. Wenn alle Checks grün sind und Review-Feedback erledigt ist, merge und
-   lösche den Branch mit dem merge-commit-Betreff `<IssueId>: <IssueTitle>`.
-10. **Kontextwächter:** Bestätige vor der Umsetzung von Review-Feedback, dass
-    es nicht der vom Benutzer genannten Absicht oder dem Aufgabenkontext
-    widerspricht. Falls doch, antworte inline mit Begründung und frage den
-    Benutzer, bevor du Code änderst.
-11. **Pushback-Vorlage:** Wenn du nicht zustimmst, antworte inline mit:
-    Kenntnisnahme + Begründung + Alternative.
-12. **Mehrdeutigkeits-Gate:** Wenn Mehrdeutigkeit den Fortschritt blockiert,
-    nutze den Klärungsablauf (PR dem aktuellen GH-Benutzer zuweisen, ihn
-    erwähnen, auf Antwort warten). Implementiere nicht, bevor die
-    Mehrdeutigkeit aufgelöst ist.
-    - Wenn du sicher bist, dass du es besser weißt als der Reviewer, darfst du
-      ohne Rückfrage fortfahren, musst aber inline deine Begründung nennen.
-13. **Modus pro Kommentar:** Wähle für jeden Review-Kommentar genau eines von:
-    akzeptieren, klären oder widersprechen. Antworte inline (oder im
-    Issue-Thread für Codex-Reviews) und nenne den Modus vor der Codeänderung.
-14. **Antwort vor Änderung:** Antworte immer mit der beabsichtigten Aktion,
-    bevor du Codeänderungen pushst (inline für Review-Kommentare, Issue-Thread
-    für Codex-Reviews).
+9. Wenn alle Checks grün sind und Review-Feedback erledigt ist, merge die PR
+   mit dem merge-commit-Betreff `<IssueId>: <IssueTitle>`.
+10. Bearbeite Review-Feedback autonom anhand von Ticketkontext, Plan, Code,
+    Tests und lokaler Dokumentation; fuehre keinen Rueckfragepfad an Menschen
+    als Normalfall aus.
+11. Wenn du Feedback nicht uebernimmst, antworte inline mit Kenntnisnahme,
+    Begruendung und einer konkreten Alternative oder Abgrenzung.
+12. Wenn Review-Feedback trotz dieser Quellen semantisch nicht sicher
+    aufloesbar ist, dokumentiere den konkreten Blocker im Workpad und im
+    Review-Thread, verschiebe das Issue zurueck nach `Freigabe Review` und
+    stoppe den Merge-Lauf statt einen Klaerungsdialog zu beginnen.
+13. Wähle für jeden Review-Kommentar genau eines von: akzeptieren oder
+    widersprechen. Antworte inline (oder im Issue-Thread für Codex-Reviews)
+    mit diesem Modus vor der Codeänderung.
+14. Antworte immer mit der beabsichtigten Aktion, bevor du Codeänderungen
+    pushst (inline für Review-Kommentare, Issue-Thread für Codex-Reviews).
 
 ## Befehle
 
@@ -146,6 +142,9 @@ Exit-Codes:
 - Wenn die Mergebarkeit `UNKNOWN` ist, warte und prüfe erneut.
 - Merge nicht, solange Review-Kommentare (menschlich oder Codex-Review) offen
   sind.
+- Starte keinen manuellen Klärungsablauf über Zuweisung, Erwähnung oder Warten
+  auf eine menschliche Antwort; dokumentiere stattdessen einen konkreten
+  Blocker, wenn autonome Auflösung nicht möglich ist.
 - Codex-Review-Jobs wiederholen sich bei Fehlern und blockieren nicht; nutze
   das Vorhandensein von `## Codex Review — <persona>`-Issue-Kommentaren
   (nicht den Job-Status) als Signal für verfügbares Review-Feedback.

@@ -155,6 +155,20 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
     assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
+    assert prompt =~ "Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist"
+    assert prompt =~ "mise exec -- mix run --no-start -e"
+    assert prompt =~ "git rev-parse --show-toplevel"
+    assert prompt =~ "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))"
+    assert prompt =~ "Application.ensure_all_started(:req)"
+    assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
+    assert prompt =~ "Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt"
+    assert prompt =~ "einen dedizierten Blocker-Kommentar außerhalb des Workpads"
+    assert prompt =~ "erstelle den kanonischen `## Codex Workpad`-Kommentar"
+    assert prompt =~ "falls vor dem ersten Workpad-Bootstrap noch kein Workpad existiert"
+    assert prompt =~ "Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt"
+    assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
+    assert prompt =~ "Wenn der Pull einen Konflikt nicht autonom auflösen kann"
+    assert prompt =~ "verschiebe nach `BLOCKER`"
   end
 
   test "workflow derives ordered states from the current WORKFLOW.md status overview" do

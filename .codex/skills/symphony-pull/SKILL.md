@@ -29,7 +29,11 @@ description:
 4. Hole die neuesten Refs:
    - `git fetch origin`
 5. Synchronisiere zuerst den Remote-Feature-Branch:
-   - `git pull --ff-only origin $(git branch --show-current)`
+   - Wenn `refs/remotes/origin/$(git branch --show-current)` existiert, ziehe
+     ihn mit `git pull --ff-only origin $(git branch --show-current)`.
+   - Wenn kein gleichnamiger Remote-Branch existiert, dokumentiere das knapp in
+     den Notizen und fahre ohne Rueckfrage mit dem Merge von `origin/main`
+     fort.
    - Das zieht remote entstandene Branch-Updates (zum Beispiel einen
      GitHub-Auto-Commit), bevor `origin/main` gemergt wird.
 6. Merge in dieser Reihenfolge:
@@ -92,27 +96,17 @@ description:
     zu entfernen.
 - Stelle nach der Lösung sicher, dass keine Konfliktmarker übrig sind:
   - `git diff --check`
-- Wenn du unsicher bist, notiere die Annahmen und hole eine Bestätigung ein,
-  bevor du den Merge abschließt.
+- Wenn du unsicher bist, notiere die Annahmen und triff eine bestmoegliche,
+  reviewbare Entscheidung anhand von Code, Tests und benachbarter
+  Dokumentation.
 
-## Wann der Benutzer gefragt werden sollte (so selten wie möglich)
+## Eskalation in unbeaufsichtigten Laeufen
 
-Frage nicht nach Input, solange es eine sichere, reversible Alternative gibt.
-Bevorzuge eine Best-Effort-Entscheidung, dokumentiere die Begründung und fahre
-fort.
-
-Frage den Benutzer nur, wenn:
-
-- die richtige Lösung von Produktabsicht oder Verhalten abhängt, das sich nicht
-  aus Code, Tests oder benachbarter Dokumentation ableiten lässt.
-- der Konflikt einen sichtbaren Vertrag, eine API-Oberfläche oder eine
-  Migration betrifft, bei der eine falsche Wahl externe Nutzer brechen könnte.
-- ein Konflikt die Wahl zwischen zwei sich ausschließenden Designs mit gleicher
-  technischer Qualität und ohne klares lokales Signal verlangt.
-- der Merge Datenverlust, Schemaänderungen oder irreversible Seiteneffekte ohne
-  offensichtlichen sicheren Standard einführt.
-- der Branch nicht das beabsichtigte Ziel ist oder Remote-/Branchnamen lokal
-  weder existieren noch sicher ermittelt werden können.
-
-Andernfalls fahre mit dem Merge fort, erkläre die Entscheidung kurz in den
-Notizen und hinterlasse eine klare, reviewbare Commit-Historie.
+- Starte keine menschlichen Rueckfragen aus diesem Skill heraus.
+- Wenn die korrekte Konfliktloesung trotz Code, Tests und lokaler Dokumentation
+  nicht sicher bestimmbar ist, dokumentiere den konkreten Blocker im Workpad
+  des aufrufenden Workflows, verschiebe das Issue in einen nicht-aktiven
+  manuellen Status und stoppe statt einen Klaerungsdialog zu beginnen.
+- Wenn der aufrufende Workflow keinen spezielleren Ruecksprung fuer diesen Fall
+  definiert, verwende dafuer `BLOCKER`, damit der Lauf nicht im aktiven
+  Retry-Zustand haengen bleibt.

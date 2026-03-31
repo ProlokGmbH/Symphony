@@ -16,8 +16,11 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 - Lies die repository-spezifischen Anweisungen aus dem Skill `sym-test` unter
   `.codex/skills/sym-test/SKILL.md`.
 - Committe bestehende oder neu entstehende Änderungen in diesem Status bei Bedarf mit `Test (AI) Autocommit`.
-- Führe vor der eigentlichen Test-Checkliste den Skill `symphony-pull` aus, damit der Branch den späteren Merge-Stand enthält.
-- Halte danach im Workpad eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis (`clean` oder `conflicts resolved`) fest.
+- Verlasse dich darauf, dass der aufrufende Workflow den vorgeschalteten
+  `symphony-pull` bereits ausgeführt hat, bevor dieser Skill beginnt.
+- Halte eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis
+  (`clean` oder `conflicts resolved`) im Workpad fest, falls der aufrufende
+  Schritt sie dort noch nicht hinterlegt hat.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
@@ -47,7 +50,7 @@ Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
 ## Test-Schleife
 
 1. Lies `.codex/skills/sym-test/SKILL.md` und beginne mit dem ersten dort
-   definierten Schritt, nachdem der Pull-Schritt abgeschlossen und dokumentiert ist.
+   definierten Schritt auf dem vom Workflow bereits synchronisierten Branch.
 2. Aktualisiere nach jedem Schritt zuerst den zugehörigen Checklistenpunkt unter `### Test` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
 3. Wenn ein Schritt fehlschlägt oder konkrete Änderungen verlangt:
    - setze den Fix sofort um,

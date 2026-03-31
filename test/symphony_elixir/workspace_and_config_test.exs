@@ -747,6 +747,73 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert query =~ "SymphonyLinearIssueByIdentifier"
   end
 
+  test "linear client paginates issue comment bodies beyond the first page" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      if is_nil(previous_request_fun) do
+        Application.delete_env(:symphony_elixir, :linear_client_request_fun)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_request_fun, previous_request_fun)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:fetch_issue_comments, payload})
+
+      case payload["variables"] do
+        %{id: "issue-1", first: 50, after: nil} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "issue" => %{
+                   "comments" => %{
+                     "nodes" => [%{"body" => "older note"}],
+                     "pageInfo" => %{"hasNextPage" => true, "endCursor" => "cursor-1"}
+                   }
+                 }
+               }
+             }
+           }}
+
+        %{id: "issue-1", first: 50, after: "cursor-1"} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "issue" => %{
+                   "comments" => %{
+                     "nodes" => [%{"body" => "## Codex Workpad\n\npresent"}],
+                     "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                   }
+                 }
+               }
+             }
+           }}
+      end
+    end)
+
+    assert {:ok, ["older note", "## Codex Workpad\n\npresent"]} =
+             Client.fetch_issue_comment_bodies("issue-1")
+
+    assert_receive {:fetch_issue_comments,
+                    %{
+                      "query" => query,
+                      "variables" => %{id: "issue-1", first: 50, after: nil}
+                    }}
+
+    assert query =~ "SymphonyLinearIssueComments"
+
+    assert_receive {:fetch_issue_comments,
+                    %{
+                      "query" => ^query,
+                      "variables" => %{id: "issue-1", first: 50, after: "cursor-1"}
+                    }}
+  end
+
   test "linear client rejects malformed issue identifiers before hitting the api" do
     assert {:error, {:invalid_issue_identifier, "not-an-issue"}} =
              Client.fetch_issue_by_identifier("not-an-issue")
