@@ -42,6 +42,9 @@ kann.
 - Wenn du die Ticketbeschreibung in `Planung (AI)` aenderst, hinterlasse in
   Linear einen separaten Kommentar mit der Originalbeschreibung, damit die
   Aenderung nachvollziehbar bleibt.
+- Ausserhalb von `Planung (AI)` bleibt die Ticketbeschreibung unveraendert;
+  Fortschritt, Review und Testnotizen gehoeren ausschliesslich in das eine
+  persistente Workpad.
 - Verwende fuer Lesen und Schreiben in Linear den Skill `symphony-linear`.
 - Wenn die Beschreibung fuer sichere Planung nicht ausreicht, erfinde keine
   Anforderungen. Halte die Luecke im Workpad fest und befolge fuer das weitere

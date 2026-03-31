@@ -155,6 +155,8 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
     assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
+    assert prompt =~ "Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt"
+    assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
   end
 
   test "workflow derives ordered states from the current WORKFLOW.md status overview" do

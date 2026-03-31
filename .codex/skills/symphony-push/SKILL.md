@@ -33,6 +33,9 @@ description:
 
 - Wenn dieser Skill innerhalb eines Symphony-Issue-Workflows läuft, nutze das
   aktive Linear-Issue aus dem aktuellen Aufgabenkontext.
+- Verwende in diesem Fall ausschliesslich den bereits aktiven Branch. Innerhalb
+  des Workflows ist das der kanonische Branch `symphony/<IssueId>`; er darf
+  nicht durch einen neuen Alternativ-Branch ersetzt werden.
 - Wenn du die interne Linear-`issueId` schon hast, verwende sie direkt weiter.
 - Andernfalls löse sie mit `symphony-linear` auf, bevor du die PR anhängst:
   - frage `issue(id: $key) { id attachments { nodes { url } } }` mit dem
@@ -61,8 +64,9 @@ description:
 5. Stelle sicher, dass für den Branch eine PR existiert:
    - Wenn keine PR existiert, erstelle eine.
    - Wenn eine PR existiert und offen ist, aktualisiere sie.
-   - Wenn der Branch an eine geschlossene/gemergte PR gebunden ist, erstelle
-     einen neuen Branch + PR.
+   - Wenn der Branch bereits mit einer geschlossenen oder gemergten PR
+     verbunden war, erstelle bei Bedarf eine neue PR aus demselben Branch, statt
+     einen neuen Branch-Namen zu erfinden.
    - Schreibe einen sauberen PR-Titel, der das Änderungsergebnis klar beschreibt.
    - Prüfe bei Branch-Updates explizit, ob der aktuelle PR-Titel noch zum
      neuesten Scope passt; aktualisiere ihn andernfalls.
@@ -111,8 +115,7 @@ git push --force-with-lease origin HEAD
 # Sicherstellen, dass eine PR existiert (nur erstellen, wenn sie fehlt)
 pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)
 if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
-  echo "Aktueller Branch ist an eine geschlossene PR gebunden; erstelle einen neuen Branch + PR." >&2
-  exit 1
+  echo "Aktueller Branch war bereits an eine geschlossene PR gebunden; erstelle bei neuen Commits eine neue PR aus demselben Branch." >&2
 fi
 
 # Einen klaren, menschenlesbaren Titel schreiben, der die gelieferte Änderung zusammenfasst.

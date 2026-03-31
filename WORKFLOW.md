@@ -123,15 +123,15 @@ Keine Beschreibung vorhanden.
 
 ### Linear-Zugriff
 
-Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, stoppe und fordere den Nutzer auf, Linear zu konfigurieren.
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden vorhanden ist, dokumentiere das im Workpad und nutze den blocked-access escape hatch statt eine menschliche Rückfrage zu stellen.
 
 ### Git-Branch-Kontrakt
 
 - Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
 - Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`.
 - Erstelle keine alternativen Branch-Namen mit persönlichen Präfixen, Slugs aus dem Titel oder anderen Abweichungen.
-- Symphony synchronisiert das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch, der diesem kanonischen `symphony/...`-Schema folgen muss.
-- Wenn Linear oder ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an.
+- Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt, synchronisiert Symphony das Linear-Feld `branchName` auf den aktuell genutzten Workspace-Branch.
+- Wenn die aktuelle Linear-API dieses Feld nicht unterstützt oder Linear bzw. ältere Workpad-Notizen einen anderen Branchnamen anzeigen, behandle das als veraltete Metadaten und passe den lokalen Branch nicht daran an; der lokale Branchname und die dazugehörige PR bleiben maßgeblich.
 
 ### Verwandte Skills
 
@@ -184,7 +184,7 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 
 1. Hole das Issue über die explizite Ticket-ID.
 2. Lies den aktuellen Status.
-3. Füge einen kurzen Kommentar hinzu, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
+3. Halte im bestehenden Workpad knapp fest, wenn Status und Issue-Inhalt nicht konsistent sind, und fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.

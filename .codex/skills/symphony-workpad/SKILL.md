@@ -114,8 +114,12 @@ Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 
 ## Ticket-Interaktionen
 
-- Bearbeite den Issue-Body/die Beschreibung nicht fuer Planung oder
-  Fortschrittsverfolgung.
+- Bearbeite den Issue-Body/die Beschreibung nicht fuer Fortschrittsverfolgung
+  oder laufende Workpad-Pflege.
+- Wenn Planungsaenderungen an der Ticketbeschreibung noetig sind, delegiere sie
+  ausschliesslich an `.codex/skills/symphony-planning/SKILL.md`.
+- Halte Abweichungen zwischen Status und Issue-Inhalt im bestehenden Workpad
+  fest, statt dafuer einen zusaetzlichen Fortschrittskommentar anzulegen.
 - Wenn `WORKFLOW.md` nach erstmaliger Workpad-Anlage das
   `Erstkontakt-Protokoll fuer neue Items` verlangt, nutze fuer Lesen/Schreiben in
   Linear den Skill `symphony-linear`.
