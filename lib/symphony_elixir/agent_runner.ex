@@ -13,6 +13,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
+  @post_review_clean_state_name "Test (AI)"
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
@@ -332,6 +333,14 @@ defmodule SymphonyElixir.AgentRunner do
             :stop
           )
 
+        :review ->
+          maybe_finalize_review_codex_issue(
+            issue,
+            issue_state_fetcher,
+            workspace,
+            worker_host
+          )
+
         :test ->
           maybe_finalize_test_codex_issue(
             issue,
@@ -361,7 +370,7 @@ defmodule SymphonyElixir.AgentRunner do
         {:transition, :prereview_handoff_state_update_failed, "completed prereview issue"}
 
       review_codex_state?(state) ->
-        {:transition, :review_handoff_state_update_failed, "completed review issue"}
+        :review
 
       test_codex_state?(state) ->
         :test
@@ -400,6 +409,22 @@ defmodule SymphonyElixir.AgentRunner do
       resolve_next_handoff_state(issue),
       :test_handoff_state_update_failed,
       "completed test issue",
+      :stop
+    )
+  end
+
+  defp maybe_finalize_review_codex_issue(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       ) do
+    transition_issue_state(
+      issue,
+      issue_state_fetcher,
+      resolve_review_handoff_state(issue, workspace, worker_host),
+      :review_handoff_state_update_failed,
+      "completed review issue",
       :stop
     )
   end
@@ -520,6 +545,26 @@ defmodule SymphonyElixir.AgentRunner do
   defp resolve_next_handoff_state(%Issue{} = issue) do
     Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) ||
       default_next_handoff_state(issue.state)
+  end
+
+  defp resolve_review_handoff_state(%Issue{} = issue, workspace, worker_host)
+       when is_binary(workspace) do
+    case Workspace.git_status_snapshot(workspace, worker_host) do
+      {:ok, status_snapshot} ->
+        if String.trim(status_snapshot) == "" do
+          Workflow.resolve_target_status(
+            @review_handoff_state_name,
+            [~s(skip "freigabe review") | Issue.label_names(issue)]
+          ) || @post_review_clean_state_name
+        else
+          resolve_next_handoff_state(issue)
+        end
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workspace state after review completion; falling back to standard review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        resolve_next_handoff_state(issue)
+    end
   end
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
