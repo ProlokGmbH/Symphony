@@ -15,6 +15,7 @@ defmodule SymphonyElixir.Orchestrator do
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch (ai)"
+  @in_arbeit_ai_state_name "in arbeit (ai)"
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,
@@ -570,7 +571,7 @@ defmodule SymphonyElixir.Orchestrator do
          terminal_states
        ) do
     candidate_issue?(issue, active_states, terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
+      !blocked_issue_in_dispatch_state?(issue, terminal_states) and
       !completed_in_current_state?(issue, completed_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
@@ -626,12 +627,12 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp issue_routable_to_worker?(_issue), do: true
 
-  defp todo_issue_blocked_by_non_terminal?(
+  defp blocked_issue_in_dispatch_state?(
          %Issue{state: issue_state, blocked_by: blockers},
          terminal_states
        )
        when is_binary(issue_state) and is_list(blockers) do
-    todo_issue_state?(issue_state) and
+    blocked_by_respected_issue_state?(issue_state) and
       Enum.any?(blockers, fn
         %{state: blocker_state} when is_binary(blocker_state) ->
           !terminal_issue_state?(blocker_state, terminal_states)
@@ -641,10 +642,16 @@ defmodule SymphonyElixir.Orchestrator do
       end)
   end
 
-  defp todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+  defp blocked_issue_in_dispatch_state?(_issue, _terminal_states), do: false
 
   defp todo_issue_state?(state_name) when is_binary(state_name) do
     String.starts_with?(normalize_issue_state(state_name), "todo")
+  end
+
+  defp blocked_by_respected_issue_state?(state_name) when is_binary(state_name) do
+    normalized_state = normalize_issue_state(state_name)
+
+    todo_issue_state?(normalized_state) or normalized_state == @in_arbeit_ai_state_name
   end
 
   defp cancel_issue_state?(state_name) when is_binary(state_name) do
@@ -1429,7 +1436,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+      !blocked_issue_in_dispatch_state?(issue, terminal_states)
   end
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
