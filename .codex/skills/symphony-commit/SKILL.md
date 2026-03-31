@@ -1,75 +1,82 @@
 ---
 name: symphony-commit
 description:
-  Create a well-formed git commit from current changes using session history for
-  rationale and summary; use when asked to commit, prepare a commit message, or
-  finalize staged work.
+  Erstelle aus den aktuellen Änderungen einen sauberen git-Commit mit
+  Sitzungsverlauf für Begründung und Zusammenfassung; nutze den Skill bei
+  Commit-Anfragen, für Commit-Messages oder zum Abschließen gestagter Arbeit.
 ---
 
 # Commit
 
-## Goals
+## Ziele
 
-- Produce a commit that reflects the actual code changes and the session
-  context.
-- Follow common git conventions (type prefix, short subject, wrapped body).
-- Include both summary and rationale in the body.
+- Erzeuge einen Commit, der die tatsächlichen Codeänderungen und den
+  Sitzungskontext abbildet.
+- Folge üblichen git-Konventionen (Type-Präfix, kurzer Betreff, umbrochener
+  Body).
+- Nimm sowohl Zusammenfassung als auch Begründung in den Body auf.
 
-## Inputs
+## Eingaben
 
-- Codex session history for intent and rationale.
-- `git status`, `git diff`, and `git diff --staged` for actual changes.
-- Repo-specific commit conventions if documented.
+- Codex-Sitzungsverlauf für Absicht und Begründung.
+- `git status`, `git diff` und `git diff --staged` für die tatsächlichen
+  Änderungen.
+- Repo-spezifische Commit-Konventionen, falls dokumentiert.
 
-## Steps
+## Schritte
 
-1. Read session history to identify scope, intent, and rationale.
-2. Inspect the working tree and staged changes (`git status`, `git diff`,
+1. Lies den Sitzungsverlauf, um Scope, Absicht und Begründung zu erfassen.
+2. Prüfe den Working Tree und gestagte Änderungen (`git status`, `git diff`,
    `git diff --staged`).
-3. Stage intended changes, including new files (`git add -A`) after confirming
-   scope.
-4. Sanity-check newly added files; if anything looks random or likely ignored
-   (build artifacts, logs, temp files), flag it to the user before committing.
-5. If staging is incomplete or includes unrelated files, fix the index or ask
-   for confirmation.
-6. Choose a conventional type and optional scope that match the change (e.g.,
-   `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`).
-7. Write a subject line in imperative mood, <= 72 characters, no trailing
-   period.
-8. Write a body that includes:
-   - Summary of key changes (what changed).
-   - Rationale and trade-offs (why it changed).
-   - Tests or validation run (or explicit note if not run).
-9. Append a `Co-authored-by` trailer for Codex using `Codex <codex@openai.com>`
-   unless the user explicitly requests a different identity.
-10. Wrap body lines at 72 characters.
-11. Create the commit message with a here-doc or temp file and use
-    `git commit -F <file>` so newlines are literal (avoid `-m` with `\n`).
-12. Commit only when the message matches the staged changes: if the staged diff
-    includes unrelated files or the message describes work that isn't staged,
-    fix the index or revise the message before committing.
+3. Stage die beabsichtigten Änderungen einschließlich neuer Dateien
+   (`git add -A`), nachdem der Scope bestätigt ist.
+4. Prüfe neu hinzugefügte Dateien auf Plausibilität; wenn etwas zufällig oder
+   vermutlich ignoriert aussieht (Build-Artefakte, Logs, temporäre Dateien),
+   weise den Benutzer vor dem Commit darauf hin.
+5. Falls das Staging unvollständig ist oder unzusammenhängende Dateien enthält,
+   korrigiere den Index oder hole eine Bestätigung ein.
+6. Wähle einen üblichen Type und optionalen Scope passend zur Änderung
+   (z. B. `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`).
+7. Schreibe eine Betreffzeile im Imperativ, <= 72 Zeichen, ohne Punkt am Ende.
+8. Schreibe einen Body mit:
+   - Zusammenfassung der wesentlichen Änderungen (was geändert wurde).
+   - Begründung und Trade-offs (warum es geändert wurde).
+   - Ausgeführten Tests oder Validierungen (oder einem expliziten Hinweis,
+     falls nichts lief).
+9. Hänge einen `Co-authored-by`-Trailer für Codex mit
+   `Codex <codex@openai.com>` an, sofern der Benutzer keine andere Identität
+   verlangt.
+10. Brich Body-Zeilen bei 72 Zeichen um.
+11. Erstelle die Commit-Message mit Here-Doc oder temporärer Datei und nutze
+    `git commit -F <file>`, damit Zeilenumbrüche wörtlich bleiben
+    (vermeide `-m` mit `\n`).
+12. Committe nur, wenn die Message zu den gestagten Änderungen passt: Falls der
+    gestagte Diff unzusammenhängende Dateien enthält oder die Message nicht
+    gestagte Arbeit beschreibt, korrigiere den Index oder überarbeite die
+    Message vor dem Commit.
 
-## Output
+## Ergebnis
 
-- A single commit created with `git commit` whose message reflects the session.
+- Ein einzelner mit `git commit` erstellter Commit, dessen Message die
+  Sitzung korrekt widerspiegelt.
 
-## Template
+## Vorlage
 
-Type and scope are examples only; adjust to fit the repo and changes.
+Type und Scope sind nur Beispiele; passe sie an Repo und Änderung an.
 
 ```
 <type>(<scope>): <short summary>
 
-Summary:
-- <what changed>
-- <what changed>
+Zusammenfassung:
+- <was geändert wurde>
+- <was geändert wurde>
 
-Rationale:
-- <why>
-- <why>
+Begründung:
+- <warum>
+- <warum>
 
 Tests:
-- <command or "not run (reason)">
+- <Befehl oder "nicht ausgeführt (Grund)">
 
 Co-authored-by: Codex <codex@openai.com>
 ```

@@ -1,103 +1,118 @@
 ---
 name: symphony-pull
 description:
-  Pull latest origin/main into the current local branch and resolve merge
-  conflicts (aka update-branch). Use when Codex needs to sync a feature branch
-  with origin, perform a merge-based update (not rebase), and guide conflict
-  resolution best practices.
+  Ziehe das neueste `origin/main` in den aktuellen lokalen Branch und löse
+  Merge-Konflikte (aka update-branch). Nutze den Skill, wenn Codex einen
+  Feature-Branch mit origin synchronisieren, ein merge-basiertes Update
+  ausführen (nicht rebase) und gute Konfliktlösungs-Praxis anwenden soll.
 ---
 
 # Pull
 
-## Workflow
+## Ablauf
 
-1. Verify git status is clean or commit/stash changes before merging.
-2. Ensure rerere is enabled locally:
+1. Prüfe `git status`:
+   - Wenn uncommittete Änderungen vorliegen und der aufrufende Workflow für
+     diesen Fall eine bestimmte Commit-Message vorgibt, nutze genau diese
+     Commit-Message.
+   - Wenn uncommittete Änderungen vorliegen und keine Commit-Message
+     vorgegeben ist, committe die Änderungen vor dem Merge mit
+     `Autocommit vor Pull`.
+   - Ein expliziter Aufruf dieses Skills ist auch in Schritten zulässig, die
+     sonst keine automatischen Commits erlauben.
+2. Stelle sicher, dass `rerere` lokal aktiviert ist:
    - `git config rerere.enabled true`
    - `git config rerere.autoupdate true`
-3. Confirm remotes and branches:
-   - Ensure the `origin` remote exists.
-   - Ensure the current branch is the one to receive the merge.
-4. Fetch latest refs:
+3. Prüfe Remotes und Branches:
+   - Stelle sicher, dass der Remote `origin` existiert.
+   - Stelle sicher, dass der aktuelle Branch den Merge erhalten soll.
+4. Hole die neuesten Refs:
    - `git fetch origin`
-5. Sync the remote feature branch first:
+5. Synchronisiere zuerst den Remote-Feature-Branch:
    - `git pull --ff-only origin $(git branch --show-current)`
-   - This pulls branch updates made remotely (for example, a GitHub auto-commit)
-     before merging `origin/main`.
-6. Merge in order:
-   - Prefer `git -c merge.conflictstyle=zdiff3 merge origin/main` for clearer
-     conflict context.
-7. If conflicts appear, resolve them (see conflict guidance below), then:
+   - Das zieht remote entstandene Branch-Updates (zum Beispiel einen
+     GitHub-Auto-Commit), bevor `origin/main` gemergt wird.
+6. Merge in dieser Reihenfolge:
+   - Bevorzuge `git -c merge.conflictstyle=zdiff3 merge origin/main`, damit der
+     Konfliktkontext klarer ist.
+7. Falls Konflikte auftreten, löse sie (siehe Hinweise unten) und dann:
    - `git add <files>`
-   - `git commit` (or `git merge --continue` if the merge is paused)
-8. Verify with project checks (follow repo policy in `AGENTS.md`).
-9. Summarize the merge:
-   - Call out the most challenging conflicts/files and how they were resolved.
-   - Note any assumptions or follow-ups.
-10. Add a short `pull skill evidence` note to the active workpad:
-   - merge source(s)
-   - result: `clean` or `conflicts resolved`
+   - `git commit` (oder `git merge --continue`, falls der Merge pausiert ist)
+8. Verifiziere mit den Projekt-Checks (folge der Repo-Policy in `AGENTS.md`).
+9. Fasse den Merge zusammen:
+   - Nenne die schwierigsten Konflikte/Dateien und wie sie gelöst wurden.
+   - Halte Annahmen oder Follow-ups fest.
+10. Ergänze eine kurze `pull skill evidence`-Notiz im aktiven Workpad:
+   - Merge-Quelle(n)
+   - Ergebnis: `clean` oder `conflicts resolved`
 
-## Conflict Resolution Guidance (Best Practices)
+## Hinweise zur Konfliktlösung (Best Practices)
 
-- Inspect context before editing:
-  - Use `git status` to list conflicted files.
-  - Use `git diff` or `git diff --merge` to see conflict hunks.
-  - Use `git diff :1:path/to/file :2:path/to/file` and
-    `git diff :1:path/to/file :3:path/to/file` to compare base vs ours/theirs
-    for a file-level view of intent.
-  - With `merge.conflictstyle=zdiff3`, conflict markers include:
+- Prüfe den Kontext vor dem Editieren:
+  - Nutze `git status`, um konfliktbehaftete Dateien aufzulisten.
+  - Nutze `git diff` oder `git diff --merge`, um Konflikt-Hunks zu sehen.
+  - Nutze `git diff :1:path/to/file :2:path/to/file` und
+    `git diff :1:path/to/file :3:path/to/file`, um base vs ours/theirs auf
+    Dateiebene zu vergleichen.
+  - Mit `merge.conflictstyle=zdiff3` enthalten Konfliktmarker:
     - `<<<<<<<` ours, `|||||||` base, `=======` split, `>>>>>>>` theirs.
-    - Matching lines near the start/end are trimmed out of the conflict region,
-      so focus on the differing core.
-  - Summarize the intent of both changes, decide the semantically correct
-    outcome, then edit:
-    - State what each side is trying to achieve (bug fix, refactor, rename,
-      behavior change).
-    - Identify the shared goal, if any, and whether one side supersedes the
-      other.
-    - Decide the final behavior first; only then craft the code to match that
-      decision.
-    - Prefer preserving invariants, API contracts, and user-visible behavior
-      unless the conflict clearly indicates a deliberate change.
-  - Open files and understand intent on both sides before choosing a resolution.
-- Prefer minimal, intention-preserving edits:
-  - Keep behavior consistent with the branch’s purpose.
-  - Avoid accidental deletions or silent behavior changes.
-- Resolve one file at a time and rerun tests after each logical batch.
-- Use `ours/theirs` only when you are certain one side should win entirely.
-- For complex conflicts, search for related files or definitions to align with
-  the rest of the codebase.
-- For generated files, resolve non-generated conflicts first, then regenerate:
-  - Prefer resolving source files and handwritten logic before touching
-    generated artifacts.
-  - Run the CLI/tooling command that produced the generated file to recreate it
-    cleanly, then stage the regenerated output.
-- For import conflicts where intent is unclear, accept both sides first:
-  - Keep all candidate imports temporarily, finish the merge, then run lint/type
-    checks to remove unused or incorrect imports safely.
-- After resolving, ensure no conflict markers remain:
+    - Gleiche Zeilen am Anfang/Ende werden aus dem Konfliktbereich gekürzt;
+      fokussiere dich daher auf den abweichenden Kern.
+  - Fasse die Absicht beider Änderungen zusammen, entscheide das semantisch
+    korrekte Ergebnis und editiere erst dann:
+    - Benenne, was jede Seite erreichen will
+      (Bugfix, Refactor, Umbenennung, Verhaltensänderung).
+    - Bestimme das gemeinsame Ziel, falls es eines gibt, und ob eine Seite die
+      andere überholt.
+    - Entscheide zuerst das Endverhalten; forme erst danach den Code passend zu
+      dieser Entscheidung.
+    - Bevorzuge den Erhalt von Invarianten, API-Verträgen und sichtbarem
+      Benutzerverhalten, sofern der Konflikt nicht klar auf eine beabsichtigte
+      Änderung zeigt.
+  - Öffne Dateien und verstehe die Absicht beider Seiten, bevor du dich auf
+    eine Lösung festlegst.
+- Bevorzuge minimale, absichtswahrende Edits:
+  - Halte das Verhalten konsistent mit dem Zweck des Branches.
+  - Vermeide versehentliche Löschungen oder stille Verhaltensänderungen.
+- Löse eine Datei nach der anderen und führe Tests nach jedem logischen Batch
+  erneut aus.
+- Nutze `ours/theirs` nur, wenn du sicher bist, dass eine Seite vollständig
+  gewinnen soll.
+- Suche bei komplexen Konflikten nach verwandten Dateien oder Definitionen, um
+  dich am restlichen Codebestand auszurichten.
+- Bei generierten Dateien zuerst nicht generierte Konflikte lösen, dann neu
+  generieren:
+  - Löse bevorzugt Source-Dateien und handgeschriebene Logik, bevor du
+    generierte Artefakte anfasst.
+  - Führe den CLI-/Tooling-Befehl aus, der die generierte Datei erzeugt hat,
+    um sie sauber neu zu erstellen, und stage dann die regenerierte Ausgabe.
+- Bei Import-Konflikten mit unklarer Absicht zunächst beide Seiten akzeptieren:
+  - Behalte alle möglichen Imports vorübergehend, schließe den Merge ab und
+    führe dann Lint-/Type-Checks aus, um ungenutzte oder falsche Imports sicher
+    zu entfernen.
+- Stelle nach der Lösung sicher, dass keine Konfliktmarker übrig sind:
   - `git diff --check`
-- When unsure, note assumptions and ask for confirmation before finalizing the
-  merge.
+- Wenn du unsicher bist, notiere die Annahmen und hole eine Bestätigung ein,
+  bevor du den Merge abschließt.
 
-## When To Ask The User (Keep To A Minimum)
+## Wann der Benutzer gefragt werden sollte (so selten wie möglich)
 
-Do not ask for input unless there is no safe, reversible alternative. Prefer
-making a best-effort decision, documenting the rationale, and proceeding.
+Frage nicht nach Input, solange es eine sichere, reversible Alternative gibt.
+Bevorzuge eine Best-Effort-Entscheidung, dokumentiere die Begründung und fahre
+fort.
 
-Ask the user only when:
+Frage den Benutzer nur, wenn:
 
-- The correct resolution depends on product intent or behavior not inferable
-  from code, tests, or nearby documentation.
-- The conflict crosses a user-visible contract, API surface, or migration where
-  choosing incorrectly could break external consumers.
-- A conflict requires selecting between two mutually exclusive designs with
-  equivalent technical merit and no clear local signal.
-- The merge introduces data loss, schema changes, or irreversible side effects
-  without an obvious safe default.
-- The branch is not the intended target, or the remote/branch names do not exist
-  and cannot be determined locally.
+- die richtige Lösung von Produktabsicht oder Verhalten abhängt, das sich nicht
+  aus Code, Tests oder benachbarter Dokumentation ableiten lässt.
+- der Konflikt einen sichtbaren Vertrag, eine API-Oberfläche oder eine
+  Migration betrifft, bei der eine falsche Wahl externe Nutzer brechen könnte.
+- ein Konflikt die Wahl zwischen zwei sich ausschließenden Designs mit gleicher
+  technischer Qualität und ohne klares lokales Signal verlangt.
+- der Merge Datenverlust, Schemaänderungen oder irreversible Seiteneffekte ohne
+  offensichtlichen sicheren Standard einführt.
+- der Branch nicht das beabsichtigte Ziel ist oder Remote-/Branchnamen lokal
+  weder existieren noch sicher ermittelt werden können.
 
-Otherwise, proceed with the merge, explain the decision briefly in notes, and
-leave a clear, reviewable commit history.
+Andernfalls fahre mit dem Merge fort, erkläre die Entscheidung kurz in den
+Notizen und hinterlasse eine klare, reviewbare Commit-Historie.
