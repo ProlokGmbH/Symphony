@@ -20,12 +20,13 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Elixir- und OTP-Versionen aus mise.toml einrichten
-        uses: erlef/setup-beam@v1.24.0
+      - name: mise und Toolchain aus mise.toml einrichten
+        uses: jdx/mise-action@v2
         with:
-          otp-version: "28.4.1"
-          elixir-version: "1.19.5-otp-28"
-          version-type: strict
+          version: 2026.3.17
+
+      - name: mise.toml vertrauen
+        run: mise trust -y
 
       - name: Mix-Artefakte cachen
         uses: actions/cache@v4
