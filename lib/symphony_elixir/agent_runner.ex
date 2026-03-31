@@ -46,27 +46,73 @@ defmodule SymphonyElixir.AgentRunner do
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
-    if ignored_manual_state?(issue.state) do
-      Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
-      :ok
-    else
-      case Workspace.create_for_issue(issue, worker_host) do
-        {:ok, workspace} ->
-          send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
+    issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-          try do
-            with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
-                 :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
-              run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+    case maybe_skip_manual_issue_state(issue, issue_state_fetcher) do
+      {:ok, %Issue{} = transitioned_issue, :continue} ->
+        run_on_worker_host(transitioned_issue, codex_update_recipient, opts, worker_host)
+
+      :manual_noop ->
+        Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
+        :ok
+
+      :proceed ->
+        case Workspace.create_for_issue(issue, worker_host) do
+          {:ok, workspace} ->
+            send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
+
+            try do
+              with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
+                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
+                run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+              end
+            after
+              Workspace.run_after_run_hook(workspace, issue, worker_host)
             end
-          after
-            Workspace.run_after_run_hook(workspace, issue, worker_host)
-          end
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher) do
+    cond do
+      not ignored_manual_state?(issue.state) ->
+        :proceed
+
+      not skip_current_manual_state?(issue) ->
+        :manual_noop
+
+      true ->
+        case Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) do
+          next_state when is_binary(next_state) ->
+            transition_issue_state(
+              issue,
+              issue_state_fetcher,
+              next_state,
+              :manual_skip_state_update_failed,
+              "skipped manual issue state",
+              :continue
+            )
+
+          _ ->
+            :manual_noop
+        end
+    end
+  end
+
+  defp skip_current_manual_state?(%Issue{} = issue) do
+    current_state = normalize_issue_state(issue.state)
+
+    Issue.label_names(issue)
+    |> Enum.map(&normalize_issue_state/1)
+    |> Enum.any?(fn label ->
+      label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
+    end)
   end
 
   defp codex_message_handler(recipient, issue) do

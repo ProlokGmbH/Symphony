@@ -75,6 +75,7 @@ mix specs.check
 ## Workflow
 
 Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Review-Freigabe. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
+Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt auch fuer die drei manuellen Freigabepunkte.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |

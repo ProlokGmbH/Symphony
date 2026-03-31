@@ -155,7 +155,10 @@ Automatische Statuswechsel leiten ihre Reihenfolge ausschließlich aus dieser
 Tabelle ab. Wenn für den vorgesehenen Zielstatus ein Label `Skip "<Status>"`
 existiert, überspringt Symphony diesen Status und läuft zum nächsten nicht
 übersprungenen Tabellenstatus weiter; mehrere aufeinanderfolgende Skip-Labels
-werden in derselben Reihenfolge nacheinander ausgewertet.
+werden in derselben Reihenfolge nacheinander ausgewertet. Wenn der aktuelle
+Status selbst ein manueller Freigabe-Status ist und dafür ein passendes
+`Skip "<Status>"`-Label gesetzt wurde, verwendet Symphony den nächsten
+Tabellenstatus als Ziel und läuft von dort weiter.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
@@ -163,12 +166,12 @@ werden in derselben Reihenfolge nacheinander ausgewertet.
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `Freigabe Planung` |
-| `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
+| `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den bestehenden, zuvor manuell geprüften Plan ohne weitere automatische Commits umsetzen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
-| `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
+| `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
-| `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | Warten auf menschliches Verschieben |
+| `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
