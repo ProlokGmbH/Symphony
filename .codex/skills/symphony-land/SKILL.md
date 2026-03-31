@@ -1,88 +1,97 @@
 ---
 name: symphony-land
 description:
-  Land a PR by monitoring conflicts, resolving them, waiting for checks, and
-  merging when green; use when asked to land, merge, or shepherd a PR to
-  completion.
+  Führe eine PR zum Merge, indem du Konflikte beobachtest, löst, auf Checks
+  wartest und bei Grün mergst; nutze den Skill bei Land-/Merge-Aufgaben oder
+  wenn eine PR bis zum Abschluss begleitet werden soll.
 ---
 
 # Land
 
-## Goals
+## Ziele
 
-- Ensure the PR is conflict-free with main.
-- Keep CI green and fix failures when they occur.
-- Merge the PR with a merge commit once checks pass.
-- Do not yield to the user until the PR is merged; keep the watcher loop running
-  unless blocked.
-- No need to delete remote branches after merge; the repo auto-deletes head
-  branches.
+- Stelle sicher, dass die PR konfliktfrei zu main ist.
+- Halte CI grün und behebe Fehler, wenn sie auftreten.
+- Merge die PR per merge commit, sobald die Checks bestehen.
+- Gib nicht an den Benutzer zurück, bevor die PR gemergt ist; halte die
+  Watcher-Schleife am Laufen, solange nichts blockiert.
+- Remote-Branches müssen nach dem Merge nicht gelöscht werden; das Repo löscht
+  Head-Branches automatisch.
 
-## Preconditions
+## Voraussetzungen
 
-- `gh` CLI is authenticated.
-- You are on the PR branch.
+- `gh` CLI ist authentifiziert.
+- Du befindest dich auf dem PR-Branch.
 
-## Steps
+## Schritte
 
-1. Locate the PR for the current branch.
-2. Confirm the full gauntlet is green locally before any push.
-3. If the working tree has uncommitted changes, commit them immediately in this status with
-   `git commit -am "Merge (AI) Autocommit"` or `git add -A && git commit -m "Merge (AI) Autocommit"`,
-   then push with the `symphony-push` skill before proceeding.
-4. Check mergeability and conflicts against main.
-5. If conflicts exist, use the `symphony-pull` skill to fetch/merge `origin/main` and
-   resolve conflicts. If that pull or its conflict resolution changes files, commit them with
-   `Merge (AI) Autocommit`, move the issue back to `Test (AI)`, and stop so the test cycle reruns on the merged code.
-   Only if no rerun is needed, use the `symphony-push` skill to publish the updated branch.
-6. Ensure Codex review comments (if present) are acknowledged and any required
-   fixes are handled before merging.
-7. Watch checks until complete.
-8. If checks fail, pull logs, fix the issue, commit any resulting changes in this status with
-   the message `Merge (AI) Autocommit`, push with the `symphony-push` skill, and re-run checks.
-9. When all checks are green and review feedback is addressed, merge and delete the branch
-   using the merge-commit subject `<IssueId>: <IssueTitle>`.
-10. **Context guard:** Before implementing review feedback, confirm it does not
-    conflict with the user’s stated intent or task context. If it conflicts,
-    respond inline with a justification and ask the user before changing code.
-11. **Pushback template:** When disagreeing, reply inline with: acknowledge +
-    rationale + offer alternative.
-12. **Ambiguity gate:** When ambiguity blocks progress, use the clarification
-    flow (assign PR to current GH user, mention them, wait for response). Do not
-    implement until ambiguity is resolved.
-    - If you are confident you know better than the reviewer, you may proceed
-      without asking the user, but reply inline with your rationale.
-13. **Per-comment mode:** For each review comment, choose one of: accept,
-    clarify, or push back. Reply inline (or in the issue thread for Codex
-    reviews) stating the mode before changing code.
-14. **Reply before change:** Always respond with intended action before pushing
-    code changes (inline for review comments, issue thread for Codex reviews).
+1. Finde die PR für den aktuellen Branch.
+2. Bestätige vor jedem Push, dass das vollständige lokale Qualitäts-Gate grün
+   ist.
+3. Falls der Working Tree uncommittete Änderungen enthält, committe sie in
+   diesem Status sofort mit `git commit -am "Merge (AI) Autocommit"` oder
+   `git add -A && git commit -m "Merge (AI) Autocommit"` und veröffentliche sie
+   dann mit dem Skill `symphony-push`, bevor du fortfährst.
+4. Prüfe Mergebarkeit und Konflikte gegenüber main.
+5. Falls Konflikte bestehen, nutze den Skill `symphony-pull`, um
+   `origin/main` zu holen/zu mergen und Konflikte zu lösen. Wenn dieser Pull
+   oder seine Konfliktlösung Dateien ändert, committe sie mit
+   `Merge (AI) Autocommit`, verschiebe das Issue zurück nach `Test (AI)` und
+   stoppe, damit der Testzyklus auf dem gemergten Code erneut läuft. Nur wenn
+   kein erneuter Lauf nötig ist, veröffentliche den aktualisierten Branch mit
+   `symphony-push`.
+6. Stelle sicher, dass Codex-Review-Kommentare (falls vorhanden) bestätigt sind
+   und erforderliche Fixes vor dem Merge erledigt wurden.
+7. Beobachte die Checks bis zum Abschluss.
+8. Falls Checks fehlschlagen, ziehe die Logs, behebe das Problem, committe
+   daraus entstehende Änderungen in diesem Status mit `Merge (AI) Autocommit`,
+   veröffentliche sie mit `symphony-push` und starte die Checks erneut.
+9. Wenn alle Checks grün sind und Review-Feedback erledigt ist, merge und
+   lösche den Branch mit dem merge-commit-Betreff `<IssueId>: <IssueTitle>`.
+10. **Kontextwächter:** Bestätige vor der Umsetzung von Review-Feedback, dass
+    es nicht der vom Benutzer genannten Absicht oder dem Aufgabenkontext
+    widerspricht. Falls doch, antworte inline mit Begründung und frage den
+    Benutzer, bevor du Code änderst.
+11. **Pushback-Vorlage:** Wenn du nicht zustimmst, antworte inline mit:
+    Kenntnisnahme + Begründung + Alternative.
+12. **Mehrdeutigkeits-Gate:** Wenn Mehrdeutigkeit den Fortschritt blockiert,
+    nutze den Klärungsablauf (PR dem aktuellen GH-Benutzer zuweisen, ihn
+    erwähnen, auf Antwort warten). Implementiere nicht, bevor die
+    Mehrdeutigkeit aufgelöst ist.
+    - Wenn du sicher bist, dass du es besser weißt als der Reviewer, darfst du
+      ohne Rückfrage fortfahren, musst aber inline deine Begründung nennen.
+13. **Modus pro Kommentar:** Wähle für jeden Review-Kommentar genau eines von:
+    akzeptieren, klären oder widersprechen. Antworte inline (oder im
+    Issue-Thread für Codex-Reviews) und nenne den Modus vor der Codeänderung.
+14. **Antwort vor Änderung:** Antworte immer mit der beabsichtigten Aktion,
+    bevor du Codeänderungen pushst (inline für Review-Kommentare, Issue-Thread
+    für Codex-Reviews).
 
-## Commands
+## Befehle
 
 ```
-# Ensure branch and PR context
+# Branch- und PR-Kontext sicherstellen
 branch=$(git branch --show-current)
 pr_number=$(gh pr view --json number -q .number)
 pr_body=$(gh pr view --json body -q .body)
-issue_identifier="<IssueId from current task context>"
-issue_title="<IssueTitle from current task context>"
+issue_identifier="<IssueId aus aktuellem Aufgabenkontext>"
+issue_title="<IssueTitle aus aktuellem Aufgabenkontext>"
 merge_subject="$issue_identifier: $issue_title"
 
-# Check mergeability and conflicts
+# Mergebarkeit und Konflikte prüfen
 mergeable=$(gh pr view --json mergeable -q .mergeable)
 
 if [ "$mergeable" = "CONFLICTING" ]; then
-  # Run the `symphony-pull` skill to handle fetch + merge + conflict resolution.
-  # Then run the `symphony-push` skill to publish the updated branch.
+  # Den Skill `symphony-pull` für Fetch + Merge + Konfliktlösung ausführen.
+  # Danach den Skill `symphony-push` zum Veröffentlichen des aktualisierten Branches ausführen.
 fi
 
-# Preferred: use the Async Watch Helper below. The manual loop is a fallback
-# when Python cannot run or the helper script is unavailable.
-# Wait for review feedback: Codex reviews arrive as issue comments that start
-# with "## Codex Review — <persona>". Treat them like reviewer feedback: reply
-# with a `[codex]` issue comment acknowledging the findings and whether you're
-# addressing or deferring them.
+# Bevorzugt den asynchronen Watch-Helper unten verwenden. Die manuelle Schleife ist
+# ein Fallback, wenn Python nicht läuft oder das Helper-Skript fehlt.
+# Auf Review-Feedback warten: Codex-Reviews kommen als Issue-Kommentare, die
+# mit "## Codex Review — <persona>" beginnen. Behandle sie wie Review-Feedback:
+# antworte mit einem `[codex]`-Issue-Kommentar, der die Hinweise bestätigt und
+# sagt, ob du sie jetzt bearbeitest oder zurückstellst.
 while true; do
   gh api repos/{owner}/{repo}/issues/"$pr_number"/comments \
     --jq '.[] | select(.body | startswith("## Codex Review")) | .id' | rg -q '.' \
@@ -90,141 +99,153 @@ while true; do
   sleep 10
 done
 
-# Watch checks
+# Checks beobachten
 if ! gh pr checks --watch; then
   gh pr checks
-  # Identify failing run and inspect logs
+  # Fehlgeschlagenen Run identifizieren und Logs prüfen
   # gh run list --branch "$branch"
   # gh run view <run-id> --log
   exit 1
 fi
 
-# Merge-commit with Linear issue subject (remote branches auto-delete on merge in this repo)
+# Merge-Commit mit Linear-Issue-Betreff (Remote-Branches werden in diesem Repo beim Merge automatisch gelöscht)
 gh pr merge --merge --subject "$merge_subject" --body "$pr_body"
 ```
 
-## Async Watch Helper
+## Asynchroner Watch-Helper
 
-Preferred: use the asyncio watcher to monitor review comments, CI, and head
-updates in parallel:
+Bevorzugt: Nutze den asyncio-Watcher, um Review-Kommentare, CI und
+Head-Updates parallel zu überwachen:
 
 ```
 python3 .codex/skills/symphony-land/land_watch.py
 ```
 
-Exit codes:
+Exit-Codes:
 
-- 2: Review comments detected (address feedback)
-- 3: CI checks failed
-- 4: PR head updated (autofix commit detected)
+- 2: Review-Kommentare erkannt (Feedback bearbeiten)
+- 3: CI-Checks fehlgeschlagen
+- 4: PR-Head aktualisiert (Autofix-Commit erkannt)
 
-## Failure Handling
+## Fehlerbehandlung
 
-- If checks fail, pull details with `gh pr checks` and `gh run view --log`, then
-  fix locally, commit the result in this status with `Merge (AI) Autocommit`, push with the `symphony-push` skill, and
-  re-run the watch.
-- Use judgment to identify flaky failures. If a failure is a flake (e.g., a
-  timeout on only one platform), you may proceed without fixing it.
-- If CI pushes an auto-fix commit (authored by GitHub Actions), it does not
-  trigger a fresh CI run. Detect the updated PR head, pull locally, merge
-  `origin/main` if needed, add a real author commit, and force-push to retrigger
-  CI, then restart the checks loop.
-- If all jobs fail with corrupted pnpm lockfile errors on the merge commit, the
-  remediation is to fetch latest `origin/main`, merge, force-push, and rerun CI.
-- If mergeability is `UNKNOWN`, wait and re-check.
-- Do not merge while review comments (human or Codex review) are outstanding.
-- Codex review jobs retry on failure and are non-blocking; use the presence of
-  `## Codex Review — <persona>` issue comments (not job status) as the signal
-  that review feedback is available.
-- Do not enable auto-merge; this repo has no required checks so auto-merge can
-  skip tests.
-- If the remote PR branch advanced due to your own prior force-push or merge,
-  avoid redundant merges; re-run the formatter locally if needed and
-  `git push --force-with-lease`.
+- Wenn Checks fehlschlagen, hole Details mit `gh pr checks` und
+  `gh run view --log`, behebe das Problem lokal, committe das Ergebnis in
+  diesem Status mit `Merge (AI) Autocommit`, veröffentliche es mit
+  `symphony-push` und starte den Watch erneut.
+- Nutze Augenmaß, um instabile Fehler zu erkennen. Wenn ein Fehler nur ein
+  Ausreißer ist (z. B. Timeout auf einer Plattform), darfst du ohne Fix
+  fortfahren.
+- Falls CI einen Auto-Fix-Commit pusht (von GitHub Actions), löst das keinen
+  neuen CI-Lauf aus. Erkenne den aktualisierten PR-Head, ziehe ihn lokal,
+  merge bei Bedarf `origin/main`, ergänze einen echten Autoren-Commit und
+  `force-push`, um CI erneut auszulösen; starte dann die Check-Schleife neu.
+- Wenn alle Jobs beim merge commit mit korrupten pnpm-lockfile-Fehlern
+  scheitern, ist die Abhilfe: aktuelles `origin/main` holen, mergen,
+  force-pushen und CI neu starten.
+- Wenn die Mergebarkeit `UNKNOWN` ist, warte und prüfe erneut.
+- Merge nicht, solange Review-Kommentare (menschlich oder Codex-Review) offen
+  sind.
+- Codex-Review-Jobs wiederholen sich bei Fehlern und blockieren nicht; nutze
+  das Vorhandensein von `## Codex Review — <persona>`-Issue-Kommentaren
+  (nicht den Job-Status) als Signal für verfügbares Review-Feedback.
+- Aktiviere kein Auto-Merge; dieses Repo hat keine required checks, daher
+  könnte Auto-Merge Tests überspringen.
+- Wenn der Remote-PR-Branch durch eigenen früheren force-push oder Merge
+  weitergelaufen ist, vermeide redundante Merges; formatiere lokal bei Bedarf
+  erneut und nutze `git push --force-with-lease`.
 
-## Review Handling
+## Review-Umgang
 
-- Codex reviews now arrive as issue comments posted by GitHub Actions. They
-  start with `## Codex Review — <persona>` and include the reviewer’s
-  methodology + guardrails used. Treat these as feedback that must be
-  acknowledged before merge.
-- Human review comments are blocking and must be addressed (responded to and
-  resolved) before requesting a new review or merging.
-- If multiple reviewers comment in the same thread, respond to each comment
-  (batching is fine) before closing the thread.
-- Fetch review comments via `gh api` and reply with a prefixed comment.
-- Use review comment endpoints (not issue comments) to find inline feedback:
-  - List PR review comments:
+- Codex-Reviews kommen jetzt als von GitHub Actions gepostete Issue-Kommentare.
+  Sie beginnen mit `## Codex Review — <persona>` und enthalten Methodik und
+  verwendete Guardrails des Reviewers. Behandle sie als Feedback, das vor dem
+  Merge bestätigt werden muss.
+- Menschliche Review-Kommentare blockieren und müssen vor neuer Review-Anfrage
+  oder Merge beantwortet und aufgelöst werden.
+- Wenn mehrere Reviewer im selben Thread kommentieren, antworte auf jeden
+  Kommentar (gebündelt ist okay), bevor du den Thread schließt.
+- Hole Review-Kommentare über `gh api` und antworte mit einem präfixierten
+  Kommentar.
+- Nutze Review-Comment-Endpunkte (nicht Issue-Kommentare), um Inline-Feedback
+  zu finden:
+  - PR-Review-Kommentare auflisten:
     ```
     gh api repos/{owner}/{repo}/pulls/<pr_number>/comments
     ```
-  - PR issue comments (top-level discussion):
+  - PR-Issue-Kommentare (Diskussion auf oberster Ebene):
     ```
     gh api repos/{owner}/{repo}/issues/<pr_number>/comments
     ```
-  - Reply to a specific review comment:
+  - Auf einen bestimmten Review-Kommentar antworten:
     ```
     gh api -X POST /repos/{owner}/{repo}/pulls/<pr_number>/comments \
       -f body='[codex] <response>' -F in_reply_to=<comment_id>
     ```
-- `in_reply_to` must be the numeric review comment id (e.g., `2710521800`), not
-  the GraphQL node id (e.g., `PRRC_...`), and the endpoint must include the PR
-  number (`/pulls/<pr_number>/comments`).
-- If GraphQL review reply mutation is forbidden, use REST.
-- A 404 on reply typically means the wrong endpoint (missing PR number) or
-  insufficient scope; verify by listing comments first.
-- All GitHub comments generated by this agent must be prefixed with `[codex]`.
-- For Codex review issue comments, reply in the issue thread (not a review
-  thread) with `[codex]` and state whether you will address the feedback now or
-  defer it (include rationale).
-- If feedback requires changes:
-  - For inline review comments (human), reply with intended fixes
-    (`[codex] ...`) **as an inline reply to the original review comment** using
-    the review comment endpoint and `in_reply_to` (do not use issue comments for
-    this).
-  - Implement fixes, commit, push.
-  - Reply with the fix details and commit sha (`[codex] ...`) in the same place
-    you acknowledged the feedback (issue comment for Codex reviews, inline reply
-    for review comments).
-  - The land watcher treats Codex review issue comments as unresolved until a
-    newer `[codex]` issue comment is posted acknowledging the findings.
-- Only request a new Codex review when you need a rerun (e.g., after new
-  commits). Do not request one without changes since the last review.
-  - Before requesting a new Codex review, re-run the land watcher and ensure
-    there are zero outstanding review comments (all have `[codex]` inline
-    replies).
-  - After pushing new commits, the Codex review workflow will rerun on PR
-    synchronization (or you can re-run the workflow manually). Post a concise
-    root-level summary comment so reviewers have the latest delta:
+- `in_reply_to` muss die numerische Review-Comment-ID sein
+  (z. B. `2710521800`), nicht die GraphQL-Node-ID (z. B. `PRRC_...`), und der
+  Endpunkt muss die PR-Nummer enthalten (`/pulls/<pr_number>/comments`).
+- Wenn die GraphQL-Review-Reply-Mutation verboten ist, nutze REST.
+- Ein 404 beim Antworten bedeutet typischerweise einen falschen Endpunkt
+  (fehlende PR-Nummer) oder unzureichenden Scope; prüfe das zuerst über das
+  Auflisten der Kommentare.
+- Alle von diesem Agenten erzeugten GitHub-Kommentare müssen mit `[codex]`
+  beginnen.
+- Auf Codex-Review-Issue-Kommentare antworte im Issue-Thread (nicht im
+  Review-Thread) mit `[codex]` und nenne, ob du das Feedback jetzt bearbeitest
+  oder zurückstellst (mit Begründung).
+- Wenn Feedback Änderungen verlangt:
+  - Für Inline-Review-Kommentare (menschlich) antworte mit den geplanten Fixes
+    (`[codex] ...`) **als Inline-Antwort auf den ursprünglichen
+    Review-Kommentar** über den Review-Comment-Endpunkt und `in_reply_to`
+    (verwende dafür keine Issue-Kommentare).
+  - Implementiere die Fixes, committe und pushe.
+  - Antworte mit Fix-Details und Commit-SHA (`[codex] ...`) an derselben
+    Stelle, an der du das Feedback bestätigt hast (Issue-Kommentar für
+    Codex-Reviews, Inline-Antwort für Review-Kommentare).
+  - Der Land-Watcher behandelt Codex-Review-Issue-Kommentare als offen, bis ein
+    neuerer `[codex]`-Issue-Kommentar die Hinweise bestätigt.
+- Fordere nur dann ein neues Codex-Review an, wenn ein erneuter Lauf nötig ist
+  (z. B. nach neuen Commits). Fordere keines ohne Änderungen seit dem letzten
+  Review an.
+  - Bevor du ein neues Codex-Review anforderst, führe den Land-Watcher erneut
+    aus und stelle sicher, dass keine offenen Review-Kommentare mehr existieren
+    (alle haben `[codex]`-Inline-Antworten).
+  - Nach neuen Commits wird der Codex-Review-Workflow bei PR-Synchronisation
+    erneut laufen (oder du startest ihn manuell neu). Hinterlasse einen
+    knappen Root-Level-Zusammenfassungskommentar, damit Reviewer das letzte
+    Delta sehen:
     ```
-    [codex] Changes since last review:
-    - <short bullets of deltas>
+    [codex] Änderungen seit dem letzten Review:
+    - <kurze Stichpunkte zu den Deltas>
     Commits: <sha>, <sha>
-    Tests: <commands run>
+    Tests: <ausgeführte Befehle>
     ```
-  - Only request a new review if there is at least one new commit since the
-    previous request.
-  - Wait for the next Codex review comment before merging.
+  - Fordere nur dann ein neues Review an, wenn es seit der vorherigen Anfrage
+    mindestens einen neuen Commit gibt.
+  - Warte vor dem Merge auf den nächsten Codex-Review-Kommentar.
 
-## Scope + PR Metadata
+## Scope + PR-Metadaten
 
-- The PR title and description should reflect the full scope of the change, not
-  just the most recent fix.
-- If review feedback expands scope, decide whether to include it now or defer
-  it. You can accept, defer, or decline feedback. If deferring or declining,
-  call it out in the root-level `[codex]` update with a brief reason (e.g.,
-  out-of-scope, conflicts with intent, unnecessary).
-- Correctness issues raised in review comments should be addressed. If you plan
-  to defer or decline a correctness concern, validate first and explain why the
-  concern does not apply.
-- Classify each review comment as one of: correctness, design, style,
+- PR-Titel und Beschreibung sollen den gesamten Scope der Änderung abbilden,
+  nicht nur den letzten Fix.
+- Wenn Review-Feedback den Scope erweitert, entscheide, ob du es jetzt
+  einschließt oder zurückstellst. Du kannst Feedback akzeptieren,
+  zurückstellen oder ablehnen. Wenn du es zurückstellst oder ablehnst, nenne
+  das im Root-Level-`[codex]`-Update mit kurzem Grund
+  (z. B. out-of-scope, widerspricht der Absicht, unnötig).
+- Korrektheitsprobleme aus Review-Kommentaren sollten behoben werden. Wenn du
+  ein Korrektheitsproblem zurückstellen oder ablehnen willst, validiere zuerst
+  und erkläre, warum es hier nicht zutrifft.
+- Ordne jeden Review-Kommentar einer Kategorie zu: correctness, design, style,
   clarification, scope.
-- For correctness feedback, provide concrete validation (test, log, or
-  reasoning) before closing it.
-- When accepting feedback, include a one-line rationale in the root-level
-  update.
-- When declining feedback, offer a brief alternative or follow-up trigger.
-- Prefer a single consolidated "review addressed" root-level comment after a
-  batch of fixes instead of many small updates.
-- For doc feedback, confirm the doc change matches behavior (no doc-only edits
-  to appease review).
+- Für correctness-Feedback liefere konkrete Validierung
+  (Test, Log oder Begründung), bevor du es schließt.
+- Wenn du Feedback akzeptierst, nenne im Root-Level-Update eine einzeilige
+  Begründung.
+- Wenn du Feedback ablehnst, biete kurz eine Alternative oder einen
+  Folgeanlass an.
+- Bevorzuge nach einem Fix-Batch einen einzigen zusammengefassten
+  Root-Level-Kommentar "Review erledigt" statt vieler kleiner Updates.
+- Bei Dokumentations-Feedback bestätige, dass die Dokuänderung zum Verhalten
+  passt (keine reinen Doku-Edits nur zur Beruhigung des Reviews).
