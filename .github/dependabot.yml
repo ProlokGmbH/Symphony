@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: "mix"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      semver-major-days: 7
+      semver-minor-days: 7
+      semver-patch-days: 7
+
+  - package-ecosystem: "docker"
+    directory: "/test/support/live_e2e_docker"
+    schedule:
+      interval: "daily"
+    cooldown:
+      semver-major-days: 7
+      semver-minor-days: 7
+      semver-patch-days: 7
