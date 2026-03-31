@@ -119,7 +119,9 @@ Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 - Wenn Planungsaenderungen an der Ticketbeschreibung noetig sind, delegiere sie
   ausschliesslich an `.codex/skills/symphony-planning/SKILL.md`.
 - Halte Abweichungen zwischen Status und Issue-Inhalt im bestehenden Workpad
-  fest, statt dafuer einen zusaetzlichen Fortschrittskommentar anzulegen.
+  fest. Wenn vor dem ersten Workpad-Bootstrap noch kein Workpad existiert,
+  uebernimm die Notiz beim Anlegen dieses ersten Kommentars statt dafuer einen
+  zusaetzlichen Fortschrittskommentar anzulegen.
 - Wenn `WORKFLOW.md` nach erstmaliger Workpad-Anlage das
   `Erstkontakt-Protokoll fuer neue Items` verlangt, nutze fuer Lesen/Schreiben in
   Linear den Skill `symphony-linear`.

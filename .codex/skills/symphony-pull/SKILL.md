@@ -105,4 +105,8 @@ description:
 - Starte keine menschlichen Rueckfragen aus diesem Skill heraus.
 - Wenn die korrekte Konfliktloesung trotz Code, Tests und lokaler Dokumentation
   nicht sicher bestimmbar ist, dokumentiere den konkreten Blocker im Workpad
-  des aufrufenden Workflows und stoppe statt einen Klaerungsdialog zu beginnen.
+  des aufrufenden Workflows, verschiebe das Issue in einen nicht-aktiven
+  manuellen Status und stoppe statt einen Klaerungsdialog zu beginnen.
+- Wenn der aufrufende Workflow keinen spezielleren Ruecksprung fuer diesen Fall
+  definiert, verwende dafuer `BLOCKER`, damit der Lauf nicht im aktiven
+  Retry-Zustand haengen bleibt.

@@ -116,6 +116,7 @@ git push --force-with-lease origin HEAD
 pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)
 if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
   echo "Aktueller Branch war bereits an eine geschlossene PR gebunden; erstelle bei neuen Commits eine neue PR aus demselben Branch." >&2
+  pr_state=""
 fi
 
 # Einen klaren, menschenlesbaren Titel schreiben, der die gelieferte Änderung zusammenfasst.

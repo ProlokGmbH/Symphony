@@ -55,8 +55,8 @@ description:
     Begruendung und einer konkreten Alternative oder Abgrenzung.
 12. Wenn Review-Feedback trotz dieser Quellen semantisch nicht sicher
     aufloesbar ist, dokumentiere den konkreten Blocker im Workpad und im
-    Review-Thread und stoppe den Merge-Lauf statt einen Klaerungsdialog zu
-    beginnen.
+    Review-Thread, verschiebe das Issue zurueck nach `Freigabe Review` und
+    stoppe den Merge-Lauf statt einen Klaerungsdialog zu beginnen.
 13. Wähle für jeden Review-Kommentar genau eines von: akzeptieren oder
     widersprechen. Antworte inline (oder im Issue-Thread für Codex-Reviews)
     mit diesem Modus vor der Codeänderung.

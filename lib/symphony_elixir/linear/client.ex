@@ -75,11 +75,15 @@ defmodule SymphonyElixir.Linear.Client do
   """
 
   @issue_comments_query """
-  query SymphonyLinearIssueComments($id: String!) {
+  query SymphonyLinearIssueComments($id: String!, $first: Int!, $after: String) {
     issue(id: $id) {
-      comments(first: 50) {
+      comments(first: $first, after: $after) {
         nodes {
           body
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }
@@ -174,18 +178,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
-    case graphql(@issue_comments_query, %{id: issue_id}) do
-      {:ok, response} ->
-        comments =
-          response
-          |> get_in(["data", "issue", "comments", "nodes"])
-          |> extract_comment_bodies()
-
-        {:ok, comments}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    fetch_issue_comment_bodies_page(issue_id, nil, [])
   end
 
   @spec graphql(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -322,6 +315,32 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp finalize_paginated_issues(acc_issues) when is_list(acc_issues), do: Enum.reverse(acc_issues)
+
+  defp fetch_issue_comment_bodies_page(issue_id, after_cursor, acc_comments) do
+    with {:ok, response} <-
+           graphql(@issue_comments_query, %{id: issue_id, first: @issue_page_size, after: after_cursor}),
+         {:ok, comments, page_info} <- decode_issue_comments_page_response(response) do
+      issue_comment_page_result(issue_id, comments, page_info, acc_comments)
+    else
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp issue_comment_page_result(issue_id, comments, page_info, acc_comments) do
+    updated_acc = prepend_page_issues(comments, acc_comments)
+
+    case next_page_cursor(page_info) do
+      {:ok, next_cursor} ->
+        fetch_issue_comment_bodies_page(issue_id, next_cursor, updated_acc)
+
+      :done ->
+        {:ok, finalize_paginated_issues(updated_acc)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp do_fetch_issue_states(ids, assignee_filter) do
     do_fetch_issue_states(ids, assignee_filter, &graphql/2)
@@ -488,6 +507,27 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp decode_linear_page_response(response, assignee_filter), do: decode_linear_response(response, assignee_filter)
+
+  defp decode_issue_comments_page_response(%{
+         "data" => %{
+           "issue" => %{
+             "comments" => %{
+               "nodes" => nodes,
+               "pageInfo" => %{"hasNextPage" => has_next_page, "endCursor" => end_cursor}
+             }
+           }
+         }
+       }) do
+    {:ok, extract_comment_bodies(nodes), %{has_next_page: has_next_page == true, end_cursor: end_cursor}}
+  end
+
+  defp decode_issue_comments_page_response(%{"errors" => errors}) do
+    {:error, {:linear_graphql_errors, errors}}
+  end
+
+  defp decode_issue_comments_page_response(_unknown) do
+    {:error, :linear_unknown_payload}
+  end
 
   defp first_issue([%Issue{} = issue | _rest], _identifier), do: {:ok, issue}
   defp first_issue([], identifier), do: {:error, {:issue_not_found, identifier}}
