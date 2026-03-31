@@ -23,7 +23,8 @@ jobs:
       - name: Elixir- und OTP-Versionen aus mise.toml einrichten
         uses: erlef/setup-beam@v1.24.0
         with:
-          version-file: mise.toml
+          otp-version: "28.4.1"
+          elixir-version: "1.19.5-otp-28"
           version-type: strict
 
       - name: Mix-Artefakte cachen
