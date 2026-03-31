@@ -31,6 +31,9 @@ If the script is sourced, the current shell stays in that worktree afterwards.
 EOF
 }
 
+SYM_CODEX_PROMPT=""
+SYM_CODEX_WORKFLOW_STEP=""
+
 sym_codex_die() {
   sym_codex_stderr "$@"
   sym_codex_finish 1
@@ -241,13 +244,16 @@ sym_codex_build_manual_prompt() {
       issue_identifier = Enum.at(System.argv(), 2) || raise "missing issue identifier"
       env_files_dir = System.get_env("SYMPHONY_PROJECT_ROOT") || File.cwd!()
 
-      case SymphonyElixir.Codex.ScriptSupport.manual_prompt(
+      case SymphonyElixir.Codex.ScriptSupport.manual_prompt_context(
              workflow_path,
              interactive_workflow_path,
              issue_identifier,
              env_files_dir
            ) do
-        {:ok, prompt} ->
+        {:ok, %{prompt: prompt, workflow_step: workflow_step}} ->
+          IO.write("SYM_CODEX_CONTEXT_V1\n")
+          IO.write((workflow_step || "") <> "\n")
+          IO.write("SYM_CODEX_PROMPT_V1\n")
           IO.write(prompt)
 
         {:error, reason} ->
@@ -255,6 +261,36 @@ sym_codex_build_manual_prompt() {
       end
     ' -- "$workflow_file" "$interactive_workflow_file" "$issue_identifier"
   )
+}
+
+sym_codex_parse_manual_prompt_context() {
+  local prompt_context="$1"
+  local context_prefix=$'SYM_CODEX_CONTEXT_V1\n'
+  local prompt_marker=$'\nSYM_CODEX_PROMPT_V1\n'
+  local remainder=""
+
+  if [[ "$prompt_context" == "$context_prefix"* ]] && [[ "$prompt_context" == *"$prompt_marker"* ]]; then
+    remainder="${prompt_context#"$context_prefix"}"
+    SYM_CODEX_WORKFLOW_STEP="${remainder%%"$prompt_marker"*}"
+    SYM_CODEX_PROMPT="${remainder#*"$prompt_marker"}"
+    return 0
+  fi
+
+  SYM_CODEX_WORKFLOW_STEP=""
+  SYM_CODEX_PROMPT="$prompt_context"
+}
+
+sym_codex_set_launch_profile() {
+  local workflow_step="$1"
+
+  SYM_CODEX_MODEL="gpt-5.4"
+  SYM_CODEX_REASONING_EFFORT="high"
+
+  case "$workflow_step" in
+    "Review (AI)")
+      SYM_CODEX_REASONING_EFFORT="xhigh"
+      ;;
+  esac
 }
 
 sym_codex_expand_path() {
@@ -361,12 +397,10 @@ sym_codex_run() {
   local workflow_file
   local interactive_workflow_file
   local workspace=""
+  local prompt_context=""
   local prompt=""
-  local -a codex_args=(
-    --config shell_environment_policy.inherit=all
-    --config model_reasoning_effort=high
-    --model gpt-5.4
-  )
+  local workflow_step=""
+  local -a codex_args=(--config shell_environment_policy.inherit=all)
 
   while (($# > 0)); do
     case "$1" in
@@ -432,12 +466,23 @@ sym_codex_run() {
     sym_codex_finish 1
   fi
 
+  if (( ! observer_mode )); then
+    prompt_context="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier")" ||
+      sym_codex_die "cannot build prompt for $issue_identifier"
+    sym_codex_parse_manual_prompt_context "$prompt_context"
+    prompt="$SYM_CODEX_PROMPT"
+    workflow_step="$SYM_CODEX_WORKFLOW_STEP"
+  fi
+
+  sym_codex_set_launch_profile "$workflow_step"
+  codex_args+=(
+    --config "model_reasoning_effort=$SYM_CODEX_REASONING_EFFORT"
+    --model "$SYM_CODEX_MODEL"
+  )
+
   if (( observer_mode )); then
     codex_args+=(app-server)
   else
-    prompt="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier")" ||
-      sym_codex_die "cannot build prompt for $issue_identifier"
-
     codex_args+=(
       --config "mcp_servers.symphony_linear.command=$(sym_codex_toml_basic_string "$source_repo/sym-codex-mcp")"
       --config "mcp_servers.symphony_linear.env={SYMPHONY_SOURCE_REPO=$(sym_codex_toml_basic_string "$source_repo"),SYMPHONY_WORKFLOW_FILE=$(sym_codex_toml_basic_string "$workflow_file")}"
