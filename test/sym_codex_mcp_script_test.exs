@@ -115,14 +115,14 @@ defmodule SymCodexMcpScriptTest do
   defp elixir_runtime_path! do
     repo_root = Path.expand("..", __DIR__)
 
-    {mix_path, 0} =
+    {runtime_path, 0} =
       System.cmd(
         "bash",
-        ["-lc", "mise exec -- which mix"],
+        ["-lc", "mise exec -- bash -lc 'printf %s \"$PATH\"'"],
         cd: repo_root,
         stderr_to_stdout: true
       )
 
-    Path.dirname(String.trim(mix_path)) <> ":/usr/bin:/bin"
+    String.trim(runtime_path)
   end
 end
