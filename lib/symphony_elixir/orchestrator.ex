@@ -16,6 +16,7 @@ defmodule SymphonyElixir.Orchestrator do
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
+  @manual_in_progress_state_name "in arbeit"
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,
@@ -684,9 +685,16 @@ defmodule SymphonyElixir.Orchestrator do
   defp active_state_set do
     Config.settings!().tracker.active_states
     |> Enum.map(&normalize_issue_state/1)
+    |> Enum.concat([@manual_in_progress_state_name])
     |> Enum.filter(&(&1 != ""))
     |> MapSet.new()
   end
+
+  defp manual_in_progress_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @manual_in_progress_state_name
+  end
+
+  defp manual_in_progress_issue_state?(_state_name), do: false
 
   defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
     case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
@@ -999,16 +1007,24 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
        when is_binary(issue_id) and is_map(running_entry) do
-    Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+    if manual_in_progress_issue_state?(running_entry.issue.state) do
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual in-progress bootstrap finished without continuation")
 
-    state
-    |> complete_issue(issue_id, running_entry.issue.state)
-    |> schedule_issue_retry(issue_id, 1, %{
-      identifier: running_entry.identifier,
-      delay_type: :continuation,
-      worker_host: Map.get(running_entry, :worker_host),
-      workspace_path: Map.get(running_entry, :workspace_path)
-    })
+      state
+      |> complete_issue(issue_id, running_entry.issue.state)
+      |> release_issue_claim(issue_id)
+    else
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+      state
+      |> complete_issue(issue_id, running_entry.issue.state)
+      |> schedule_issue_retry(issue_id, 1, %{
+        identifier: running_entry.identifier,
+        delay_type: :continuation,
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
+      })
+    end
   end
 
   defp completed_in_current_state?(%Issue{id: issue_id, state: issue_state}, completed_states)

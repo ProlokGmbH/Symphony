@@ -781,6 +781,55 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert query =~ "SymphonyLinearIssueByIdentifier"
   end
 
+  @tag :manual_in_arbeit_client
+  test "linear client includes manual In Arbeit in candidate polling" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      if is_nil(previous_request_fun) do
+        Application.delete_env(:symphony_elixir, :linear_client_request_fun)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_request_fun, previous_request_fun)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo (AI)", "Review (AI)"]
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:fetch_candidate_issues, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => []
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, []} = Client.fetch_candidate_issues()
+
+    assert_receive {:fetch_candidate_issues,
+                    %{
+                      "query" => query,
+                      "variables" => %{
+                        projectSlug: "project",
+                        stateNames: ["Todo (AI)", "Review (AI)", "In Arbeit"],
+                        first: 50,
+                        relationFirst: 50,
+                        after: nil
+                      }
+                    }}
+
+    assert query =~ "state: {name: {in: $stateNames}}"
+  end
+
   test "linear client paginates issue comment bodies beyond the first page" do
     previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
 

@@ -77,6 +77,37 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end)
   end
 
+  test "no-ops when gh command lookup succeeds but System.cmd raises" do
+    with_fake_binaries(
+      %{
+        "gh" => """
+        #!/bin/sh
+        exit 0
+        """
+      },
+      fn _log_path ->
+        unique = System.unique_integer([:positive, :monotonic])
+        missing_cwd = Path.join(System.tmp_dir!(), "workspace-before-remove-gh-missing-cwd-#{unique}")
+        original_cwd = File.cwd!()
+
+        try do
+          File.mkdir_p!(missing_cwd)
+          File.cd!(missing_cwd)
+          File.rm_rf!(missing_cwd)
+
+          output =
+            capture_io(fn ->
+              BeforeRemove.run(["--branch", "feature/broken-gh"])
+            end)
+
+          assert output == ""
+        after
+          File.cd!(original_cwd)
+        end
+      end
+    )
+  end
+
   test "uses current branch for lookup when branch option is omitted" do
     with_fake_gh_and_git(
       """

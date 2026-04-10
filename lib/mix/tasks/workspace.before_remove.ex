@@ -436,9 +436,14 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
         {:error, {:enoent, ""}}
 
       path ->
-        case System.cmd(path, args, stderr_to_stdout: true) do
-          {output, 0} -> {:ok, output}
-          {output, status} -> {:error, {status, output}}
+        try do
+          case System.cmd(path, args, stderr_to_stdout: true) do
+            {output, 0} -> {:ok, output}
+            {output, status} -> {:error, {status, output}}
+          end
+        rescue
+          error in ErlangError ->
+            {:error, {error.original, ""}}
         end
     end
   end
