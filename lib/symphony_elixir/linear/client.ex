@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
+  @manual_in_progress_state_name "In Arbeit"
 
   @issue_selection """
   id
@@ -104,7 +105,7 @@ defmodule SymphonyElixir.Linear.Client do
 
       true ->
         with {:ok, assignee_filter} <- routing_assignee_filter() do
-          do_fetch_by_states(project_slug, tracker.active_states, assignee_filter)
+          do_fetch_by_states(project_slug, candidate_state_names(tracker.active_states), assignee_filter)
         end
     end
   end
@@ -283,6 +284,15 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp do_fetch_by_states(project_slug, state_names, assignee_filter) do
     do_fetch_by_states_page(project_slug, state_names, assignee_filter, nil, [])
+  end
+
+  defp candidate_state_names(state_names) when is_list(state_names) do
+    state_names
+    |> Kernel.++([@manual_in_progress_state_name])
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
   end
 
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do

@@ -2750,6 +2750,186 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  @tag :manual_in_arbeit_bootstrap
+  test "agent runner bootstraps a worktree for manual In Arbeit without starting Codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-manual-in-arbeit-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "# manual bootstrap\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        issue_key="$(basename "$workspace")"
+        branch="symphony/$issue_key"
+        rm -rf "$workspace"
+        git -C "$source_repo" worktree add -b "$branch" "$workspace" HEAD
+        touch "$workspace/.after_create_ran"
+        """,
+        codex_command: "sh -lc 'touch #{codex_stamp}'"
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      issue = %Issue{
+        id: "issue-manual-in-arbeit",
+        identifier: "MT-MANUAL-IN-ARBEIT",
+        title: "Manual in-progress bootstrap",
+        description: "Prepare a worktree for manual work",
+        state: "In Arbeit",
+        url: "https://example.org/issues/MT-MANUAL-IN-ARBEIT",
+        labels: []
+      }
+
+      workspace = Path.join(workspace_root, "MT-MANUAL-IN-ARBEIT")
+
+      assert :ok =
+               File.cd!(source_repo, fn ->
+                 AgentRunner.run(issue)
+               end)
+
+      assert File.dir?(workspace)
+      assert File.exists?(Path.join(workspace, ".git"))
+      assert File.exists?(Path.join(workspace, ".after_create_ran"))
+      refute File.exists?(codex_stamp)
+
+      assert {"symphony/MT-MANUAL-IN-ARBEIT\n", 0} =
+               System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
+
+      assert_receive {:memory_tracker_branch_update, "issue-manual-in-arbeit", "symphony/MT-MANUAL-IN-ARBEIT"}
+      refute_receive {:memory_tracker_state_update, "issue-manual-in-arbeit", _state_name}, 100
+    after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  @tag :manual_in_arbeit_orchestrator
+  test "orchestrator dispatches manual In Arbeit once for bootstrap without scheduling continuation" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-orchestrator-manual-in-arbeit-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+      issue_id = "issue-manual-orchestrator"
+      issue_identifier = "MT-MANUAL-ORCH"
+      existing_task_supervisor = Process.whereis(SymphonyElixir.TaskSupervisor)
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "# manual orchestrator\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        issue_key="$(basename "$workspace")"
+        branch="symphony/$issue_key"
+        rm -rf "$workspace"
+        git -C "$source_repo" worktree add -b "$branch" "$workspace" HEAD
+        touch "$workspace/.after_create_ran"
+        """,
+        codex_command: "sh -lc 'touch #{codex_stamp}'",
+        poll_interval_ms: 30_000
+      )
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Manual in-progress bootstrap",
+        description: "Prepare a worktree for manual work",
+        state: "In Arbeit",
+        url: "https://example.org/issues/#{issue_identifier}",
+        labels: []
+      }
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      workspace = Path.join(workspace_root, issue_identifier)
+      expected_branch = "symphony/#{issue_identifier}"
+      orchestrator_name = Module.concat(__MODULE__, :ManualInArbeitOrchestrator)
+
+      started_task_supervisor =
+        case existing_task_supervisor do
+          pid when is_pid(pid) ->
+            nil
+
+          nil ->
+            {:ok, pid} = Task.Supervisor.start_link(name: SymphonyElixir.TaskSupervisor)
+            pid
+        end
+
+      File.cd!(source_repo, fn ->
+        {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+        on_exit(fn ->
+          if Process.alive?(pid) do
+            Process.exit(pid, :normal)
+          end
+
+          if is_pid(started_task_supervisor) and Process.alive?(started_task_supervisor) do
+            Process.exit(started_task_supervisor, :normal)
+          end
+        end)
+
+        send(pid, :tick)
+
+        assert_receive {:memory_tracker_branch_update, ^issue_id, ^expected_branch}, 1_000
+        Process.sleep(200)
+
+        assert File.dir?(workspace)
+        assert File.exists?(Path.join(workspace, ".after_create_ran"))
+        refute File.exists?(codex_stamp)
+
+        state = :sys.get_state(pid)
+        refute Map.has_key?(state.running, issue_id)
+        refute MapSet.member?(state.claimed, issue_id)
+        assert Map.get(state.completed_states, issue_id) == "in arbeit"
+        refute Map.has_key?(state.retry_attempts, issue_id)
+      end)
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner moves PreReview (AI) issues to Freigabe Implementierung after a clean prereview turn" do
     test_root =
       Path.join(

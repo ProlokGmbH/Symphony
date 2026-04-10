@@ -17,6 +17,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
+  @manual_in_progress_state_name "in arbeit"
   @ignored_manual_state_names [
     "todo",
     "in arbeit",
@@ -53,6 +54,9 @@ defmodule SymphonyElixir.AgentRunner do
       {:ok, %Issue{} = transitioned_issue, :continue} ->
         run_on_worker_host(transitioned_issue, codex_update_recipient, opts, worker_host)
 
+      {:bootstrap_only, %Issue{} = manual_issue} ->
+        bootstrap_manual_in_progress_issue(manual_issue, codex_update_recipient, worker_host)
+
       :manual_noop ->
         Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
         :ok
@@ -82,6 +86,9 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher) do
     cond do
+      manual_in_progress_issue_state?(issue.state) ->
+        {:bootstrap_only, issue}
+
       not ignored_manual_state?(issue.state) ->
         :proceed
 
@@ -103,6 +110,19 @@ defmodule SymphonyElixir.AgentRunner do
           _ ->
             :manual_noop
         end
+    end
+  end
+
+  defp bootstrap_manual_in_progress_issue(%Issue{} = issue, codex_update_recipient, worker_host) do
+    Logger.info("Bootstrapping workspace for manual in-progress issue #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
+
+    case Workspace.create_for_issue(issue, worker_host) do
+      {:ok, workspace} ->
+        send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
+        maybe_sync_issue_branch_name(issue, workspace, worker_host)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -502,6 +522,12 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp merge_codex_state?(_state_name), do: false
+
+  defp manual_in_progress_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @manual_in_progress_state_name
+  end
+
+  defp manual_in_progress_issue_state?(_state_name), do: false
 
   defp ignored_manual_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)

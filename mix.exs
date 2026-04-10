@@ -45,7 +45,10 @@ defmodule SymphonyElixir.MixProject do
         "test/support/test_support.exs"
       ],
       dialyzer: [
-        plt_add_apps: [:mix]
+        # Keep Dialyzer core PLTs inside the worktree so isolated Codex
+        # workspaces do not reuse stale global caches from a different toolchain.
+        plt_add_apps: [:mix],
+        plt_core_path: "_build/#{Mix.env()}"
       ],
       escript: escript(),
       aliases: aliases(),
