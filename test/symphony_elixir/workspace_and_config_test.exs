@@ -117,7 +117,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "current WORKFLOW after_create hook runs .symphony/on_create_worktree.py to copy .env.local into new worktrees" do
+  test "current WORKFLOW after_create hook copies .env.local and creates issue-specific CLI symlinks" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -135,9 +135,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       workspace_root = Path.join(test_root, "worktrees")
       workflow_dir = Path.join(test_root, "workflow")
       workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
+      fake_home = Path.join(test_root, "home")
       env_local_contents = "SELF_HOSTED=1\nLINEAR_ASSIGNEE=dev@example.com\n"
+      previous_home = System.get_env("HOME")
 
       File.mkdir_p!(workflow_dir)
+      File.mkdir_p!(fake_home)
+      on_exit(fn -> restore_env("HOME", previous_home) end)
 
       assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
@@ -146,10 +150,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
 
       File.write!(Path.join(source_repo, "README.md"), "base\n")
+      File.write!(Path.join(source_repo, "symphony"), "#!/usr/bin/env bash\n")
+      File.write!(Path.join(source_repo, "sym-codex"), "#!/usr/bin/env bash\n")
+      File.chmod!(Path.join(source_repo, "symphony"), 0o755)
+      File.chmod!(Path.join(source_repo, "sym-codex"), 0o755)
       write_minimal_mix_project!(source_repo, :worktree_env_local)
       install_current_worktree_scripts!(source_repo)
       File.write!(Path.join(source_repo, ".symphony/.env.local"), env_local_contents)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "symphony"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "sym-codex"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mix.exs"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "mise.toml"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", ".symphony"], stderr_to_stdout: true)
@@ -162,6 +172,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       )
 
       Workflow.set_workflow_file_path(workflow_file)
+      System.put_env("HOME", fake_home)
 
       assert {:ok, workspace} =
                File.cd!(source_repo, fn ->
@@ -169,6 +180,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                end)
 
       assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
+      assert File.read_link!(Path.join(fake_home, ".local/bin/symphony-MT-ENV")) == Path.join(workspace, "symphony")
+      assert File.read_link!(Path.join(fake_home, ".local/bin/sym-codex-MT-ENV")) == Path.join(workspace, "sym-codex")
 
       File.write!(Path.join(source_repo, ".symphony/.env.local"), "SELF_HOSTED=2\n")
       assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
@@ -177,7 +190,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "project on_remove_worktree script accepts source repo and workspace arguments as a no-op" do
+  test "project on_remove_worktree script removes matching issue symlinks" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -186,13 +199,34 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     script_path = project_worktree_script_path("on_remove_worktree.py")
     source_repo = Path.join(test_root, "source")
-    workspace = Path.join(test_root, "workspace")
+    workspace = Path.join(test_root, "PRO-130")
+    fake_home = Path.join(test_root, "home")
+    managed_symphony_link = Path.join(fake_home, ".local/bin/symphony-PRO-130")
+    managed_sym_codex_link = Path.join(fake_home, ".local/bin/sym-codex-PRO-130")
+    other_issue_link = Path.join(fake_home, ".local/bin/symphony-PRO-999")
+    managed_symphony_target = Path.join(workspace, "symphony")
+    managed_sym_codex_target = Path.join(workspace, "sym-codex")
+    other_issue_target = Path.join(workspace, "other-symphony")
 
     try do
       File.mkdir_p!(source_repo)
       File.mkdir_p!(workspace)
+      File.mkdir_p!(Path.join(fake_home, ".local/bin"))
+      File.write!(managed_symphony_target, "")
+      File.write!(managed_sym_codex_target, "")
+      File.ln_s!(managed_symphony_target, managed_symphony_link)
+      File.ln_s!(managed_sym_codex_target, managed_sym_codex_link)
+      File.ln_s!(other_issue_target, other_issue_link)
 
-      assert {"", 0} = System.cmd("python3", [script_path, source_repo, workspace], stderr_to_stdout: true)
+      assert {"", 0} =
+               System.cmd("python3", [script_path, source_repo, workspace],
+                 env: [{"HOME", fake_home}],
+                 stderr_to_stdout: true
+               )
+
+      assert {:error, :enoent} = File.lstat(managed_symphony_link)
+      assert {:error, :enoent} = File.lstat(managed_sym_codex_link)
+      assert File.read_link!(other_issue_link) == other_issue_target
     after
       File.rm_rf(test_root)
     end
