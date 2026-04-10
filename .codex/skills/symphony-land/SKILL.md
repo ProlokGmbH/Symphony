@@ -1,9 +1,10 @@
 ---
 name: symphony-land
 description:
-  Führe eine PR zum Merge, indem du Konflikte beobachtest, löst, auf Checks
-  wartest und bei Grün mergst; nutze den Skill bei Land-/Merge-Aufgaben oder
-  wenn eine PR bis zum Abschluss begleitet werden soll.
+  Fuehre innerhalb eines laufenden Symphony-Issue-Workflows eine PR zum Merge,
+  indem du Konflikte beobachtest, loest, auf Checks wartest und bei Gruen
+  mergst; nutze den Skill nur fuer den vom Workflow vorgegebenen
+  Land-/Merge-Schritt.
 ---
 
 # Land
@@ -15,8 +16,8 @@ description:
 - Merge die PR per merge commit, sobald die Checks bestehen.
 - Gib nicht an den Benutzer zurück, bevor die PR gemergt ist; halte die
   Watcher-Schleife am Laufen, solange nichts blockiert.
-- Remote-Branches müssen nach dem Merge nicht gelöscht werden; das Repo löscht
-  Head-Branches automatisch.
+- Übernimm keine separaten Aufräumarbeiten außerhalb dessen, was der laufende
+  Workflow oder das aktuelle Repository ausdrücklich verlangt.
 
 ## Voraussetzungen
 
@@ -104,7 +105,7 @@ if ! gh pr checks --watch; then
   exit 1
 fi
 
-# Merge-Commit mit Linear-Issue-Betreff (Remote-Branches werden in diesem Repo beim Merge automatisch gelöscht)
+# Merge-Commit mit Linear-Issue-Betreff
 gh pr merge --merge --subject "$merge_subject" --body "$pr_body"
 ```
 
@@ -136,9 +137,9 @@ Exit-Codes:
   neuen CI-Lauf aus. Erkenne den aktualisierten PR-Head, ziehe ihn lokal,
   merge bei Bedarf `origin/main`, ergänze einen echten Autoren-Commit und
   `force-push`, um CI erneut auszulösen; starte dann die Check-Schleife neu.
-- Wenn alle Jobs beim merge commit mit korrupten pnpm-lockfile-Fehlern
-  scheitern, ist die Abhilfe: aktuelles `origin/main` holen, mergen,
-  force-pushen und CI neu starten.
+- Wenn Merge oder CI an veralteten generierten Artefakten oder einem
+  veralteten Branch scheitern, hole aktuelles `origin/main`, synchronisiere
+  den PR-Branch sauber und starte die Checks erneut.
 - Wenn die Mergebarkeit `UNKNOWN` ist, warte und prüfe erneut.
 - Merge nicht, solange Review-Kommentare (menschlich oder Codex-Review) offen
   sind.
@@ -148,8 +149,9 @@ Exit-Codes:
 - Codex-Review-Jobs wiederholen sich bei Fehlern und blockieren nicht; nutze
   das Vorhandensein von `## Codex Review — <persona>`-Issue-Kommentaren
   (nicht den Job-Status) als Signal für verfügbares Review-Feedback.
-- Aktiviere kein Auto-Merge; dieses Repo hat keine required checks, daher
-  könnte Auto-Merge Tests überspringen.
+- Aktiviere Auto-Merge nur, wenn der laufende Workflow und das aktuelle
+  Repository es ausdrücklich verlangen; andernfalls merge erst nach
+  bestätigten grünen Checks.
 - Wenn der Remote-PR-Branch durch eigenen früheren force-push oder Merge
   weitergelaufen ist, vermeide redundante Merges; formatiere lokal bei Bedarf
   erneut und nutze `git push --force-with-lease`.

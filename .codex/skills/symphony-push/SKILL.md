@@ -1,15 +1,17 @@
 ---
 name: symphony-push
 description:
-  Push aktuelle Branch-Änderungen nach origin und erstelle oder aktualisiere
-  die zugehörige Pull Request; nutze den Skill bei Push-, Publish- oder
-  Pull-Request-Aufgaben.
+  Veröffentliche innerhalb eines laufenden Symphony-Issue-Workflows den aktiven
+  Branch nach `origin` und erstelle oder aktualisiere die zugehörige Pull
+  Request; nutze den Skill nur für den vom Workflow vorgegebenen Branch- und
+  PR-Kontext.
 ---
 
 # Push
 
 ## Voraussetzungen
 
+- Der Aufruf erfolgt innerhalb eines laufenden Symphony-Issue-Workflows.
 - `gh` CLI ist installiert und in `PATH` verfügbar.
 - `gh auth status` läuft für GitHub-Operationen in diesem Repo erfolgreich durch.
 
@@ -48,7 +50,8 @@ description:
 ## Schritte
 
 1. Ermittle den aktuellen Branch und bestätige den Remote-Status.
-2. Führe vor dem Push die lokale Validierung (`make all`) aus.
+2. Führe vor dem Push die für das aktuelle Repository oder Ticket dokumentierte
+   lokale Validierung aus.
 3. Pushe den Branch bei Bedarf mit Upstream-Tracking nach `origin` und nutze
    dabei die bereits konfigurierte Remote-URL.
 4. Falls der Push nicht sauber läuft oder abgelehnt wird:
@@ -74,19 +77,16 @@ description:
    Attachment fehlt, nutze `symphony-linear`, um die interne Linear-`issueId`
    aufzulösen, bestehende Attachments zu prüfen und die PR-URL dann mit
    `attachmentLinkGitHubPR` an das aktive Linear-Issue zurückzuverknüpfen.
-7. Schreibe/aktualisiere den PR-Body explizit anhand von
-   `.github/pull_request_template.md`:
-   - Fülle jeden Abschnitt mit konkretem Inhalt für diese Änderung.
-   - Ersetze alle Platzhalterkommentare (`<!-- ... -->`).
-   - Behalte Bullets/Checkboxen bei, wo die Vorlage sie erwartet.
+7. Schreibe oder aktualisiere den PR-Body anhand der im aktuellen Repository
+   dokumentierten PR-Konventionen.
+   - Falls es eine PR-Vorlage oder Pflichtabschnitte gibt, fülle sie mit
+     konkretem Inhalt für diese Änderung.
    - Wenn bereits eine PR existiert, aktualisiere den Body so, dass er den
-     gesamten PR-Scope widerspiegelt (alle beabsichtigten Änderungen auf dem
-     Branch), nicht nur die neuesten Commits, einschließlich neu
-     hinzugekommener Arbeit, entfallener Arbeit oder geänderter Vorgehensweise.
+     gesamten PR-Scope widerspiegelt, nicht nur die neuesten Commits.
    - Verwende keinen veralteten Beschreibungstext aus früheren Iterationen
      wieder.
-8. Validiere den PR-Body mit `mix pr_body.check` und behebe alle gemeldeten
-   Probleme.
+8. Führe eine dokumentierte PR-Body-Validierung nur dann aus, wenn das aktuelle
+   Repository oder der Workflow sie ausdrücklich vorgibt.
 9. Antworte mit der PR-URL aus `gh pr view`.
 
 ## Befehle
@@ -95,8 +95,8 @@ description:
 # Branch bestimmen
 branch=$(git branch --show-current)
 
-# Minimales Validierungsgate
-make all
+# Repo- oder ticketseitig dokumentierte lokale Validierung ausführen
+<lokale Validierung aus Repo-/Ticket-Kontext>
 
 # Erster Push: den aktuellen origin-Remote respektieren.
 git push -u origin HEAD
@@ -157,17 +157,14 @@ pr_url=$(gh pr view --json url -q .url)
 #   }
 # }
 
-# PR-Body vor der Validierung passend zu .github/pull_request_template.md
+# PR-Body passend zu den dokumentierten Konventionen des aktuellen Repos
 # schreiben/bearbeiten.
 # Beispielablauf:
-# 1) Vorlage öffnen und Body-Inhalt für diese PR entwerfen
+# 1) Dokumentierte Vorlage oder Konvention öffnen und Body-Inhalt fuer diese PR entwerfen
 # 2) gh pr edit --body-file /tmp/pr_body.md
 # 3) bei Branch-Updates erneut prüfen, ob Titel/Body noch zum aktuellen Diff passen
 
-tmp_pr_body=$(mktemp)
-gh pr view --json body -q .body > "$tmp_pr_body"
-mix pr_body.check --file "$tmp_pr_body"
-rm -f "$tmp_pr_body"
+# Falls das Repo eine PR-Body-Validierung dokumentiert, diese hier ausfuehren.
 
 # PR-URL für die Antwort ausgeben
 printf '%s\n' "$pr_url"

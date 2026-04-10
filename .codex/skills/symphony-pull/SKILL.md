@@ -1,13 +1,16 @@
 ---
 name: symphony-pull
 description:
-  Ziehe das neueste `origin/main` in den aktuellen lokalen Branch und löse
-  Merge-Konflikte (aka update-branch). Nutze den Skill, wenn Codex einen
-  Feature-Branch mit origin synchronisieren, ein merge-basiertes Update
-  ausführen (nicht rebase) und gute Konfliktlösungs-Praxis anwenden soll.
+  Ziehe innerhalb eines laufenden Symphony-Issue-Workflows das neueste
+  `origin/main` in den aktiven Workflow-Branch und loese Merge-Konflikte
+  (aka update-branch). Nutze den Skill nur fuer die vom Workflow geforderte
+  merge-basierte Synchronisierung, nicht fuer generische Git-Arbeit.
 ---
 
 # Pull
+
+Nutze diesen Skill nur, wenn der laufende Symphony-Issue-Workflow einen Pull-
+oder Update-Branch-Schritt verlangt.
 
 ## Ablauf
 
