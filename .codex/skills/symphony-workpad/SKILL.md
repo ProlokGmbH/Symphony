@@ -1,18 +1,20 @@
 ---
 name: symphony-workpad
 description:
-  Verwende diesen Skill fuer Aufbau, Standardstruktur und Pflege des
-  persistenten `## Codex Workpad`-Kommentars in Symphony. Er deckt das
-  Finden/Anlegen des einen Workpads, Environment-Stamp, die kanonischen
-  Abschnitte, Verlauf und den finalen Handoff-Zustand ab. Inhaltliche Planung
-  von `Plan` und `Validierung` liegt beim Skill `symphony-planning`.
-  Statuslogik bleibt in `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
+  Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
+  fuer Aufbau, Standardstruktur und Pflege des persistenten
+  `## Codex Workpad`-Kommentars. Er deckt Finden/Anlegen des einen Workpads,
+  Environment-Stamp, die kanonischen Abschnitte, Verlauf und den finalen
+  Handoff-Zustand ab. Inhaltliche Planung von `Plan` und `Validierung` liegt
+  beim Skill `symphony-planning`; Statuslogik bleibt in `WORKFLOW.md` bzw.
+  `WORKFLOW_INTERACTIVE.md`.
 ---
 
 # Symphony Workpad
 
-Verwende diesen Skill, wenn du das persistente Codex Workpad eines Symphony-Tickets
-finden, anlegen, strukturieren oder aktuell halten musst.
+Verwende diesen Skill nur, wenn du innerhalb eines laufenden
+Symphony-Issue-Workflows das persistente Codex Workpad eines Tickets finden,
+anlegen, strukturieren oder aktuell halten musst.
 
 ## Abgrenzung
 

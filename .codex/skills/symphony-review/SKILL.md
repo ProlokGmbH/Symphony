@@ -1,7 +1,8 @@
 ---
 name: symphony-review
 description:
-  Lies den Skill `.codex/skills/sym-review/SKILL.md`, führe die dort definierten
+  Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
+  `.codex/skills/sym-review/SKILL.md`, führe die dort definierten
   `Review (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
   Workpad als Checklistenpunkt, setze Fixes sofort um und starte den Review-
   Zyklus neu, bis der Workspace sauber ist oder `agent.max_turns` erreicht
@@ -10,7 +11,8 @@ description:
 
 # Symphony Review
 
-Verwende diesen Skill, wenn ein Ticket den Status `Review (AI)` erreicht.
+Verwende diesen Skill nur, wenn ein Ticket innerhalb des laufenden
+Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 
 ## Ziel
 

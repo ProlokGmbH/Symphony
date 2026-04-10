@@ -1,12 +1,16 @@
 ---
 name: symphony-commit
 description:
-  Erstelle aus den aktuellen Änderungen einen sauberen git-Commit mit
-  Sitzungsverlauf für Begründung und Zusammenfassung; nutze den Skill bei
-  Commit-Anfragen, für Commit-Messages oder zum Abschließen gestagter Arbeit.
+  Erstelle innerhalb eines laufenden Symphony-Issue-Workflows aus den
+  aktuellen Änderungen einen sauberen git-Commit mit Sitzungsverlauf für
+  Begründung und Zusammenfassung; nutze den Skill nur für den vom Workflow
+  vorgegebenen Commit-Schritt oder für Commit-Messages in diesem Kontext.
 ---
 
 # Commit
+
+Nutze diesen Skill nur für Commit-Anfragen innerhalb eines laufenden
+Symphony-Issue-Workflows.
 
 ## Ziele
 

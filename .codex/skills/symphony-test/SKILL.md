@@ -1,15 +1,17 @@
 ---
 name: symphony-test
 description:
-  Lies den Skill `.codex/skills/sym-test/SKILL.md`, führe die dort definierten
-  `Test (AI)`-Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad
-  als Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu,
-  bis der Workspace sauber ist oder `agent.max_turns` erreicht wurde.
+  Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
+  `.codex/skills/sym-test/SKILL.md`, führe die dort definierten `Test (AI)`-
+  Schritte aus, protokolliere jeden Test-Schritt im Codex Workpad als
+  Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu, bis
+  der Workspace sauber ist oder `agent.max_turns` erreicht wurde.
 ---
 
 # Symphony Test
 
-Verwende diesen Skill, wenn ein Ticket den Status `Test (AI)` erreicht.
+Verwende diesen Skill nur, wenn ein Ticket innerhalb des laufenden
+Symphony-Issue-Workflows den Status `Test (AI)` erreicht.
 
 ## Ziel
 

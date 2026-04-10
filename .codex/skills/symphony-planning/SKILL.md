@@ -1,17 +1,19 @@
 ---
 name: symphony-planning
 description:
-  Verwende diesen Skill fuer Ticket- und Umsetzungsplanung in Symphony. Er legt
-  fest, wie die Linear-Beschreibung aufgebaut sein muss und wie `Plan` und
-  `Validierung` im Codex Workpad vorbereitet und gepflegt werden. Automatische
+  Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
+  fuer Ticket- und Umsetzungsplanung. Er legt fest, wie die
+  Linear-Beschreibung aufgebaut sein muss und wie `Plan` und `Validierung` im
+  Codex Workpad vorbereitet und gepflegt werden. Automatische
   Plan-Aenderungen sind nur in `Planung (AI)` erlaubt; Statuslogik bleibt in
   `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
 ---
 
 # Symphony Planning
 
-Verwende diesen Skill, wenn ein Ticket fuer die Umsetzung vorbereitet oder
-automatisiert neu geplant werden muss.
+Verwende diesen Skill nur, wenn ein Ticket innerhalb des laufenden
+Symphony-Issue-Workflows fuer die Umsetzung vorbereitet oder automatisiert neu
+geplant werden muss.
 
 ## Zielsetzung
 

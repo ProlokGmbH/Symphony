@@ -1,16 +1,18 @@
 ---
 name: symphony-prereview
 description:
-  Lies den Skill `.codex/skills/sym-prereview/SKILL.md`, fuehre die dort
-  definierten `PreReview (AI)`-Schritte aus, protokolliere jeden Review-Schritt
-  im Codex Workpad als Checklistenpunkt, setze Fixes sofort um und wiederhole
-  nach einem Fix nur den fehlgeschlagenen Schritt, bis der Workspace sauber ist
+  Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
+  `.codex/skills/sym-prereview/SKILL.md`, fuehre die dort definierten
+  `PreReview (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
+  Workpad als Checklistenpunkt, setze Fixes sofort um und wiederhole nach
+  einem Fix nur den fehlgeschlagenen Schritt, bis der Workspace sauber ist
   oder `agent.max_turns` erreicht wurde.
 ---
 
 # Symphony PreReview
 
-Verwende diesen Skill, wenn ein Ticket den Status `PreReview (AI)` erreicht.
+Verwende diesen Skill nur, wenn ein Ticket innerhalb des laufenden
+Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 
 ## Ziel
 
@@ -37,8 +39,8 @@ Verwende diesen Skill, wenn ein Ticket den Status `PreReview (AI)` erreicht.
   als Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschliesslich den Abschnitt `### Review`; aendere `### Test` nicht.
 - Pflege dort pro Schritt genau einen kurzen Eintrag, zum Beispiel:
-  - `- [x] Fuehre make all aus: erfolgreich`
-  - `- [ ] Fuehre codex review --uncommitted aus: Findings offen, Fix in Arbeit`
+  - `- [x] Fuehre <Repo-Schritt aus sym-prereview> aus: erfolgreich`
+  - `- [ ] Fuehre <weiteren PreReview-Schritt> aus: Findings offen, Fix in Arbeit`
 - Verwende `### Review` nicht als zeitgestempeltes Befehls- oder Ergebnislog.
 - Halte Befehle, Ergebnisse und Fix-Notizen weiterhin kurz unter `### Verlauf` fest.
 - Wenn du Code aenderst, ergaenze unter `### Verlauf` eine kurze Notiz, was behoben wurde und welcher Schritt jetzt erneut ausgefuehrt wird.

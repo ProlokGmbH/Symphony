@@ -2,13 +2,14 @@
 name: sym-prereview
 description: |
   Repository-spezifische Checkliste fuer den Workflow-Schritt `PreReview Codex`
-  in Symphony Elixir.
+  innerhalb eines laufenden Symphony-Issue-Workflows in Symphony Elixir.
 ---
 
 # Sym PreReview
 
-Verwende diesen Skill `sym-prereview` als massgebliche Checkliste fuer `PreReview Codex` in
-diesem Repository.
+Verwende diesen Skill `sym-prereview` nur als massgebliche Checkliste fuer
+`PreReview Codex`, wenn er innerhalb des laufenden Symphony-Issue-Workflows
+ueber `symphony-prereview` aufgerufen wurde.
 
 ## Checkliste
 
