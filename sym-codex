@@ -357,6 +357,61 @@ sym_codex_infer_issue_identifier_from_cwd() {
   return 1
 }
 
+sym_codex_current_workspace_for_issue() {
+  local issue_identifier="$1"
+  local expected_branch="symphony/$issue_identifier"
+  local current_dir
+  local branch_name
+  local workspace_root
+
+  current_dir="$(pwd -P)"
+
+  if ! git -C "$current_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 1
+  fi
+
+  branch_name="$(git -C "$current_dir" branch --show-current 2>/dev/null || true)"
+
+  if [[ "$branch_name" != "$expected_branch" ]]; then
+    return 1
+  fi
+
+  workspace_root="$(git -C "$current_dir" rev-parse --path-format=absolute --show-toplevel 2>/dev/null || true)"
+
+  if [[ -z "$workspace_root" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$workspace_root"
+}
+
+sym_codex_infer_issue_identifier_from_branch() {
+  local current_dir
+  local branch_name
+  local issue_identifier
+
+  current_dir="$(pwd -P)"
+
+  if ! git -C "$current_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 1
+  fi
+
+  branch_name="$(git -C "$current_dir" branch --show-current 2>/dev/null || true)"
+
+  case "$branch_name" in
+    symphony/*)
+      issue_identifier="${branch_name#symphony/}"
+
+      if [[ -n "$issue_identifier" ]]; then
+        printf '%s\n' "$issue_identifier"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 sym_codex_resolve_workspace() {
   local source_repo="$1"
   local workflow_file="$2"
@@ -446,15 +501,26 @@ sym_codex_run() {
   interactive_workflow_file="${SYMPHONY_WORKFLOW_INTERACTIVE_FILE:-$source_repo/WORKFLOW_INTERACTIVE.md}"
 
   if [[ -z "$issue_identifier" ]]; then
-    issue_identifier="$(sym_codex_infer_issue_identifier_from_cwd "$source_repo" "$workflow_file" "$project_root" 2>/dev/null || true)"
+    issue_identifier="$(sym_codex_infer_issue_identifier_from_branch 2>/dev/null || true)"
 
     if [[ -n "$issue_identifier" ]]; then
       issue_identifier_inferred=1
+    else
+      issue_identifier="$(sym_codex_infer_issue_identifier_from_cwd "$source_repo" "$workflow_file" "$project_root" 2>/dev/null || true)"
+
+      if [[ -n "$issue_identifier" ]]; then
+        issue_identifier_inferred=1
+      fi
     fi
   fi
 
   if [[ -n "$issue_identifier" ]]; then
-    if ! workspace="$(sym_codex_resolve_workspace "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")"; then
+    if (( issue_identifier_inferred )); then
+      workspace="$(sym_codex_current_workspace_for_issue "$issue_identifier" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$workspace" ]] &&
+         ! workspace="$(sym_codex_resolve_workspace "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")"; then
       sym_codex_finish 1
     fi
 
