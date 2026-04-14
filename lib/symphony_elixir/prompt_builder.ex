@@ -18,16 +18,19 @@ defmodule SymphonyElixir.PromptBuilder do
       prompt_template_from_opts(opts)
       |> parse_template!()
 
-    template
-    |> Solid.render!(
-      %{
-        "attempt" => Keyword.get(opts, :attempt),
-        "issue" => issue |> Map.from_struct() |> to_solid_map(),
-        "runtime" => runtime_context(issue, session_mode)
-      },
-      @render_opts
-    )
-    |> IO.iodata_to_binary()
+    rendered_prompt =
+      template
+      |> Solid.render!(
+        %{
+          "attempt" => Keyword.get(opts, :attempt),
+          "issue" => issue |> Map.from_struct() |> to_solid_map(),
+          "runtime" => runtime_context(issue, session_mode)
+        },
+        @render_opts
+      )
+      |> IO.iodata_to_binary()
+
+    append_recovered_turn_context(rendered_prompt, Keyword.get(opts, :recovered_turn_context))
   end
 
   @spec build_prompt_for_issue_identifier(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -146,4 +149,17 @@ defmodule SymphonyElixir.PromptBuilder do
       prompt
     end
   end
+
+  defp append_recovered_turn_context(prompt, context) when is_binary(prompt) and is_binary(context) do
+    trimmed_context = String.trim(context)
+
+    if trimmed_context == "" do
+      prompt
+    else
+      prompt <>
+        "\n\n" <> Workflow.prompt_snippet("recovered_turn_context", %{context: trimmed_context})
+    end
+  end
+
+  defp append_recovered_turn_context(prompt, _context), do: prompt
 end

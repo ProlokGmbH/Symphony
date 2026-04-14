@@ -69,6 +69,11 @@ defmodule SymphonyElixir.Linear.Adapter do
     client_module().fetch_issue_by_identifier(identifier)
   end
 
+  @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
+    client_module().fetch_issue_comment_bodies(issue_id)
+  end
+
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     with {:ok, response} <- client_module().graphql(@create_comment_mutation, %{issueId: issue_id, body: body}),

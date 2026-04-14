@@ -1,5 +1,6 @@
 defmodule SymphonyElixir.TestSupport do
-  @workflow_prompt "You are an agent for this repository."
+  @workflow_prompt "Du arbeitest an einem Ticket dieses Repositorys."
+  @repo_workflow_file Path.expand("../../WORKFLOW.md", __DIR__)
 
   defmacro __using__(_opts) do
     quote do
@@ -100,6 +101,15 @@ defmodule SymphonyElixir.TestSupport do
   end
 
   defp workflow_content(overrides) do
+    prompt_snippets =
+      case {Keyword.has_key?(overrides, :prompt_snippets), Keyword.get(overrides, :prompt_snippets)} do
+        {false, _value} ->
+          default_prompt_snippets!()
+
+        {true, snippets} ->
+          snippets
+      end
+
     config =
       Keyword.merge(
         [
@@ -144,6 +154,7 @@ defmodule SymphonyElixir.TestSupport do
           observability_render_interval_ms: 16,
           server_port: nil,
           server_host: nil,
+          prompt_snippets: prompt_snippets,
           prompt: @workflow_prompt
         ],
         overrides
@@ -181,6 +192,7 @@ defmodule SymphonyElixir.TestSupport do
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
+    prompt_snippets = Keyword.get(config, :prompt_snippets)
     prompt = Keyword.get(config, :prompt)
 
     sections =
@@ -221,6 +233,7 @@ defmodule SymphonyElixir.TestSupport do
         ),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
+        prompt_snippets_yaml(prompt_snippets),
         "---",
         prompt
       ]
@@ -310,6 +323,24 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
+  defp prompt_snippets_yaml(prompt_snippets) when prompt_snippets in [nil, %{}], do: nil
+
+  defp prompt_snippets_yaml(prompt_snippets) when is_map(prompt_snippets) do
+    [
+      "prompt_snippets:"
+      | Enum.map(prompt_snippets, fn
+          {name, template} when is_binary(template) ->
+            prompt_snippet_entry(to_string(name), template)
+
+          {name, template} ->
+            prompt_snippet_entry(to_string(name), to_string(template))
+        end)
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp prompt_snippets_yaml(prompt_snippets), do: "prompt_snippets: #{yaml_value(prompt_snippets)}"
+
   defp hook_entry(_name, nil), do: nil
 
   defp hook_entry(name, command) when is_binary(command) do
@@ -319,5 +350,30 @@ defmodule SymphonyElixir.TestSupport do
       |> Enum.map_join("\n", &("    " <> &1))
 
     "  #{name}: |\n#{indented}"
+  end
+
+  defp prompt_snippet_entry(name, template) when is_binary(name) and is_binary(template) do
+    indented =
+      template
+      |> String.split("\n")
+      |> Enum.map_join("\n", &("    " <> &1))
+
+    "  #{name}: |\n#{indented}"
+  end
+
+  defp default_prompt_snippets! do
+    case SymphonyElixir.Workflow.load(@repo_workflow_file) do
+      {:ok, %{config: config}} when is_map(config) ->
+        case Map.get(config, "prompt_snippets") || Map.get(config, :prompt_snippets) do
+          prompt_snippets when is_map(prompt_snippets) ->
+            prompt_snippets
+
+          other ->
+            raise "expected prompt_snippets map in #{@repo_workflow_file}, got: #{inspect(other)}"
+        end
+
+      {:error, reason} ->
+        raise "failed to load workflow prompt_snippets from #{@repo_workflow_file}: #{inspect(reason)}"
+    end
   end
 end

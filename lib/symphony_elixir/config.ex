@@ -7,16 +7,16 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
-  You are working on a Linear issue.
+  Du arbeitest an einem Linear-Ticket.
 
   Identifier: {{ issue.identifier }}
-  Title: {{ issue.title }}
+  Titel: {{ issue.title }}
 
-  Body:
+  Beschreibung:
   {% if issue.description %}
   {{ issue.description }}
   {% else %}
-  No description provided.
+  Keine Beschreibung vorhanden.
   {% endif %}
   """
 

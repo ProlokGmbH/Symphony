@@ -45,6 +45,11 @@ defmodule SymphonyElixir.Tracker.Memory do
     end
   end
 
+  @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
+    {:ok, Map.get(configured_comments(), issue_id, [])}
+  end
+
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     store_comment(issue_id, body)

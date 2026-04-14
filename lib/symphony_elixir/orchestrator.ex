@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @worker_exit_finalize_drain_ms 250
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch (ai)"
@@ -130,29 +131,32 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-
         state =
           case reason do
             :normal ->
-              handle_normal_issue_completion(state, issue_id, session_id, running_entry)
+              schedule_running_entry_finalization(state, issue_id, Map.get(running, issue_id), reason)
 
             _ ->
+              {running_entry, state} = pop_running_entry(state, issue_id)
+              state = record_session_completion_totals(state, running_entry)
+              session_id = running_entry_session_id(running_entry)
+
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
 
               next_attempt = next_retry_attempt_from_running(running_entry)
 
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
+              state =
+                schedule_issue_retry(state, issue_id, next_attempt, %{
+                  identifier: running_entry.identifier,
+                  error: "agent exited: #{inspect(reason)}",
+                  worker_host: Map.get(running_entry, :worker_host),
+                  workspace_path: Map.get(running_entry, :workspace_path),
+                  recovered_turn_context: recoverable_turn_context(running_entry, reason)
+                })
 
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+              Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+              state
+          end
 
         notify_dashboard()
         {:noreply, state}
@@ -211,6 +215,45 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   def handle_info({:retry_issue, _issue_id}, state), do: {:noreply, state}
+
+  def handle_info({:finalize_running_issue_exit, issue_id, finalize_token}, %{running: running} = state)
+      when is_binary(issue_id) and is_reference(finalize_token) do
+    case Map.get(running, issue_id) do
+      %{exit_finalize_token: ^finalize_token} ->
+        {running_entry, state} = pop_running_entry(state, issue_id)
+        exit_reason = Map.get(running_entry, :exit_reason, :normal)
+        running_entry = clear_running_entry_finalize_state(running_entry)
+        session_id = running_entry_session_id(running_entry)
+        state = record_session_completion_totals(state, running_entry)
+
+        state =
+          case exit_reason do
+            :normal ->
+              handle_normal_issue_completion(state, issue_id, session_id, running_entry)
+
+            _ ->
+              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(exit_reason)}; scheduling retry")
+
+              next_attempt = next_retry_attempt_from_running(running_entry)
+
+              schedule_issue_retry(state, issue_id, next_attempt, %{
+                identifier: running_entry.identifier,
+                error: "agent exited: #{inspect(exit_reason)}",
+                worker_host: Map.get(running_entry, :worker_host),
+                workspace_path: Map.get(running_entry, :workspace_path),
+                recovered_turn_context: recoverable_turn_context(running_entry, exit_reason)
+              })
+          end
+
+        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(exit_reason)}")
+
+        notify_dashboard()
+        {:noreply, state}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
 
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
@@ -696,10 +739,16 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp manual_in_progress_issue_state?(_state_name), do: false
 
-  defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
+  defp dispatch_issue(
+         %State{} = state,
+         issue,
+         attempt \\ nil,
+         preferred_worker_host \\ nil,
+         run_opts \\ []
+       ) do
     case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
       {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
+        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host, run_opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
@@ -716,7 +765,7 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+  defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, run_opts) do
     recipient = self()
 
     case select_worker_host(state, preferred_worker_host) do
@@ -725,13 +774,17 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, run_opts)
     end
   end
 
-  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, run_opts) do
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           AgentRunner.run(
+             issue,
+             recipient,
+             Keyword.merge(run_opts, attempt: attempt, worker_host: worker_host)
+           )
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
@@ -759,6 +812,7 @@ defmodule SymphonyElixir.Orchestrator do
             codex_last_reported_total_tokens: 0,
             turn_count: 0,
             retry_attempt: normalize_retry_attempt(attempt),
+            recovered_turn_context: Keyword.get(run_opts, :recovered_turn_context),
             started_at: DateTime.utc_now()
           })
 
@@ -822,6 +876,7 @@ defmodule SymphonyElixir.Orchestrator do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    recovered_turn_context = pick_retry_recovered_turn_context(previous_retry, metadata)
 
     if is_reference(old_timer) do
       Process.cancel_timer(old_timer)
@@ -844,7 +899,8 @@ defmodule SymphonyElixir.Orchestrator do
             identifier: identifier,
             error: error,
             worker_host: worker_host,
-            workspace_path: workspace_path
+            workspace_path: workspace_path,
+            recovered_turn_context: recovered_turn_context
           })
     }
   end
@@ -856,7 +912,8 @@ defmodule SymphonyElixir.Orchestrator do
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
           worker_host: Map.get(retry_entry, :worker_host),
-          workspace_path: Map.get(retry_entry, :workspace_path)
+          workspace_path: Map.get(retry_entry, :workspace_path),
+          recovered_turn_context: Map.get(retry_entry, :recovered_turn_context)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -984,7 +1041,14 @@ defmodule SymphonyElixir.Orchestrator do
     if retry_candidate_issue?(issue, terminal_state_set()) and
          dispatch_slots_available?(issue, state) and
          worker_slots_available?(state, metadata[:worker_host]) do
-      {:noreply, dispatch_issue(state, issue, attempt, metadata[:worker_host])}
+      {:noreply,
+       dispatch_issue(
+         state,
+         issue,
+         attempt,
+         metadata[:worker_host],
+         recovered_turn_context_run_opts(metadata)
+       )}
     else
       Logger.debug("No available slots for retrying #{issue_context(issue)}; retrying again")
 
@@ -1022,7 +1086,8 @@ defmodule SymphonyElixir.Orchestrator do
         identifier: running_entry.identifier,
         delay_type: :continuation,
         worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path)
+        workspace_path: Map.get(running_entry, :workspace_path),
+        recovered_turn_context: Map.get(running_entry, :recovered_turn_context)
       })
     end
   end
@@ -1095,6 +1160,30 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  defp schedule_running_entry_finalization(%State{} = state, issue_id, running_entry, reason)
+       when is_binary(issue_id) and is_map(running_entry) do
+    finalize_token = make_ref()
+
+    timer_ref =
+      Process.send_after(
+        self(),
+        {:finalize_running_issue_exit, issue_id, finalize_token},
+        @worker_exit_finalize_drain_ms
+      )
+
+    updated_running_entry =
+      running_entry
+      |> cancel_running_entry_finalize_timer()
+      |> Map.put(:exit_reason, reason)
+      |> Map.put(:exit_finalize_token, finalize_token)
+      |> Map.put(:exit_finalize_timer_ref, timer_ref)
+
+    %{state | running: Map.put(state.running, issue_id, updated_running_entry)}
+  end
+
+  defp schedule_running_entry_finalization(%State{} = state, _issue_id, _running_entry, _reason),
+    do: state
+
   defp pick_retry_identifier(issue_id, previous_retry, metadata) do
     metadata[:identifier] || Map.get(previous_retry, :identifier) || issue_id
   end
@@ -1111,11 +1200,21 @@ defmodule SymphonyElixir.Orchestrator do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
   end
 
+  defp pick_retry_recovered_turn_context(previous_retry, metadata) do
+    metadata[:recovered_turn_context] || Map.get(previous_retry, :recovered_turn_context)
+  end
+
   defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
 
   defp maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
     Map.put(running_entry, key, value)
   end
+
+  defp recovered_turn_context_run_opts(%{recovered_turn_context: context}) when is_binary(context) do
+    [recovered_turn_context: context]
+  end
+
+  defp recovered_turn_context_run_opts(_metadata), do: []
 
   defp select_worker_host(%State{} = state, preferred_worker_host) do
     case Config.settings!().worker.ssh_hosts do
@@ -1322,6 +1421,7 @@ defmodule SymphonyElixir.Orchestrator do
     codex_output_tokens = Map.get(running_entry, :codex_output_tokens, 0)
     codex_total_tokens = Map.get(running_entry, :codex_total_tokens, 0)
     codex_app_server_pid = Map.get(running_entry, :codex_app_server_pid)
+    existing_session_id = Map.get(running_entry, :session_id)
     last_reported_input = Map.get(running_entry, :codex_last_reported_input_tokens, 0)
     last_reported_output = Map.get(running_entry, :codex_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :codex_last_reported_total_tokens, 0)
@@ -1331,7 +1431,7 @@ defmodule SymphonyElixir.Orchestrator do
       Map.merge(running_entry, %{
         last_codex_timestamp: timestamp,
         last_codex_message: summarize_codex_update(update),
-        session_id: session_id_for_update(running_entry.session_id, update),
+        session_id: session_id_for_update(existing_session_id, update),
         last_codex_event: event,
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         codex_input_tokens: codex_input_tokens + token_delta.input_tokens,
@@ -1340,7 +1440,8 @@ defmodule SymphonyElixir.Orchestrator do
         codex_last_reported_input_tokens: max(last_reported_input, token_delta.input_reported),
         codex_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
         codex_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
-        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update)
+        turn_count: turn_count_for_update(turn_count, existing_session_id, update),
+        recovered_turn_context: recovered_turn_context_for_update(running_entry, update)
       }),
       token_delta
     }
@@ -1390,6 +1491,146 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
+  defp recovered_turn_context_for_update(running_entry, update) when is_map(running_entry) and is_map(update) do
+    extract_subagent_completion_text(update) || Map.get(running_entry, :recovered_turn_context)
+  end
+
+  defp recoverable_turn_context(running_entry, _reason) when is_map(running_entry) do
+    Map.get(running_entry, :recovered_turn_context)
+  end
+
+  defp extract_subagent_completion_text(update) when is_map(update) do
+    [
+      update[:payload],
+      Map.get(update, :payload),
+      Map.get(update, "payload"),
+      update[:raw],
+      Map.get(update, :raw),
+      Map.get(update, "raw"),
+      update
+    ]
+    |> Enum.find_value(&extract_subagent_completion_text_from_value/1)
+  end
+
+  defp extract_subagent_completion_text_from_value(value) do
+    extract_subagent_completion_from_tagged_notification(value) ||
+      extract_subagent_completion_from_wait_agent_result(value)
+  end
+
+  defp extract_subagent_completion_from_tagged_notification(value) do
+    with tagged_text when is_binary(tagged_text) <- find_tagged_text(value, "subagent_notification"),
+         {:ok, payload} <- decode_tagged_payload(tagged_text, "subagent_notification"),
+         completion when is_binary(completion) <- subagent_completion_from_payload(payload),
+         trimmed when trimmed != "" <- String.trim(completion) do
+      trimmed
+    else
+      _ -> nil
+    end
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> extract_subagent_completion_from_wait_agent_result(decoded)
+      _ -> valid_recovered_review_completion(value)
+    end
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(%{"status" => status}) when is_map(status) do
+    status
+    |> Map.values()
+    |> Enum.find_value(&extract_subagent_completion_from_wait_agent_result/1)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(%{status: status}) when is_map(status) do
+    status
+    |> Map.values()
+    |> Enum.find_value(&extract_subagent_completion_from_wait_agent_result/1)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(%{"completed" => completion})
+       when is_binary(completion) do
+    valid_recovered_review_completion(completion)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(%{completed: completion})
+       when is_binary(completion) do
+    valid_recovered_review_completion(completion)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(value) when is_list(value) do
+    Enum.find_value(value, &extract_subagent_completion_from_wait_agent_result/1)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(%_{} = _value), do: nil
+
+  defp extract_subagent_completion_from_wait_agent_result(value) when is_map(value) do
+    Enum.find_value(value, fn {_key, nested_value} ->
+      extract_subagent_completion_from_wait_agent_result(nested_value)
+    end)
+  end
+
+  defp extract_subagent_completion_from_wait_agent_result(_value), do: nil
+
+  defp valid_recovered_review_completion(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" -> nil
+      String.starts_with?(trimmed, "Findings:") -> trimmed
+      String.starts_with?(trimmed, "Keine Findings.") -> trimmed
+      true -> nil
+    end
+  end
+
+  defp find_tagged_text(value, tag) when is_binary(value) and is_binary(tag) do
+    open_tag = "<#{tag}>"
+    close_tag = "</#{tag}>"
+
+    if String.contains?(value, open_tag) and String.contains?(value, close_tag) do
+      value
+    else
+      nil
+    end
+  end
+
+  defp find_tagged_text(value, tag) when is_list(value) do
+    Enum.find_value(value, &find_tagged_text(&1, tag))
+  end
+
+  defp find_tagged_text(%_{} = _value, _tag), do: nil
+
+  defp find_tagged_text(value, tag) when is_map(value) do
+    Enum.find_value(value, fn {_key, nested_value} ->
+      find_tagged_text(nested_value, tag)
+    end)
+  end
+
+  defp find_tagged_text(_value, _tag), do: nil
+
+  defp decode_tagged_payload(text, tag) when is_binary(text) and is_binary(tag) do
+    open_tag = "<#{tag}>"
+    close_tag = "</#{tag}>"
+
+    with [_prefix, tagged_payload_and_rest] <- :binary.split(text, open_tag),
+         [tagged_payload, _suffix] <- :binary.split(tagged_payload_and_rest, close_tag) do
+      tagged_payload
+      |> String.trim()
+      |> Jason.decode()
+    else
+      _ -> :error
+    end
+  end
+
+  defp subagent_completion_from_payload(%{"status" => %{"completed" => completion}})
+       when is_binary(completion),
+       do: completion
+
+  defp subagent_completion_from_payload(%{status: %{completed: completion}})
+       when is_binary(completion),
+       do: completion
+
+  defp subagent_completion_from_payload(_payload), do: nil
+
   defp schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
     if is_reference(state.tick_timer_ref) do
       Process.cancel_timer(state.tick_timer_ref)
@@ -1419,6 +1660,21 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp pop_running_entry(state, issue_id) do
     {Map.get(state.running, issue_id), %{state | running: Map.delete(state.running, issue_id)}}
+  end
+
+  defp cancel_running_entry_finalize_timer(%{exit_finalize_timer_ref: timer_ref} = running_entry)
+       when is_reference(timer_ref) do
+    Process.cancel_timer(timer_ref)
+    Map.delete(running_entry, :exit_finalize_timer_ref)
+  end
+
+  defp cancel_running_entry_finalize_timer(running_entry), do: running_entry
+
+  defp clear_running_entry_finalize_state(running_entry) when is_map(running_entry) do
+    running_entry
+    |> cancel_running_entry_finalize_timer()
+    |> Map.delete(:exit_reason)
+    |> Map.delete(:exit_finalize_token)
   end
 
   defp record_session_completion_totals(state, running_entry) when is_map(running_entry) do
@@ -1486,8 +1742,7 @@ defmodule SymphonyElixir.Orchestrator do
     output_tokens = Map.get(codex_totals, :output_tokens, 0) + token_delta.output_tokens
     total_tokens = Map.get(codex_totals, :total_tokens, 0) + token_delta.total_tokens
 
-    seconds_running =
-      Map.get(codex_totals, :seconds_running, 0) + Map.get(token_delta, :seconds_running, 0)
+    seconds_running = Map.get(codex_totals, :seconds_running, 0) + Map.get(token_delta, :seconds_running, 0)
 
     %{
       input_tokens: max(0, input_tokens),

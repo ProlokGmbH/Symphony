@@ -125,7 +125,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   test "workflow store reloads changes, keeps last good workflow, and falls back when stopped" do
     ensure_workflow_store_running()
-    assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
+    assert {:ok, %{prompt: "Du arbeitest an einem Ticket dieses Repositorys."}} = Workflow.current()
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
     send(WorkflowStore, :poll)
@@ -166,8 +166,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     Workflow.set_workflow_file_path(missing_path)
 
-    assert {:error, {:missing_workflow_file, ^missing_path, :enoent}} =
-             WorkflowStore.force_reload()
+    assert {:error, {:missing_workflow_file, ^missing_path, :enoent}} = WorkflowStore.force_reload()
 
     write_workflow_file!(manual_path, prompt: "Manual workflow prompt")
     Workflow.set_workflow_file_path(manual_path)
@@ -242,6 +241,28 @@ defmodule SymphonyElixir.ExtensionsTest do
     refute Workpad.comment_matches?(nil)
   end
 
+  test "workpad helper finds the workpad comment and detects open checklist items in a section" do
+    workpad_body = """
+    ## Codex Workpad
+
+    ### Review
+
+    - [x] completed
+    - [ ] pending
+
+    ### Test
+
+    - [x] not relevant here
+    """
+
+    assert Workpad.find_comment_body(["other", workpad_body]) == workpad_body
+    assert Workpad.find_comment_body(nil) == nil
+    assert Workpad.section_has_open_checklist_items?(workpad_body, "Review")
+    refute Workpad.section_has_open_checklist_items?(workpad_body, "Test")
+    refute Workpad.section_has_open_checklist_items?(workpad_body, "Plan")
+    refute Workpad.section_has_open_checklist_items?(nil, "Review")
+  end
+
   test "linear adapter delegates reads and validates mutation responses" do
     Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
 
@@ -258,6 +279,10 @@ defmodule SymphonyElixir.ExtensionsTest do
       {FakeLinearClient, :issue_comment_bodies_result},
       {:ok, ["not it", "## Codex Workpad\n\npresent"]}
     )
+
+    assert {:ok, ["not it", "## Codex Workpad\n\npresent"]} = Adapter.fetch_issue_comment_bodies("issue-1")
+
+    assert_receive {:fetch_issue_comment_bodies_called, "issue-1"}
 
     assert {:ok, true} = Adapter.workpad_exists?("issue-1")
     assert_receive {:fetch_issue_comment_bodies_called, "issue-1"}
@@ -276,8 +301,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       {:ok, %{"data" => %{"commentCreate" => %{"success" => false}}}}
     )
 
-    assert {:error, :comment_create_failed} =
-             Adapter.create_comment("issue-1", "broken")
+    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "broken")
 
     Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
 
@@ -323,8 +347,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       ]
     )
 
-    assert {:error, :issue_update_failed} =
-             Adapter.update_issue_state("issue-1", "Broken")
+    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Broken")
 
     Process.put({FakeLinearClient, :graphql_results}, [{:error, :boom}])
 
@@ -394,8 +417,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
     )
 
-    assert {:error, :issue_branch_name_update_failed} =
-             Adapter.update_issue_branch_name("issue-1", "symphony/Broken")
+    assert {:error, :issue_branch_name_update_failed} = Adapter.update_issue_branch_name("issue-1", "symphony/Broken")
 
     Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
 
@@ -403,13 +425,11 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
 
-    assert {:error, :issue_branch_name_update_failed} =
-             Adapter.update_issue_branch_name("issue-1", "symphony/Weird")
+    assert {:error, :issue_branch_name_update_failed} = Adapter.update_issue_branch_name("issue-1", "symphony/Weird")
 
     Process.put({FakeLinearClient, :graphql_result}, :unexpected)
 
-    assert {:error, :issue_branch_name_update_failed} =
-             Adapter.update_issue_branch_name("issue-1", "symphony/Odd")
+    assert {:error, :issue_branch_name_update_failed} = Adapter.update_issue_branch_name("issue-1", "symphony/Odd")
 
     flush_graphql_calls()
     Process.delete({Adapter, :branch_name_update_supported})
@@ -537,8 +557,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     conn = get(build_conn(), "/api/v1/MT-RETRY")
 
-    assert %{"status" => "retrying", "retry" => %{"attempt" => 2, "error" => "boom"}} =
-             json_response(conn, 200)
+    assert %{"status" => "retrying", "retry" => %{"attempt" => 2, "error" => "boom"}} = json_response(conn, 200)
 
     conn = get(build_conn(), "/api/v1/MT-MISSING")
 
@@ -548,8 +567,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     conn = post(build_conn(), "/api/v1/refresh", %{})
 
-    assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} =
-             json_response(conn, 202)
+    assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} = json_response(conn, 202)
   end
 
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
@@ -639,8 +657,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     phoenix_js = response(get(build_conn(), "/vendor/phoenix/phoenix.js"), 200)
     assert phoenix_js =~ "var Phoenix = (() => {"
 
-    live_view_js =
-      response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
+    live_view_js = response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
   end

@@ -72,6 +72,46 @@ codex:
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
     type: dangerFullAccess
+prompt_snippets:
+  continuation_guidance: |
+    Fortsetzungsanweisungen:
+
+    - {{ continuation_intro }}
+    - Dies ist Fortsetzungs-Turn #{{ turn_number }} von {{ max_turns }} im aktuellen Agentenlauf.
+    - Der aktuelle Tracker-Status ist "{{ issue_state }}".
+    - Folge den Workflow-Anweisungen für den aktuellen Tracker-Status, bevor du das weitere Vorgehen festlegst.
+    - Setze im bestehenden Workspace-, Workpad- und Thread-Kontext fort, statt von Grund auf neu zu beginnen.
+    - Die ursprünglichen Aufgabenanweisungen und der bisherige Turn-Kontext liegen in diesem Thread bereits vor; wiederhole sie nicht, bevor du handelst.
+    - Konzentriere dich auf die verbleibende Ticket-Arbeit und beende den Turn nicht, solange das Issue aktiv bleibt, außer du bist wirklich blockiert.
+  continuation_intro_cancelled: |
+    Der vorherige Codex-Turn wurde unterbrochen, das Linear-Issue befindet sich aber weiterhin in einem aktiven Status.
+  continuation_intro_completed: |
+    Der vorherige Codex-Turn wurde normal abgeschlossen, das Linear-Issue befindet sich aber weiterhin in einem aktiven Status.
+  recovered_turn_context: |
+    Wiederhergestellter Fortsetzungskontext:
+
+    - Der unmittelbar vorherige Codex-Turn endete unerwartet, nachdem ein Subagent bereits ein finales Ergebnis geliefert hatte.
+    - Verwende das unten stehende abgeschlossene Subagent-Ergebnis erneut, statt sofort denselben Subagenten noch einmal zu starten.
+    - Arbeite vom aktuellen Workspace- und Workpad-Stand aus weiter, setze erforderliche Fixes selbst um und starte den Subagenten nur dann erneut, wenn der aktive Workflow das nach den Fixes weiterhin verlangt.
+
+    Wiederhergestelltes Subagent-Ergebnis:
+
+    ```text
+    {{ context }}
+    ```
+  review_subagent_authorization: |
+    Review-(AI)-Delegationsfreigabe:
+    - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein Repository-Skill einen Review-Subagenten verlangt.
+    - Behandle das als den expliziten Nutzerwunsch, der für diese Delegation erforderlich ist.
+    - Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`.
+    - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
+    - Der isolierte Review-Subagent darf keine Workpad-, Linear- oder Statusänderungen vornehmen und keine weiteren Subagenten starten.
+    - Ersetze einen verpflichtenden Review-Subagenten nicht durch ein rein lokales Review, außer die aktiven Anweisungen erlauben diesen Fallback ausdrücklich.
+    - Wenn die erforderliche Isolation des Review-Subagenten in diesem Turn nicht möglich ist, bleibt der Review-Schritt offen; behaupte kein lokales Ersatz-Review und verschiebe das Ticket nicht weiter.
+    - Der Hauptagent muss die Findings weiterhin selbst bewerten, die Fixes selbst umsetzen und die Review-Schleife bei Bedarf erneut ausführen.
+    - Verwende für den Review-Subagenten `wait_agent` mit langem Timeout. Ein 30-Sekunden-Timeout reicht für einen vollständigen Review-Durchlauf nicht aus.
+    - Wenn `wait_agent` abläuft oder kein finales Ergebnis liefert, ist der Review-Schritt weiterhin unvollständig. Lass den Subagenten weiterlaufen und warte erneut, statt Ergebnisse zu erfinden oder die Checkliste neu zu starten.
+    - Rufe `close_agent` nicht auf einem noch laufenden Review-Subagenten auf, nur weil ein Wait-Timeout erreicht wurde.
 ---
 
 Du arbeitest an einem Linear-Ticket `{{ issue.identifier }}`

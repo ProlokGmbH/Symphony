@@ -5,7 +5,7 @@ defmodule SymphonyElixir.AgentRunner do
 
   require Logger
   alias SymphonyElixir.Codex.AppServer
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workflow, Workspace}
+  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workflow, Workpad, Workspace}
 
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
@@ -198,73 +198,130 @@ defmodule SymphonyElixir.AgentRunner do
       }
 
       try do
-        do_run_codex_turns(run_context, issue, 1)
+        do_run_codex_turns(run_context, issue, 1, :initial)
       after
         AppServer.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(turn_context, issue, turn_number) when is_map(turn_context) do
-    app_session = turn_context.app_session
-    workspace = turn_context.workspace
-    codex_update_recipient = turn_context.codex_update_recipient
+  defp do_run_codex_turns(turn_context, issue, turn_number, previous_turn_outcome)
+       when is_map(turn_context) do
     opts = turn_context.opts
-    issue_state_fetcher = turn_context.issue_state_fetcher
-    worker_host = turn_context.worker_host
     max_turns = turn_context.max_turns
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+    prompt = build_turn_prompt(issue, opts, turn_number, max_turns, previous_turn_outcome)
 
-    with {:ok, turn_session} <-
-           AppServer.run_turn(
-             app_session,
-             prompt,
-             issue,
-             on_message: codex_message_handler(codex_update_recipient, issue)
-           ) do
-      Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
-
-      case continue_with_issue?(
-             issue,
-             issue_state_fetcher,
-             workspace,
-             worker_host
-           ) do
-        {:continue, refreshed_issue} when turn_number < max_turns ->
-          Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
-
-          do_run_codex_turns(turn_context, refreshed_issue, turn_number + 1)
-
-        {:continue, refreshed_issue} ->
-          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
-
-          :ok
-
-        {:done, _refreshed_issue} ->
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    turn_context.app_session
+    |> AppServer.run_turn(
+      prompt,
+      issue,
+      on_message: codex_message_handler(turn_context.codex_update_recipient, issue)
+    )
+    |> handle_turn_result(turn_context, issue, turn_number)
   end
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns) do
+  defp handle_turn_result({:ok, turn_session}, turn_context, issue, turn_number) do
+    Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{turn_context.workspace} turn=#{turn_number}/#{turn_context.max_turns}")
+
+    issue
+    |> continue_with_issue?(
+      turn_context.issue_state_fetcher,
+      turn_context.workspace,
+      turn_context.worker_host
+    )
+    |> continue_turn(
+      turn_context,
+      turn_number,
+      :completed,
+      "after normal turn completion",
+      "with issue still active"
+    )
+  end
+
+  defp handle_turn_result({:error, {:turn_cancelled, reason}}, turn_context, issue, turn_number) do
+    Logger.warning("Codex turn cancelled for #{issue_context(issue)} workspace=#{turn_context.workspace} turn=#{turn_number}/#{turn_context.max_turns}: #{inspect(reason)}")
+
+    issue
+    |> continue_after_cancelled_turn?(turn_context.issue_state_fetcher)
+    |> continue_turn(
+      turn_context,
+      turn_number,
+      :cancelled,
+      "after interrupted turn",
+      "after interrupted turn"
+    )
+  end
+
+  defp handle_turn_result({:error, reason}, _turn_context, _issue, _turn_number) do
+    {:error, reason}
+  end
+
+  defp continue_turn(
+         {:continue, refreshed_issue},
+         turn_context,
+         turn_number,
+         previous_turn_outcome,
+         continuation_message,
+         _max_turns_message
+       )
+       when turn_number < turn_context.max_turns do
+    Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} #{continuation_message} turn=#{turn_number}/#{turn_context.max_turns}")
+
+    do_run_codex_turns(turn_context, refreshed_issue, turn_number + 1, previous_turn_outcome)
+  end
+
+  defp continue_turn(
+         {:continue, refreshed_issue},
+         turn_context,
+         turn_number,
+         _previous_turn_outcome,
+         _continuation_message,
+         max_turns_message
+       ) do
+    Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} #{max_turns_message}; returning control to orchestrator turn=#{turn_number}/#{turn_context.max_turns}")
+
+    :ok
+  end
+
+  defp continue_turn(
+         {:done, _refreshed_issue},
+         _turn_context,
+         _turn_number,
+         _previous_turn_outcome,
+         _continuation_message,
+         _max_turns_message
+       ),
+       do: :ok
+
+  defp continue_turn(
+         {:error, reason},
+         _turn_context,
+         _turn_number,
+         _previous_turn_outcome,
+         _continuation_message,
+         _max_turns_message
+       ),
+       do: {:error, reason}
+
+  defp build_turn_prompt(issue, opts, 1, _max_turns, _previous_turn_outcome) do
     PromptBuilder.build_prompt(issue, Keyword.put_new(opts, :session_mode, :orchestrated))
   end
 
-  defp build_turn_prompt(%Issue{} = issue, _opts, turn_number, max_turns) do
-    """
-    Continuation guidance:
+  defp build_turn_prompt(%Issue{} = issue, _opts, turn_number, max_turns, previous_turn_outcome) do
+    Workflow.prompt_snippet("continuation_guidance", %{
+      continuation_intro: continuation_intro(previous_turn_outcome),
+      turn_number: turn_number,
+      max_turns: max_turns,
+      issue_state: issue.state
+    })
+  end
 
-    - The previous Codex turn completed normally, but the Linear issue is still in an active state.
-    - This is continuation turn ##{turn_number} of #{max_turns} for the current agent run.
-    - The current tracker state is "#{issue.state}".
-    - Follow the workflow instructions for the current tracker state before deciding what to do next.
-    - Resume from the current workspace and workpad state instead of restarting from scratch.
-    - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
-    - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
-    """
+  defp continuation_intro(:cancelled) do
+    Workflow.prompt_snippet("continuation_intro_cancelled")
+  end
+
+  defp continuation_intro(_previous_turn_outcome) do
+    Workflow.prompt_snippet("continuation_intro_completed")
   end
 
   defp continue_with_issue?(
@@ -299,6 +356,22 @@ defmodule SymphonyElixir.AgentRunner do
          _worker_host
        ),
        do: {:done, started_issue}
+
+  defp continue_after_cancelled_turn?(%Issue{id: issue_id} = started_issue, issue_state_fetcher)
+       when is_binary(issue_id) do
+    case issue_state_fetcher.([issue_id]) do
+      {:ok, [%Issue{} = refreshed_issue | _]} ->
+        continuation_status(refreshed_issue, :normal)
+
+      {:ok, []} ->
+        {:done, started_issue}
+
+      {:error, reason} ->
+        {:error, {:issue_state_refresh_failed, reason}}
+    end
+  end
+
+  defp continue_after_cancelled_turn?(started_issue, _issue_state_fetcher), do: {:done, started_issue}
 
   defp resolve_issue_continuation(
          %Issue{} = started_issue,
@@ -439,14 +512,25 @@ defmodule SymphonyElixir.AgentRunner do
          workspace,
          worker_host
        ) do
-    transition_issue_state(
-      issue,
-      issue_state_fetcher,
-      resolve_review_handoff_state(issue, workspace, worker_host),
-      :review_handoff_state_update_failed,
-      "completed review issue",
-      :stop
-    )
+    case review_workpad_handoff_status(issue) do
+      :ready ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          resolve_review_handoff_state(issue, workspace, worker_host),
+          :review_handoff_state_update_failed,
+          "completed review issue",
+          :stop
+        )
+
+      :blocked ->
+        Logger.info("Keeping review issue in place because the workpad still has open review checklist items: #{issue_context(issue)}")
+        {:ok, issue, :stop}
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workpad review checklist before review handoff; keeping issue in current state: #{issue_context(issue)} reason=#{inspect(reason)}")
+        {:ok, issue, :stop}
+    end
   end
 
   defp transition_issue_state(
@@ -592,6 +676,22 @@ defmodule SymphonyElixir.AgentRunner do
         resolve_next_handoff_state(issue)
     end
   end
+
+  defp review_workpad_handoff_status(%Issue{id: issue_id}) when is_binary(issue_id) do
+    with {:ok, comments} <- Tracker.fetch_issue_comment_bodies(issue_id) do
+      comments
+      |> Workpad.find_comment_body()
+      |> review_workpad_status_from_body()
+    end
+  end
+
+  defp review_workpad_handoff_status(_issue), do: :ready
+
+  defp review_workpad_status_from_body(body) when is_binary(body) do
+    if Workpad.section_has_open_checklist_items?(body, "Review"), do: :blocked, else: :ready
+  end
+
+  defp review_workpad_status_from_body(_body), do: :ready
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
     cond do
