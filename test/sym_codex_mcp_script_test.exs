@@ -113,16 +113,21 @@ defmodule SymCodexMcpScriptTest do
   end
 
   defp elixir_runtime_path! do
-    repo_root = Path.expand("..", __DIR__)
+    runtime_path =
+      System.get_env("PATH")
+      |> to_string()
+      |> String.split(":", trim: true)
+      |> Enum.reject(&String.contains?(&1, "/.local/share/mise/shims"))
+      |> Enum.join(":")
 
-    {runtime_path, 0} =
-      System.cmd(
-        "bash",
-        ["-lc", "mise exec -- bash -lc 'printf %s \"$PATH\"'"],
-        cd: repo_root,
-        stderr_to_stdout: true
-      )
+    assert {_, 0} =
+             System.cmd(
+               "bash",
+               ["-lc", "command -v elixir >/dev/null && command -v mix >/dev/null"],
+               env: [{"PATH", runtime_path}],
+               stderr_to_stdout: true
+             )
 
-    String.trim(runtime_path)
+    runtime_path
   end
 end

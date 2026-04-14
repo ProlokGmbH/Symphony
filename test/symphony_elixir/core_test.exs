@@ -15,6 +15,7 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
+    assert config.polling.idle_shutdown_ms == 3_600_000
 
     assert config.tracker.active_states == [
              "Todo (AI)",
@@ -40,8 +41,20 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "polling.interval_ms"
 
+    write_workflow_file!(Workflow.workflow_file_path(), poll_idle_shutdown_ms: "invalid")
+
+    assert_raise ArgumentError, ~r/idle_shutdown_ms/, fn ->
+      Config.settings!().polling.idle_shutdown_ms
+    end
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "polling.idle_shutdown_ms"
+
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
     assert Config.settings!().polling.interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), poll_idle_shutdown_ms: 45_000)
+    assert Config.settings!().polling.idle_shutdown_ms == 45_000
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()

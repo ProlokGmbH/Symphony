@@ -12,6 +12,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @idle_shutdown_message "Symphony nach Inaktivität beendet"
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @cancel_state_name "abbruch (ai)"
@@ -32,11 +33,17 @@ defmodule SymphonyElixir.Orchestrator do
 
     defstruct [
       :poll_interval_ms,
+      :idle_shutdown_ms,
+      :idle_shutdown_ms_override,
+      :last_activity_at_ms,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
       :poll_check_in_progress,
       :tick_timer_ref,
       :tick_token,
+      :shutdown_fun,
+      :output_fun,
+      shutdown_requested: false,
       running: %{},
       completed: MapSet.new(),
       completed_states: %{},
@@ -54,17 +61,23 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
+    idle_shutdown_ms_override = Keyword.get(opts, :idle_shutdown_ms)
 
     state = %State{
       poll_interval_ms: config.polling.interval_ms,
+      idle_shutdown_ms: idle_shutdown_ms_override || config.polling.idle_shutdown_ms,
+      idle_shutdown_ms_override: idle_shutdown_ms_override,
+      last_activity_at_ms: now_ms,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
+      shutdown_fun: Keyword.get(opts, :shutdown_fun, &default_shutdown/0),
+      output_fun: Keyword.get(opts, :output_fun, &IO.puts/1),
       codex_totals: @empty_codex_totals,
       codex_rate_limits: nil
     }
@@ -113,8 +126,11 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info(:run_poll_cycle, state) do
     state = refresh_runtime_config(state)
+    previous_state = state
     state = maybe_dispatch(state)
-    state = schedule_tick(state, state.poll_interval_ms)
+    state = maybe_touch_activity_for_state_change(previous_state, state)
+    state = maybe_request_idle_shutdown(state)
+    state = if state.shutdown_requested, do: state, else: schedule_tick(state, state.poll_interval_ms)
     state = %{state | poll_check_in_progress: false}
 
     notify_dashboard()
@@ -151,6 +167,7 @@ defmodule SymphonyElixir.Orchestrator do
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
           end
+          |> touch_activity()
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
@@ -172,7 +189,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
 
         notify_dashboard()
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)} |> touch_activity()}
     end
   end
 
@@ -193,7 +210,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> apply_codex_rate_limits(update)
 
         notify_dashboard()
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)} |> touch_activity()}
     end
   end
 
@@ -202,8 +219,13 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
     result =
       case pop_retry_attempt_state(state, issue_id, retry_token) do
-        {:ok, attempt, metadata, state} -> handle_retry_issue(state, issue_id, attempt, metadata)
-        :missing -> {:noreply, state}
+        {:ok, attempt, metadata, state} ->
+          case handle_retry_issue(state, issue_id, attempt, metadata) do
+            {:noreply, next_state} -> {:noreply, touch_activity(next_state)}
+          end
+
+        :missing ->
+          {:noreply, state}
       end
 
     notify_dashboard()
@@ -1446,8 +1468,65 @@ defmodule SymphonyElixir.Orchestrator do
     %{
       state
       | poll_interval_ms: config.polling.interval_ms,
+        idle_shutdown_ms: state.idle_shutdown_ms_override || config.polling.idle_shutdown_ms,
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
+  end
+
+  defp maybe_touch_activity_for_state_change(%State{} = previous_state, %State{} = next_state) do
+    if activity_state_changed?(previous_state, next_state) do
+      touch_activity(next_state)
+    else
+      next_state
+    end
+  end
+
+  defp activity_state_changed?(%State{} = previous_state, %State{} = next_state) do
+    previous_state.running != next_state.running or
+      previous_state.retry_attempts != next_state.retry_attempts or
+      previous_state.claimed != next_state.claimed or
+      previous_state.completed != next_state.completed or
+      previous_state.completed_states != next_state.completed_states
+  end
+
+  defp maybe_request_idle_shutdown(%State{shutdown_requested: true} = state), do: state
+
+  defp maybe_request_idle_shutdown(%State{idle_shutdown_ms: timeout_ms} = state)
+       when is_integer(timeout_ms) and timeout_ms <= 0,
+       do: state
+
+  defp maybe_request_idle_shutdown(%State{} = state) do
+    cond do
+      map_size(state.running) > 0 ->
+        state
+
+      map_size(state.retry_attempts) > 0 ->
+        state
+
+      true ->
+        elapsed_ms = System.monotonic_time(:millisecond) - state.last_activity_at_ms
+
+        if elapsed_ms >= state.idle_shutdown_ms do
+          request_idle_shutdown(state, elapsed_ms)
+        else
+          state
+        end
+    end
+  end
+
+  defp request_idle_shutdown(%State{} = state, elapsed_ms) when is_integer(elapsed_ms) do
+    Logger.info("Symphony idle shutdown requested idle_ms=#{elapsed_ms}")
+    state.output_fun.(@idle_shutdown_message)
+    spawn(fn -> state.shutdown_fun.() end)
+    %{state | shutdown_requested: true, next_poll_due_at_ms: nil}
+  end
+
+  defp touch_activity(%State{} = state) do
+    %{state | last_activity_at_ms: System.monotonic_time(:millisecond)}
+  end
+
+  defp default_shutdown do
+    Application.stop(:symphony_elixir)
   end
 
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do

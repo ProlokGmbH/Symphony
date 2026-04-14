@@ -18,6 +18,7 @@ tracker:
     - Abgebrochen
 polling:
   interval_ms: 5000
+  idle_shutdown_ms: 3600000
 workspace:
   root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:

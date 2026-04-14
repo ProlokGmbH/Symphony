@@ -85,13 +85,15 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:interval_ms, :integer, default: 30_000)
+      field(:idle_shutdown_ms, :integer, default: 3_600_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:interval_ms], empty_values: [])
+      |> cast(attrs, [:interval_ms, :idle_shutdown_ms], empty_values: [])
       |> validate_number(:interval_ms, greater_than: 0)
+      |> validate_number(:idle_shutdown_ms, greater_than_or_equal_to: 0)
     end
   end
 
