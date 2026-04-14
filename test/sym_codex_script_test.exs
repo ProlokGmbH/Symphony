@@ -199,6 +199,32 @@ defmodule SymCodexScriptTest do
     assert output =~ "pwd=#{worktree}"
   end
 
+  test "sym-codex observer start from a worktree avoids mix for branch-based inference" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(bin_dir, "mix"), """
+    #!/usr/bin/env bash
+    printf 'mix should not run\\n' >&2
+    exit 99
+    """)
+
+    File.chmod!(Path.join(bin_dir, "mix"), 0o755)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["--observer"], cd: worktree)
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{worktree}"
+    refute output =~ "mix should not run"
+  end
+
   test "sourced sym-codex activates the repo venv in the current shell" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
       build_script_worktree_fixture!("PRO-49")

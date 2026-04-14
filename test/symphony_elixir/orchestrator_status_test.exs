@@ -1562,6 +1562,129 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert StatusDashboard.humanize_codex_message(fallback_reasoning) == "reasoning update"
   end
 
+  test "orchestrator requests idle shutdown after the configured inactivity timeout" do
+    parent = self()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      poll_interval_ms: 5,
+      poll_idle_shutdown_ms: 20
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :IdleShutdownOrchestrator)
+
+    {:ok, pid} =
+      Orchestrator.start_link(
+        name: orchestrator_name,
+        shutdown_fun: fn -> send(parent, :shutdown_requested) end,
+        output_fun: fn message -> send(parent, {:shutdown_output, message}) end
+      )
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    assert_receive {:shutdown_output, "Symphony nach Inaktivität beendet"}, 1_000
+    assert_receive :shutdown_requested, 1_000
+    assert :sys.get_state(pid).shutdown_requested
+    refute_receive {:shutdown_output, "Symphony nach Inaktivität beendet"}, 50
+  end
+
+  test "codex activity resets the idle shutdown timer" do
+    parent = self()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      poll_interval_ms: 5_000,
+      poll_idle_shutdown_ms: 60
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :IdleResetOrchestrator)
+
+    {:ok, pid} =
+      Orchestrator.start_link(
+        name: orchestrator_name,
+        shutdown_fun: fn -> send(parent, :shutdown_requested) end,
+        output_fun: fn message -> send(parent, {:shutdown_output, message}) end
+      )
+
+    worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+    on_exit(fn ->
+      if Process.alive?(worker_pid) do
+        Process.exit(worker_pid, :normal)
+      end
+
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    Process.sleep(50)
+
+    issue = %Issue{
+      id: "issue-idle-reset",
+      identifier: "MT-601",
+      title: "Idle reset test",
+      description: "Activity should reset the shutdown timer",
+      state: "In Arbeit (AI)",
+      url: "https://example.org/issues/MT-601"
+    }
+
+    running_entry = %{
+      pid: worker_pid,
+      ref: make_ref(),
+      identifier: issue.identifier,
+      issue: issue,
+      session_id: nil,
+      turn_count: 0,
+      last_codex_message: nil,
+      last_codex_timestamp: nil,
+      last_codex_event: nil,
+      started_at: DateTime.utc_now()
+    }
+
+    stale_activity_at_ms = System.monotonic_time(:millisecond) - 1_000
+    initial_state = :sys.get_state(pid)
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue.id => running_entry})
+      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue.id))
+      |> Map.put(:last_activity_at_ms, stale_activity_at_ms)
+    end)
+
+    send(
+      pid,
+      {:codex_worker_update, issue.id,
+       %{
+         event: :notification,
+         payload: %{"method" => "agent/activity"},
+         timestamp: DateTime.utc_now()
+       }}
+    )
+
+    Process.sleep(20)
+    refreshed_state = :sys.get_state(pid)
+    assert refreshed_state.last_activity_at_ms > stale_activity_at_ms
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{}, claimed: MapSet.new()}
+    end)
+
+    send(pid, :run_poll_cycle)
+    refute_receive :shutdown_requested, 40
+    refute_receive {:shutdown_output, "Symphony nach Inaktivität beendet"}, 40
+
+    Process.sleep(80)
+    send(pid, :run_poll_cycle)
+
+    assert_receive {:shutdown_output, "Symphony nach Inaktivität beendet"}, 200
+    assert_receive :shutdown_requested, 200
+  end
+
   test "application stop renders offline status" do
     rendered =
       ExUnit.CaptureIO.capture_io(fn ->
