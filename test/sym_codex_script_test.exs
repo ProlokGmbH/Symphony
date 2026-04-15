@@ -157,6 +157,29 @@ defmodule SymCodexScriptTest do
     assert output =~ "--config model_reasoning_effort=xhigh"
   end
 
+  test "sym-codex exports the active worktree while building the manual prompt" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT_FROM_ENV", "1"}
+               ]
+             )
+
+    assert output =~ "active=#{worktree}"
+    assert output =~ "source=#{repo_dir}"
+    assert output =~ "workflow=#{Path.join(repo_dir, "WORKFLOW.md")}"
+  end
+
   test "sym-codex resolves worktrees from the local project root when launched from another repo" do
     %{
       repo_dir: repo_dir,
@@ -396,7 +419,12 @@ defmodule SymCodexScriptTest do
           exit 0
           ;;
         3)
-          if [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT:-}" ]; then
+          if [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT_FROM_ENV:-}" ]; then
+            printf 'SYM_CODEX_CONTEXT_V1\nIn Arbeit (AI)\nSYM_CODEX_PROMPT_V1\nactive=%s source=%s workflow=%s' \
+              "${SYMPHONY_ACTIVE_REPO_ROOT:-}" \
+              "${SYMPHONY_SOURCE_REPO:-}" \
+              "${SYMPHONY_WORKFLOW_FILE:-}"
+          elif [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT:-}" ]; then
             printf '%s' "$SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT"
           else
             printf 'manual-prompt-for-%s' "$3"

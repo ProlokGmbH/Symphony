@@ -182,6 +182,12 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
     assert prompt =~ "Wenn der Pull einen Konflikt nicht autonom auflösen kann"
     assert prompt =~ "verschiebe nach `BLOCKER`"
+    assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
+    assert prompt =~ "Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`"
+    assert prompt =~ "Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`"
+    assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`"
+    assert prompt =~ "den globalen Skill `symphony-review` explizit öffnen"
+    assert prompt =~ "den globalen Skill `symphony-workpad`"
   end
 
   test "workflow derives ordered states from the current WORKFLOW.md status overview" do
@@ -1539,6 +1545,188 @@ defmodule SymphonyElixir.CoreTest do
              "session=manual workflow=interactive automated=false interactive=true"
   end
 
+  test "prompt builder exposes active repo and global skill roots" do
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+
+    on_exit(fn ->
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+
+    workflow_prompt =
+      "active={{ runtime.active_repo_root }} repo_skill={{ runtime.active_repo_skill_root }} source={{ runtime.source_repo_root }} globals={{ runtime.global_skill_roots_text }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698CC",
+      title: "Skill roots",
+      description: "Expose path guidance for skills",
+      state: "In Arbeit (AI)",
+      url: "https://example.org/issues/MT-698CC",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        active_repo_root: "/tmp/symphony-worktrees/MT-698CC",
+        source_repo_root: "/tmp/symphony-source",
+        workflow_file: "/tmp/symphony-source/WORKFLOW.md"
+      )
+
+    assert prompt =~ "active=/tmp/symphony-worktrees/MT-698CC"
+    assert prompt =~ "repo_skill=/tmp/symphony-worktrees/MT-698CC/.codex/skills"
+    assert prompt =~ "source=/tmp/symphony-source"
+    assert prompt =~ "globals="
+    assert prompt =~ "#{System.user_home()}/.codex/skills"
+
+    if executable = System.find_executable("symphony") do
+      assert prompt =~ Path.dirname(executable)
+    else
+      assert prompt =~ "/opt/symphony/bin"
+    end
+  end
+
+  test "prompt builder resolves skill roots from the environment when prompt opts omit them" do
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    previous_active_repo_root = System.get_env("SYMPHONY_ACTIVE_REPO_ROOT")
+    previous_source_repo = System.get_env("SYMPHONY_SOURCE_REPO")
+    previous_workflow_file = System.get_env("SYMPHONY_WORKFLOW_FILE")
+    previous_codex_home = System.get_env("CODEX_HOME")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("SYMPHONY_ACTIVE_REPO_ROOT", previous_active_repo_root)
+      restore_env("SYMPHONY_SOURCE_REPO", previous_source_repo)
+      restore_env("SYMPHONY_WORKFLOW_FILE", previous_workflow_file)
+      restore_env("CODEX_HOME", previous_codex_home)
+      restore_env("PATH", previous_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    System.put_env("SYMPHONY_ACTIVE_REPO_ROOT", "/tmp/env-active")
+    System.put_env("SYMPHONY_SOURCE_REPO", "/tmp/env-source")
+    System.put_env("SYMPHONY_WORKFLOW_FILE", "/tmp/env-source/WORKFLOW.md")
+    System.put_env("CODEX_HOME", "/tmp/env-codex")
+    System.put_env("PATH", "/tmp/no-symphony-here")
+    Application.put_env(:symphony_elixir, :escript_script_name, "/opt/symphony/bin/symphony")
+
+    workflow_prompt =
+      "active={{ runtime.active_repo_root }} source={{ runtime.source_repo_root }} workflow={{ runtime.workflow_file }} exec={{ runtime.symphony_executable_dir }} codex={{ runtime.codex_home }} globals={{ runtime.global_skill_roots_text }}"
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-698CD",
+      title: "Skill roots from env",
+      description: "Prompt should honor environment-based path hints",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-698CD",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert prompt =~ "active=/tmp/env-active"
+    assert prompt =~ "source=/tmp/env-source"
+    assert prompt =~ "workflow=/tmp/env-source/WORKFLOW.md"
+    assert prompt =~ "exec=/opt/symphony/bin"
+    assert prompt =~ "codex=/tmp/env-codex"
+    assert prompt =~ "globals=/tmp/env-codex/skills, /opt/symphony/bin"
+  end
+
+  test "prompt builder leaves the executable dir blank when Symphony is not detectable" do
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    System.put_env("PATH", "/tmp/no-symphony-here")
+    Application.delete_env(:symphony_elixir, :escript_script_name)
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "exec={{ runtime.symphony_executable_dir }}")
+
+    issue = %Issue{
+      identifier: "MT-698CE",
+      title: "Missing symphony executable",
+      description: "Prompt should keep the field blank when unavailable",
+      state: "Review",
+      url: "https://example.org/issues/MT-698CE",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "exec="
+  end
+
+  test "prompt builder trims blank env paths and falls back from missing HOME to the escript path" do
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    original_prompt_builder_user_home = Application.get_env(:symphony_elixir, :prompt_builder_user_home)
+    previous_active_repo_root = System.get_env("SYMPHONY_ACTIVE_REPO_ROOT")
+    previous_codex_home = System.get_env("CODEX_HOME")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("SYMPHONY_ACTIVE_REPO_ROOT", previous_active_repo_root)
+      restore_env("CODEX_HOME", previous_codex_home)
+      restore_env("PATH", previous_path)
+
+      if is_nil(original_prompt_builder_user_home) do
+        Application.delete_env(:symphony_elixir, :prompt_builder_user_home)
+      else
+        Application.put_env(:symphony_elixir, :prompt_builder_user_home, original_prompt_builder_user_home)
+      end
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+    end)
+
+    System.put_env("SYMPHONY_ACTIVE_REPO_ROOT", "   ")
+    System.delete_env("CODEX_HOME")
+    System.put_env("PATH", "/tmp/no-symphony-here")
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/symphony/bin/symphony")
+    Application.put_env(:symphony_elixir, :prompt_builder_user_home, nil)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "active={{ runtime.active_repo_root }} exec={{ runtime.symphony_executable_dir }} globals={{ runtime.global_skill_roots_text }}"
+    )
+
+    issue = %Issue{
+      identifier: "MT-698CF",
+      title: "Blank path envs",
+      description: "Fallback path handling should stay deterministic",
+      state: "Planung (AI)",
+      url: "https://example.org/issues/MT-698CF",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, source_repo_root: "/tmp/fallback-source")
+
+    assert prompt =~ "active=/tmp/fallback-source"
+    assert prompt =~ "exec=/opt/symphony/bin"
+    assert prompt =~ "globals=/opt/symphony/bin"
+  end
+
   test "prompt builder treats Freigabe Planung as interactive in orchestrated and manual sessions" do
     workflow_prompt = "{% if runtime.automated %}AUTO{% else %}INTERACTIVE{% endif %}"
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
@@ -1960,10 +2148,13 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ~r/(keine UTC- oder `Z`-Zeitstempel|do not use UTC or `Z` timestamps)/
 
     assert prompt =~ ~s("next steps for user")
-    assert prompt =~ ".codex/skills/symphony-planning/SKILL.md"
-    assert prompt =~ ".codex/skills/symphony-review/SKILL.md"
-    assert prompt =~ ".codex/skills/symphony-workpad/SKILL.md"
-    assert prompt =~ ".codex/skills/symphony-land/SKILL.md"
+    assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
+    assert prompt =~ "Repo-lokale `sym-*`-Skills:"
+    assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln:"
+    assert prompt =~ "globalen Skill `symphony-planning`"
+    assert prompt =~ "globalen Skill `symphony-review`"
+    assert prompt =~ "globalen Skill `symphony-workpad`"
+    assert prompt =~ "globalen Skill `symphony-land`"
     assert prompt =~ "Freigabe Review"
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`Test (AI) Autocommit`"
@@ -2014,6 +2205,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "symphony-linear"
     assert prompt =~ "symphony-planning"
     assert prompt =~ "symphony-workpad"
+    assert prompt =~ "Aktiv bearbeitetes Repository/Worktree"
+    assert prompt =~ "Repo-lokale `sym-*`-Skills"
+    assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln"
     assert prompt =~ "Beginne nicht sofort mit der Ausführung"
     assert prompt =~ "Statuslogik"
   end
