@@ -24,6 +24,11 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 - Lasse dabei alle entstehenden Änderungen ungecommittet; automatische Commits bleiben in diesem Status verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
+- Führe keine zusätzlichen Review-Schritte aus, die hier nicht dokumentiert sind. Halte dich strikt an die Checkliste. Arbeite nur die dort vorgegebenen Punkte ab.
+- Wenn du einen verpflichtenden read-only Review-Subagenten startest, dann isoliert mit `fork_context: false` und nur mit einem engen Review-Auftrag statt mit dem vollständigen Ticket-, Workflow- oder Workpad-Kontext.
+- Wenn ein vorgeschriebener read-only Review-Subagent läuft, warte auf dessen finale Abschlussausgabe. Nutze dafür `wait_agent` mit langem Timeout; ein Timeout ist kein Review-Ergebnis.
+- Nach einem `wait_agent`-Timeout darfst du weder Findings behaupten noch die Checkliste neu starten noch einen noch laufenden Review-Subagenten mit `close_agent` beenden.
+- Wenn die erforderliche Isolation des Pflicht-Subagenten in der aktuellen Session nicht möglich ist, bleibt der Review-Schritt offen; ersetze ihn nicht durch ein lokales Review und verschiebe das Ticket nicht weiter.
 
 ## Repository-spezifische Anweisungen
 
@@ -33,6 +38,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 - Erfinde keine fehlenden Review-Schritte aus früheren Repository-Konventionen.
 - Suche den repo-lokalen Skill immer im aktuell bearbeiteten Repository/Worktree und nicht relativ zu diesem `symphony-review`-Verzeichnis.
 - Wenn `<aktives-repo-root>/.codex/skills/sym-review/SKILL.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
+- Falls du selbst nur als isolierter read-only Review-Subagent ohne Ticket- und Workpad-Verantwortung gestartet wurdest, führe diesen Skill nicht als `Review (AI)`-Hauptschleife aus.
 
 ## Workpad-Aktualisierung
 
@@ -42,7 +48,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 - Pflege mit diesem Skill ausschließlich den Abschnitt `### Review`; ändere `### Test` nicht.
 - Pflege dort pro Schritt genau einen kurzen Eintrag, zum Beispiel:
   - `- [x] Führe make all aus: erfolgreich`
-  - `- [ ] Führe codex review --uncommitted aus: Findings offen, Fix in Arbeit`
+  - `- [ ] Führe den Review-Subagenten gegen den aktuellen Worktree aus: Findings offen, Fix in Arbeit`
 - Verwende `### Review` nicht als zeitgestempeltes Befehls- oder Ergebnislog.
 - Halte Befehle, Ergebnisse und Fix-Notizen weiterhin kurz unter `### Verlauf` fest.
 - Wenn du Code änderst, ergänze unter `### Verlauf` eine kurze Notiz, was behoben wurde und warum die Checkliste erneut gestartet wird.
@@ -63,6 +69,11 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
    - dokumentiere die verbleibenden Abweichungen im Workpad,
    - lasse zuvor entstandene lokale Fixes ungecommittet im Workspace,
    - stoppe ohne Statuswechsel.
+7. Wenn `wait_agent` für einen laufenden Pflicht-Subagenten nur `timed_out` zurückgibt oder kein finales Ergebnis enthält:
+   - lasse den zugehörigen Punkt unter `### Review` offen,
+   - warte weiter im aktuellen Turn oder im nächsten Fortsetzungsturn,
+   - schließe den Subagenten nicht vorzeitig,
+   - behandle den Review-Schritt bis zu einer finalen Antwort nicht als abgeschlossen.
 
 ## Abschlussbedingung
 

@@ -18,16 +18,23 @@ defmodule SymphonyElixir.PromptBuilder do
       prompt_template_from_opts(opts)
       |> parse_template!()
 
-    template
-    |> Solid.render!(
-      %{
-        "attempt" => Keyword.get(opts, :attempt),
-        "issue" => issue |> Map.from_struct() |> to_solid_map(),
-        "runtime" => runtime_context(issue, session_mode, opts)
-      },
-      @render_opts
+    rendered_prompt =
+      template
+      |> Solid.render!(
+        %{
+          "attempt" => Keyword.get(opts, :attempt),
+          "issue" => issue |> Map.from_struct() |> to_solid_map(),
+          "runtime" => runtime_context(issue, session_mode, opts)
+        },
+        @render_opts
+      )
+      |> IO.iodata_to_binary()
+
+    append_recovered_turn_context(
+      rendered_prompt,
+      issue,
+      Keyword.get(opts, :recovered_turn_context)
     )
-    |> IO.iodata_to_binary()
   end
 
   @spec build_prompt_for_issue_identifier(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -159,6 +166,40 @@ defmodule SymphonyElixir.PromptBuilder do
       prompt
     end
   end
+
+  defp append_recovered_turn_context(prompt, %{state: state}, context)
+       when is_binary(prompt) and is_binary(state) do
+    trimmed_context = valid_review_recovered_context(state, context)
+
+    if is_nil(trimmed_context) do
+      prompt
+    else
+      prompt <>
+        "\n\n" <> Workflow.prompt_snippet("recovered_turn_context", %{context: trimmed_context})
+    end
+  end
+
+  defp append_recovered_turn_context(prompt, _issue, _context), do: prompt
+
+  defp valid_review_recovered_context(state, context)
+       when is_binary(state) and is_binary(context) do
+    trimmed_state =
+      state
+      |> String.trim()
+      |> String.downcase()
+
+    trimmed_context = String.trim(context)
+
+    cond do
+      trimmed_state != "review (ai)" -> nil
+      trimmed_context == "" -> nil
+      String.starts_with?(trimmed_context, "Findings:") -> trimmed_context
+      String.starts_with?(trimmed_context, "Keine Findings.") -> trimmed_context
+      true -> nil
+    end
+  end
+
+  defp valid_review_recovered_context(_state, _context), do: nil
 
   defp active_repo_root(opts) do
     opts

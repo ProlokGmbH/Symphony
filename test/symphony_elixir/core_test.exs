@@ -241,20 +241,15 @@ defmodule SymphonyElixir.CoreTest do
         ~s(skip "freigabe implementierung")
       ])
 
-    plan_skip_status =
-      Workflow.resolve_next_status("Planung (AI)", [~s(skip "freigabe planung")])
+    plan_skip_status = Workflow.resolve_next_status("Planung (AI)", [~s(skip "freigabe planung")])
 
-    planning_handoff_skip_status =
-      Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")])
+    planning_handoff_skip_status = Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")])
 
-    implementation_handoff_skip_status =
-      Workflow.resolve_next_status("Freigabe Implementierung", [~s(skip "freigabe implementierung")])
+    implementation_handoff_skip_status = Workflow.resolve_next_status("Freigabe Implementierung", [~s(skip "freigabe implementierung")])
 
-    review_skip_status =
-      Workflow.resolve_next_status("Review (AI)", [~s(skip "freigabe review")])
+    review_skip_status = Workflow.resolve_next_status("Review (AI)", [~s(skip "freigabe review")])
 
-    review_handoff_skip_status =
-      Workflow.resolve_next_status("Freigabe Review", [~s(skip "freigabe review")])
+    review_handoff_skip_status = Workflow.resolve_next_status("Freigabe Review", [~s(skip "freigabe review")])
 
     assert next_status == "Review (AI)"
     assert plan_skip_status == "In Arbeit (AI)"
@@ -313,8 +308,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "workflow status overview parser returns an error when no status table exists" do
-    assert {:error, :status_overview_not_found} =
-             Workflow.status_overview_from_prompt("Prompt without status table")
+    assert {:error, :status_overview_not_found} = Workflow.status_overview_from_prompt("Prompt without status table")
   end
 
   test "workflow status overview parser accepts direct rows without a header and ignores malformed rows" do
@@ -489,8 +483,7 @@ defmodule SymphonyElixir.CoreTest do
     Workflow.set_workflow_file_path(workflow_path)
     File.cd!(invocation_root)
 
-    assert {:error, {:invalid_env_file, path, 1, :missing_assignment}} =
-             SymphonyElixir.Application.startup_preflight()
+    assert {:error, {:invalid_env_file, path, 1, :missing_assignment}} = SymphonyElixir.Application.startup_preflight()
 
     assert path == Path.join([invocation_root, ".symphony", ".env"])
   end
@@ -706,16 +699,14 @@ defmodule SymphonyElixir.CoreTest do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "PROMPT_ONLY_WORKFLOW.md")
     File.write!(workflow_path, "Prompt only\n")
 
-    assert {:ok, %{config: %{}, prompt: "Prompt only", prompt_template: "Prompt only"}} =
-             Workflow.load(workflow_path)
+    assert {:ok, %{config: %{}, prompt: "Prompt only", prompt_template: "Prompt only"}} = Workflow.load(workflow_path)
   end
 
   test "workflow load accepts unterminated front matter with an empty prompt" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UNTERMINATED_WORKFLOW.md")
     File.write!(workflow_path, "---\ntracker:\n  kind: linear\n")
 
-    assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
-             Workflow.load(workflow_path)
+    assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} = Workflow.load(workflow_path)
   end
 
   test "workflow load rejects non-map front matter" do
@@ -1059,8 +1050,7 @@ defmodule SymphonyElixir.CoreTest do
 
       Process.sleep(50)
 
-      assert {:ok, workspace} =
-               SymphonyElixir.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
+      assert {:ok, workspace} = SymphonyElixir.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
 
       File.mkdir_p!(workspace)
 
@@ -1219,14 +1209,14 @@ defmodule SymphonyElixir.CoreTest do
 
     trigger_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
-    Process.sleep(50)
+    Process.sleep(350)
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.running, issue_id)
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, trigger_ms, 900, 1_100)
+    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -1264,10 +1254,1194 @@ defmodule SymphonyElixir.CoreTest do
     Process.sleep(50)
     state = :sys.get_state(pid)
 
-    assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
-             state.retry_attempts[issue_id]
+    assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} = state.retry_attempts[issue_id]
 
     assert_due_in_range(due_at_ms, trigger_ms, 39_000, 40_500)
+  end
+
+  test "normal worker completion preserves recovered subagent findings for the continuation retry" do
+    issue_id = "issue-normal-recovered-subagent-retry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :NormalRecoveredSubagentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560C",
+      issue: %Issue{id: issue_id, identifier: "MT-560C", state: "Review (AI)"},
+      recovered_turn_context: "Findings:\n- High: Example finding.",
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    trigger_ms = System.monotonic_time(:millisecond)
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{
+             attempt: 1,
+             due_at_ms: due_at_ms,
+             identifier: "MT-560C",
+             recovered_turn_context: "Findings:\n- High: Example finding."
+           } = state.retry_attempts[issue_id]
+
+    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+  end
+
+  test "normal worker completion keeps late subagent findings from tagged user messages until continuation retry is scheduled" do
+    issue_id = "issue-normal-late-recovered-subagent-retry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :LateRecoveredSubagentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560D",
+      issue: %Issue{id: issue_id, identifier: "MT-560D", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    trigger_ms = System.monotonic_time(:millisecond)
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Late example finding.\"}}\n</subagent_notification>"
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{
+             attempt: 1,
+             due_at_ms: due_at_ms,
+             identifier: "MT-560D",
+             recovered_turn_context: "Findings:\n- High: Late example finding."
+           } = state.retry_attempts[issue_id]
+
+    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+  end
+
+  test "normal worker completion ignores tagged subagent findings from unknown agents" do
+    issue_id = "issue-review-tagged-notification-unknown-agent"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :TaggedNotificationUnknownAgentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560Q",
+      issue: %Issue{id: issue_id, identifier: "MT-560Q", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-2"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Should be ignored.\"}}\n</subagent_notification>"
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560Q", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "review subagent tracking resets when a new Codex turn starts" do
+    issue_id = "issue-review-subagent-reset-on-new-turn"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :ReviewSubagentResetOnNewTurnOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560S",
+      issue: %Issue{id: issue_id, identifier: "MT-560S", state: "Review (AI)"},
+      session_id: "thread-review-old-turn",
+      review_subagent_call_ids: MapSet.new(["call-review-old"]),
+      review_subagent_ids: MapSet.new(["agent-review-old"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :session_started,
+         session_id: "thread-review-new-turn",
+         timestamp: DateTime.utc_now()
+       }}
+    )
+
+    Process.sleep(50)
+
+    assert %{
+             session_id: "thread-review-new-turn",
+             review_subagent_call_ids: review_subagent_call_ids,
+             review_subagent_ids: review_subagent_ids
+           } = :sys.get_state(pid).running[issue_id]
+
+    assert MapSet.equal?(review_subagent_call_ids, MapSet.new())
+    assert MapSet.equal?(review_subagent_ids, MapSet.new())
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "<subagent_notification>\n{\"agent_path\":\"agent-review-old\",\"status\":{\"completed\":\"Findings:\\n- High: Stale finding.\"}}\n</subagent_notification>"
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(50)
+
+    assert %{recovered_turn_context: nil} = :sys.get_state(pid).running[issue_id]
+  end
+
+  test "review subagent tracking trusts only the mandatory review spawn request" do
+    issue_id = "issue-review-trusted-spawn-agent"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :TrustedReviewSpawnAgentOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560T",
+      issue: %Issue{id: issue_id, identifier: "MT-560T", state: "Review (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :tool_call_completed,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/tool/call",
+           "params" => %{
+             "tool" => "spawn_agent",
+             "callId" => "call-review-1",
+             "arguments" => %{
+               "fork_context" => false,
+               "message" => """
+               Start a read-only review of the current worktree against origin/main.
+               Only report review findings and return exactly one of:
+               Findings:
+               - High: Example finding.
+               Keine Findings.
+               """
+             }
+           }
+         }
+       }}
+    )
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "id" => "call-review-1",
+               "type" => "function_call_output",
+               "tool" => "spawn_agent",
+               "output" => ~s({"id":"agent-review-1"})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(50)
+
+    assert %{
+             review_subagent_call_ids: review_subagent_call_ids,
+             review_subagent_ids: review_subagent_ids
+           } = :sys.get_state(pid).running[issue_id]
+
+    assert MapSet.equal?(review_subagent_call_ids, MapSet.new(["call-review-1"]))
+    assert MapSet.equal?(review_subagent_ids, MapSet.new(["agent-review-1"]))
+  end
+
+  test "review subagent tracking ignores unrelated spawn_agent delegations in Review (AI)" do
+    issue_id = "issue-review-unrelated-spawn-agent"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :UnrelatedReviewSpawnAgentOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560U",
+      issue: %Issue{id: issue_id, identifier: "MT-560U", state: "Review (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :tool_call_completed,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/tool/call",
+           "params" => %{
+             "tool" => "spawn_agent",
+             "callId" => "call-helper-1",
+             "arguments" => %{
+               "fork_context" => false,
+               "message" => "Inspect this helper and summarize the result."
+             }
+           }
+         }
+       }}
+    )
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "id" => "call-helper-1",
+               "type" => "function_call_output",
+               "tool" => "spawn_agent",
+               "output" => ~s({"id":"agent-helper-1"})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(50)
+
+    assert %{
+             review_subagent_call_ids: review_subagent_call_ids,
+             review_subagent_ids: review_subagent_ids
+           } = :sys.get_state(pid).running[issue_id]
+
+    assert MapSet.equal?(review_subagent_call_ids, MapSet.new())
+    assert MapSet.equal?(review_subagent_ids, MapSet.new())
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "<subagent_notification>\n{\"agent_path\":\"agent-helper-1\",\"status\":{\"completed\":\"Findings:\\n- High: Helper finding.\"}}\n</subagent_notification>"
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(50)
+
+    assert %{recovered_turn_context: nil} = :sys.get_state(pid).running[issue_id]
+  end
+
+  test "normal worker completion recovers late wait_agent findings from item completion output" do
+    issue_id = "issue-normal-late-wait-agent-retry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :LateWaitAgentRecoveredRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560E",
+      issue: %Issue{id: issue_id, identifier: "MT-560E", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    trigger_ms = System.monotonic_time(:millisecond)
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"status":{"agent-1":{"completed":"Findings:\\n- High: Late wait_agent finding."}},"timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{
+             attempt: 1,
+             due_at_ms: due_at_ms,
+             identifier: "MT-560E",
+             recovered_turn_context: "Findings:\n- High: Late wait_agent finding."
+           } = state.retry_attempts[issue_id]
+
+    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+  end
+
+  test "normal worker completion ignores timed out wait_agent findings from item completion output" do
+    issue_id = "issue-normal-late-wait-agent-timeout"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :LateWaitAgentTimedOutRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560F",
+      issue: %Issue{id: issue_id, identifier: "MT-560F", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"status":{"agent-1":{"completed":"Findings:\\n- High: Timed out finding."}},"timed_out":true})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560F", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores late wait_agent findings when no review subagent id was verified" do
+    issue_id = "issue-review-wait-agent-without-verified-subagent"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :WaitAgentWithoutVerifiedSubagentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560R",
+      issue: %Issue{id: issue_id, identifier: "MT-560R", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"status":{"agent-1":{"completed":"Findings:\\n- High: Should be ignored without a verified subagent id."}},"timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560R", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores tagged subagent notifications outside user message events" do
+    issue_id = "issue-review-tagged-notification-non-user-message"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :TaggedNotificationNonUserMessageRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560K",
+      issue: %Issue{id: issue_id, identifier: "MT-560K", state: "Review (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "content" => [
+                 %{
+                   "type" => "input_text",
+                   "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Should be ignored.\"}}\n</subagent_notification>"
+                 }
+               ]
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560K", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores late subagent findings outside Review (AI)" do
+    issue_id = "issue-non-review-late-subagent-retry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :NonReviewLateRecoveredSubagentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560G",
+      issue: %Issue{id: issue_id, identifier: "MT-560G", state: "In Arbeit (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "content" => [
+                 %{
+                   "type" => "input_text",
+                   "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Non-review finding.\"}}\n</subagent_notification>"
+                 }
+               ]
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560G", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores wait_agent-like output from other tools" do
+    issue_id = "issue-review-non-wait-agent-output"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :NonWaitAgentRecoveredRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560H",
+      issue: %Issue{id: issue_id, identifier: "MT-560H", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "exec_command",
+               "output" => ~s({"status":{"agent-1":{"completed":"Findings:\\n- High: Should be ignored."}},"timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560H", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores plain wait_agent output without structured status" do
+    issue_id = "issue-review-wait-agent-plain-output"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :PlainWaitAgentOutputRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560L",
+      issue: %Issue{id: issue_id, identifier: "MT-560L", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => "Findings:\n- High: Should be ignored."
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560L", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores nested wait_agent findings outside completed status entries" do
+    issue_id = "issue-review-wait-agent-nested-output"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :NestedWaitAgentOutputRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560M",
+      issue: %Issue{id: issue_id, identifier: "MT-560M", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"status":{"agent-1":{"details":["Findings:\\n- High: Should be ignored."]}},"timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560M", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores top-level wait_agent completed fields outside agent status entries" do
+    issue_id = "issue-review-wait-agent-top-level-completed"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :TopLevelWaitAgentCompletedRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560N",
+      issue: %Issue{id: issue_id, identifier: "MT-560N", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"completed":"Keine Findings.","timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560N", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores wait_agent completed fields from unknown status entries" do
+    issue_id = "issue-review-wait-agent-unknown-status-entry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :UnknownWaitAgentStatusEntryRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560O",
+      issue: %Issue{id: issue_id, identifier: "MT-560O", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "item/completed",
+           "params" => %{
+             "item" => %{
+               "type" => "function_call_output",
+               "tool" => "wait_agent",
+               "output" => ~s({"status":{"summary":{"completed":"Keine Findings."}},"timed_out":false})
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560O", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores tagged subagent notifications wrapped in surrounding prose" do
+    issue_id = "issue-review-tagged-notification-surrounding-prose"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :TaggedNotificationSurroundingProseRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560P",
+      issue: %Issue{id: issue_id, identifier: "MT-560P", state: "Review (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "Vorheriger Kontext\n<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Keine Findings.\"}}\n</subagent_notification>\nNachtrag"
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560P", recovered_turn_context: nil} = state.retry_attempts[issue_id]
+  end
+
+  test "normal worker completion ignores plain findings text without wait_agent or subagent tag" do
+    issue_id = "issue-review-plain-findings-text"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :PlainFindingsRecoveredRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560I",
+      issue: %Issue{id: issue_id, identifier: "MT-560I", state: "Review (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+
+    Process.sleep(50)
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :notification,
+         timestamp: DateTime.utc_now(),
+         payload: %{
+           "method" => "codex/event/user_message",
+           "params" => %{
+             "msg" => %{
+               "payload" => %{
+                 "content" => [
+                   %{
+                     "type" => "input_text",
+                     "text" => "Findings:\n- High: Untagged plain text."
+                   }
+                 ]
+               }
+             }
+           }
+         }
+       }}
+    )
+
+    Process.sleep(350)
+    state = :sys.get_state(pid)
+
+    assert %{identifier: "MT-560I", recovered_turn_context: nil} = state.retry_attempts[issue_id]
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -1304,10 +2478,80 @@ defmodule SymphonyElixir.CoreTest do
     Process.sleep(50)
     state = :sys.get_state(pid)
 
-    assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
-             state.retry_attempts[issue_id]
+    assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} = state.retry_attempts[issue_id]
 
     assert_due_in_range(due_at_ms, trigger_ms, 9_000, 10_500)
+  end
+
+  test "abnormal worker exit preserves recovered subagent findings for the retry prompt" do
+    issue_id = "issue-recovered-subagent-retry"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :RecoveredSubagentRetryOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560B",
+      issue: %Issue{id: issue_id, identifier: "MT-560B", state: "Review (AI)"},
+      review_subagent_ids: MapSet.new(["agent-1"]),
+      session_id: nil,
+      codex_last_reported_input_tokens: 0,
+      codex_last_reported_output_tokens: 0,
+      codex_last_reported_total_tokens: 0,
+      turn_count: 0,
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {
+      :codex_worker_update,
+      issue_id,
+      %{
+        event: :notification,
+        timestamp: DateTime.utc_now(),
+        payload: %{
+          "method" => "codex/event/user_message",
+          "params" => %{
+            "msg" => %{
+              "payload" => %{
+                "content" => [
+                  %{
+                    "type" => "input_text",
+                    "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Example finding.\"}}\n</subagent_notification>"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    })
+
+    send(pid, {:DOWN, ref, :process, self(), :boom})
+    Process.sleep(50)
+    state = :sys.get_state(pid)
+
+    assert %{
+             attempt: 1,
+             identifier: "MT-560B",
+             error: "agent exited: :boom",
+             recovered_turn_context: "Findings:\n- High: Example finding."
+           } = state.retry_attempts[issue_id]
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
@@ -1350,6 +2594,126 @@ defmodule SymphonyElixir.CoreTest do
            } = :sys.get_state(pid).retry_attempts[issue_id]
   end
 
+  test "retry-dispatched recovered review context is consumed after one continuation turn" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-recovered-review-context-consumed-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      issue_id = "issue-recovered-review-context-consumed"
+      issue_identifier = "MT-560J"
+      retry_token = make_ref()
+      existing_task_supervisor = Process.whereis(SymphonyElixir.TaskSupervisor)
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "# recovered context\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        issue_key="$(basename "$workspace")"
+        branch="symphony/$issue_key"
+        rm -rf "$workspace"
+        git -C "$source_repo" worktree add -b "$branch" "$workspace" HEAD
+        """,
+        codex_command: "sh -lc 'sleep 60'",
+        poll_interval_ms: 30_000
+      )
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Recovered review continuation context",
+        description: "Retry prompt context should only be reused once",
+        state: "Review (AI)",
+        url: "https://example.org/issues/#{issue_identifier}",
+        labels: []
+      }
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      started_task_supervisor =
+        case existing_task_supervisor do
+          pid when is_pid(pid) ->
+            nil
+
+          nil ->
+            {:ok, pid} = Task.Supervisor.start_link(name: SymphonyElixir.TaskSupervisor)
+            pid
+        end
+
+      File.cd!(source_repo, fn ->
+        orchestrator_name = Module.concat(__MODULE__, :ConsumedRecoveredContextRetryOrchestrator)
+        {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+        on_exit(fn ->
+          if Process.alive?(pid) do
+            Process.exit(pid, :normal)
+          end
+
+          if is_pid(started_task_supervisor) and Process.alive?(started_task_supervisor) do
+            Process.exit(started_task_supervisor, :normal)
+          end
+        end)
+
+        initial_state = :sys.get_state(pid)
+
+        :sys.replace_state(pid, fn _ ->
+          %{
+            initial_state
+            | retry_attempts: %{
+                issue_id => %{
+                  attempt: 1,
+                  timer_ref: nil,
+                  retry_token: retry_token,
+                  due_at_ms: System.monotonic_time(:millisecond) + 30_000,
+                  identifier: issue_identifier,
+                  recovered_turn_context: "Findings:\n- High: Example finding."
+                }
+              }
+          }
+        end)
+
+        send(pid, {:retry_issue, issue_id, retry_token})
+
+        running_entry =
+          Enum.find_value(1..20, fn _attempt ->
+            Process.sleep(50)
+            :sys.get_state(pid).running[issue_id]
+          end)
+
+        assert %{recovered_turn_context: nil} = running_entry
+
+        send(pid, {:DOWN, running_entry.ref, :process, running_entry.pid, :normal})
+        Process.sleep(400)
+
+        assert %{identifier: ^issue_identifier, recovered_turn_context: nil} =
+                 :sys.get_state(pid).retry_attempts[issue_id]
+      end)
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "manual refresh coalesces repeated requests and ignores superseded ticks" do
     now_ms = System.monotonic_time(:millisecond)
     stale_tick_token = make_ref()
@@ -1365,16 +2729,17 @@ defmodule SymphonyElixir.CoreTest do
       codex_rate_limits: nil
     }
 
-    assert {:reply, %{queued: true, coalesced: false}, refreshed_state} =
-             Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, state)
+    refresh_result = Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, state)
+    assert {:reply, %{queued: true, coalesced: false}, refreshed_state} = refresh_result
 
     assert is_reference(refreshed_state.tick_timer_ref)
     assert is_reference(refreshed_state.tick_token)
     refute refreshed_state.tick_token == stale_tick_token
     assert refreshed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
 
-    assert {:reply, %{queued: true, coalesced: true}, coalesced_state} =
-             Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, refreshed_state)
+    coalesced_result = Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, refreshed_state)
+
+    assert {:reply, %{queued: true, coalesced: true}, coalesced_state} = coalesced_result
 
     assert coalesced_state.tick_token == refreshed_state.tick_token
     assert {:noreply, ^coalesced_state} = Orchestrator.handle_info({:tick, stale_tick_token}, coalesced_state)
@@ -1455,8 +2820,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "prompt builder renders issue and attempt values from workflow template" do
-    workflow_prompt =
-      "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} attempt={{ attempt }}"
+    workflow_prompt = "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} attempt={{ attempt }}"
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
@@ -1474,6 +2838,373 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Ticket S-1 Refactor backend request path"
     assert prompt =~ "labels=backend"
     assert prompt =~ "attempt=3"
+  end
+
+  test "prompt builder appends recovered continuation context when present" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        Bitte starte den Review-Subagenten nicht sofort erneut.
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701B",
+      title: "Recovered review continuation",
+      description: "Prompt should include recovered subagent context",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-701B",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "Findings:\n- High: Example finding."
+      )
+
+    assert prompt =~ "Ticket MT-701B"
+    assert prompt =~ "Wiederverwendeter Kontext aus dem Workflow:"
+    assert prompt =~ "Bitte starte den Review-Subagenten nicht sofort erneut."
+    assert prompt =~ "Findings:\n- High: Example finding."
+  end
+
+  test "prompt builder appends recovered no-findings continuation context in Review (AI)" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701E",
+      title: "Recovered review no-findings continuation",
+      description: "Prompt should include explicit no-findings recovery context",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-701E",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "Keine Findings.\nRestrisiko: keine."
+      )
+
+    assert prompt =~ "Ticket MT-701E"
+    assert prompt =~ "Wiederverwendeter Kontext aus dem Workflow:"
+    assert prompt =~ "Keine Findings.\nRestrisiko: keine."
+  end
+
+  test "prompt builder ignores recovered continuation context outside Review (AI)" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701D",
+      title: "Recovered review continuation outside review",
+      description: "Prompt should ignore recovered subagent context outside Review (AI)",
+      state: "In Arbeit (AI)",
+      url: "https://example.org/issues/MT-701D",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "Findings:\n- High: Example finding."
+      )
+
+    assert prompt == "Ticket MT-701D"
+  end
+
+  test "prompt builder ignores invalid recovered continuation context in Review (AI)" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701F",
+      title: "Invalid recovered review continuation",
+      description: "Prompt should ignore invalid recovered subagent context",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-701F",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: 123
+      )
+
+    assert prompt == "Ticket MT-701F"
+  end
+
+  test "prompt builder ignores invalid binary recovered continuation context in Review (AI)" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701H",
+      title: "Invalid recovered review continuation text",
+      description: "Prompt should ignore binary recovered subagent context without explicit result prefix",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-701H",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "Subagent timed out without final result"
+      )
+
+    assert prompt == "Ticket MT-701H"
+  end
+
+  test "prompt builder ignores recovered continuation context when issue state is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "recovered_turn_context" => """
+        Wiederverwendeter Kontext aus dem Workflow:
+        {{ context }}
+        """
+      }
+    )
+
+    issue = %Issue{
+      identifier: "MT-701G",
+      title: "Recovered review continuation without state",
+      description: "Prompt should ignore recovered context when state is unavailable",
+      state: nil,
+      url: "https://example.org/issues/MT-701G",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "Findings:\n- High: Example finding."
+      )
+
+    assert prompt == "Ticket MT-701G"
+  end
+
+  test "workflow prompt snippets must be defined in WORKFLOW.md" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{}
+    )
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippets_missing: snippet="recovered_turn_context"/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings:\n- High: Missing snippet."})
+                 end
+  end
+
+  test "workflow prompt snippet accepts atom names and renders workflow values" do
+    snippet =
+      Workflow.prompt_snippet(:continuation_guidance, %{
+        continuation_intro: "Fortsetzen",
+        turn_number: 2,
+        max_turns: 5,
+        issue_state: "Review (AI)"
+      })
+
+    assert snippet =~ "Fortsetzen"
+    assert snippet =~ "Fortsetzungs-Turn #2 von 5"
+    assert snippet =~ "Der aktuelle Tracker-Status ist \"Review (AI)\"."
+  end
+
+  test "workflow prompt snippet raises when prompt_snippets has an invalid type" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: "ungueltig"
+    )
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippets_invalid: value="ungueltig"/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet raises when the requested snippet key is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{"anderes_snippet" => "vorhanden"}
+    )
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippet_missing: snippet="recovered_turn_context"/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet raises when the requested snippet is empty" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{"recovered_turn_context" => "   "}
+    )
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippet_empty: snippet="recovered_turn_context"/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet raises when the requested snippet has an invalid value type" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      prompt_snippets:
+        recovered_turn_context: 123
+      ---
+      Ticket {{ issue.identifier }}
+      """
+    )
+
+    assert :ok = WorkflowStore.force_reload()
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippet_invalid: snippet="recovered_turn_context" value=123/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet raises when snippet rendering fails" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{"recovered_turn_context" => "{{ fehlende_variable }}"}
+    )
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippet_parse_error:/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet raises when the workflow file cannot be loaded" do
+    original_workflow_path = Workflow.workflow_file_path()
+    missing_workflow_path = Path.join(Path.dirname(original_workflow_path), "MISSING_SNIPPET_WORKFLOW.md")
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(original_workflow_path)
+
+      if is_nil(Process.whereis(WorkflowStore)) do
+        assert {:ok, _pid} = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
+      end
+    end)
+
+    if Process.whereis(WorkflowStore) do
+      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+    end
+
+    Workflow.set_workflow_file_path(missing_workflow_path)
+
+    assert_raise RuntimeError,
+                 ~r/workflow_prompt_snippet_unavailable: snippet="recovered_turn_context"/,
+                 fn ->
+                   Workflow.prompt_snippet("recovered_turn_context", %{context: "Findings"})
+                 end
+  end
+
+  test "workflow prompt snippet serializes supported assign value types" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: "Ticket {{ issue.identifier }}",
+      prompt_snippets: %{
+        "typed_snippet" => "{{ dt }}|{{ ndt }}|{{ date }}|{{ time }}|{{ issue_value.identifier }}|{{ nested.inner }}"
+      }
+    )
+
+    dt = DateTime.from_naive!(~N[2026-04-14 15:30:45], "Etc/UTC")
+    ndt = ~N[2026-04-14 15:31:00]
+    date = ~D[2026-04-14]
+    time = ~T[15:32:10]
+
+    issue_value = %Issue{
+      identifier: "MT-TYPES",
+      title: "Typed snippet",
+      description: "Exercise workflow assign serialization",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-TYPES",
+      labels: []
+    }
+
+    snippet =
+      Workflow.prompt_snippet("typed_snippet", %{
+        dt: dt,
+        ndt: ndt,
+        date: date,
+        time: time,
+        issue_value: issue_value,
+        nested: %{inner: "OK"},
+        values: ["eins", "zwei"]
+      })
+
+    assert snippet =~ DateTime.to_iso8601(dt)
+    assert snippet =~ NaiveDateTime.to_iso8601(ndt)
+    assert snippet =~ Date.to_iso8601(date)
+    assert snippet =~ Time.to_iso8601(time)
+    assert snippet =~ "MT-TYPES"
+    assert snippet =~ "OK"
+  end
+
+  test "prompt builder ignores blank recovered continuation context" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-701C",
+      title: "Blank recovered review continuation",
+      description: "Prompt should ignore blank recovered subagent context",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-701C",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(
+        issue,
+        recovered_turn_context: "   \n"
+      )
+
+    assert prompt == "Ticket MT-701C"
   end
 
   test "prompt builder renders issue datetime fields without crashing" do
@@ -1524,8 +3255,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "prompt builder exposes session and workflow modes" do
-    workflow_prompt =
-      "session={{ runtime.session_mode }} workflow={{ runtime.workflow_mode }} automated={{ runtime.automated }} interactive={{ runtime.interactive }}"
+    workflow_prompt = "session={{ runtime.session_mode }} workflow={{ runtime.workflow_mode }} automated={{ runtime.automated }} interactive={{ runtime.interactive }}"
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
@@ -1799,14 +3529,11 @@ defmodule SymphonyElixir.CoreTest do
       }
     ])
 
-    assert {:ok, "MT-698E orchestrated interactive"} =
-             PromptBuilder.build_prompt_for_issue_identifier("MT-698E")
+    assert {:ok, "MT-698E orchestrated interactive"} = PromptBuilder.build_prompt_for_issue_identifier("MT-698E")
 
-    assert {:ok, "MT-698E manual interactive"} =
-             PromptBuilder.build_prompt_for_issue_identifier("MT-698E", session_mode: :manual)
+    assert {:ok, "MT-698E manual interactive"} = PromptBuilder.build_prompt_for_issue_identifier("MT-698E", session_mode: :manual)
 
-    assert {:error, {:issue_not_found, "MISSING-1"}} =
-             PromptBuilder.build_prompt_for_issue_identifier("MISSING-1", session_mode: :manual)
+    assert {:error, {:issue_not_found, "MISSING-1"}} = PromptBuilder.build_prompt_for_issue_identifier("MISSING-1", session_mode: :manual)
   end
 
   test "script support loads env files from .symphony under the project root for manual prompts" do
@@ -1898,8 +3625,7 @@ defmodule SymphonyElixir.CoreTest do
   test "script support resolves workspace root after loading project .symphony env files" do
     previous_custom_root = System.get_env("SYMP_SCRIPT_WORKSPACE_ROOT")
 
-    project_root =
-      Path.join(System.tmp_dir!(), "sym-codex-workspace-root-#{System.unique_integer([:positive])}")
+    project_root = Path.join(System.tmp_dir!(), "sym-codex-workspace-root-#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
       restore_env("SYMP_SCRIPT_WORKSPACE_ROOT", previous_custom_root)
@@ -1915,8 +3641,7 @@ defmodule SymphonyElixir.CoreTest do
       workspace_root: "$SYMP_SCRIPT_WORKSPACE_ROOT"
     )
 
-    assert {:ok, "external-worktrees"} =
-             ScriptSupport.workspace_root(Workflow.workflow_file_path(), project_root)
+    assert {:ok, "external-worktrees"} = ScriptSupport.workspace_root(Workflow.workflow_file_path(), project_root)
   end
 
   test "prompt builder uses trimmed TZ environment values in runtime context" do
@@ -2047,10 +3772,10 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "You are working on a Linear issue."
+    assert prompt =~ "Du arbeitest an einem Linear-Ticket."
     assert prompt =~ "Identifier: MT-777"
-    assert prompt =~ "Title: Make fallback prompt useful"
-    assert prompt =~ "Body:"
+    assert prompt =~ "Titel: Make fallback prompt useful"
+    assert prompt =~ "Beschreibung:"
     assert prompt =~ "Include enough issue context to start working."
     assert Config.workflow_prompt() =~ "{{ issue.identifier }}"
     assert Config.workflow_prompt() =~ "{{ issue.title }}"
@@ -2072,8 +3797,8 @@ defmodule SymphonyElixir.CoreTest do
     prompt = PromptBuilder.build_prompt(issue)
 
     assert prompt =~ "Identifier: MT-778"
-    assert prompt =~ "Title: Handle empty body"
-    assert prompt =~ "No description provided."
+    assert prompt =~ "Titel: Handle empty body"
+    assert prompt =~ "Keine Beschreibung vorhanden."
   end
 
   test "prompt builder reports workflow load failures separately from template parse errors" do
@@ -2091,8 +3816,7 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     if is_pid(Process.whereis(SymphonyElixir.Supervisor)) do
-      assert :ok =
-               Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
     end
 
     Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
@@ -2297,8 +4021,7 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue)
       entries_after = MapSet.new(File.ls!(workspace_root))
 
-      created =
-        MapSet.difference(entries_after, before) |> Enum.filter(&(&1 == "S-99"))
+      created = MapSet.difference(entries_after, before) |> Enum.filter(&(&1 == "S-99"))
 
       created = MapSet.new(created)
 
@@ -2452,8 +4175,7 @@ defmodule SymphonyElixir.CoreTest do
 
       refute File.dir?(workspace)
 
-      assert {worktree_list, 0} =
-               System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
+      assert {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
 
       refute worktree_list =~ workspace
       refute_receive {:memory_tracker_branch_update, "issue-bootstrap-1", _branch}, 100
@@ -2651,8 +4373,7 @@ defmodule SymphonyElixir.CoreTest do
 
       refute File.dir?(workspace)
 
-      assert {worktree_list, 0} =
-               System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
+      assert {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
 
       refute worktree_list =~ workspace
       refute_receive {:memory_tracker_branch_update, "issue-todo-1", _branch}, 100
@@ -2794,7 +4515,16 @@ defmodule SymphonyElixir.CoreTest do
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
         codex_command: "#{codex_binary} app-server",
-        max_turns: 3
+        max_turns: 3,
+        prompt_snippets: %{
+          "continuation_guidance" => """
+          Workflow-Fortsetzung aus WORKFLOW.md:
+          - {{ continuation_intro }}
+          - Turn {{ turn_number }}/{{ max_turns }}
+          - Status {{ issue_state }}
+          """,
+          "continuation_intro_completed" => "Der vorherige Codex-Turn ist abgeschlossen; arbeite im bestehenden Kontext weiter."
+        }
       )
 
       parent = self()
@@ -2854,10 +4584,159 @@ defmodule SymphonyElixir.CoreTest do
         end)
 
       assert length(turn_texts) == 2
-      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
-      refute Enum.at(turn_texts, 1) =~ "You are an agent for this repository."
-      assert Enum.at(turn_texts, 1) =~ "Continuation guidance:"
-      assert Enum.at(turn_texts, 1) =~ "continuation turn #2 of 3"
+      assert Enum.at(turn_texts, 0) =~ "Du arbeitest an einem Ticket dieses Repositorys."
+      refute Enum.at(turn_texts, 1) =~ "Du arbeitest an einem Ticket dieses Repositorys."
+      assert Enum.at(turn_texts, 1) =~ "Workflow-Fortsetzung aus WORKFLOW.md:"
+      assert Enum.at(turn_texts, 1) =~ "Turn 2/3"
+      assert Enum.at(turn_texts, 1) =~ "Status In Arbeit (AI)"
+
+      assert Enum.at(turn_texts, 1) =~
+               "Der vorherige Codex-Turn ist abgeschlossen; arbeite im bestehenden Kontext weiter."
+    after
+      System.delete_env("SYMP_TEST_CODEx_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner continues with a follow-up turn after an interrupted Codex turn" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-cancelled-continuation-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
+      run_id="$(date +%s%N)-$$"
+      printf 'RUN:%s\\n' "$run_id" >> "$trace_file"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-cancel-cont"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-cancel-1"}}}'
+            printf '%s\\n' '{"method":"turn/cancelled","params":{"reason":"interrupted"}}'
+            ;;
+          5)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-cancel-2"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEx_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3,
+        prompt_snippets: %{
+          "continuation_guidance" => """
+          Workflow-Fortsetzung nach Unterbrechung:
+          - {{ continuation_intro }}
+          - Turn {{ turn_number }}/{{ max_turns }}
+          - Status {{ issue_state }}
+          - Thread-Kontext beibehalten.
+          """,
+          "continuation_intro_cancelled" => "Der vorherige Codex-Turn wurde unterbrochen; setze die Arbeit im vorhandenen Thread fort."
+        }
+      )
+
+      parent = self()
+
+      state_fetcher = fn [_issue_id] ->
+        attempt = Process.get(:agent_cancelled_turn_fetch_count, 0) + 1
+        Process.put(:agent_cancelled_turn_fetch_count, attempt)
+        send(parent, {:issue_state_fetch_after_cancelled_turn, attempt})
+
+        state =
+          if attempt == 1 do
+            "In Arbeit (AI)"
+          else
+            "Fertig"
+          end
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-cancelled-continue",
+             identifier: "MT-248",
+             title: "Continue after interrupted turn",
+             description: "Still active after a cancelled turn",
+             state: state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-cancelled-continue",
+        identifier: "MT-248",
+        title: "Continue after interrupted turn",
+        description: "Still active after a cancelled turn",
+        state: "In Arbeit (AI)",
+        url: "https://example.org/issues/MT-248",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:issue_state_fetch_after_cancelled_turn, 1}
+      assert_receive {:issue_state_fetch_after_cancelled_turn, 2}
+
+      lines = File.read!(trace_file) |> String.split("\n", trim: true)
+
+      assert length(Enum.filter(lines, &String.starts_with?(&1, "RUN:"))) == 1
+      assert length(Enum.filter(lines, &String.contains?(&1, "\"method\":\"thread/start\""))) == 1
+
+      turn_texts =
+        lines
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 2
+      assert Enum.at(turn_texts, 1) =~ "Workflow-Fortsetzung nach Unterbrechung:"
+      assert Enum.at(turn_texts, 1) =~ "Turn 2/3"
+      assert Enum.at(turn_texts, 1) =~ "Status In Arbeit (AI)"
+
+      assert Enum.at(turn_texts, 1) =~
+               "Der vorherige Codex-Turn wurde unterbrochen; setze die Arbeit im vorhandenen Thread fort."
+
+      assert Enum.at(turn_texts, 1) =~ "Thread-Kontext beibehalten."
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
       File.rm_rf(test_root)
@@ -3020,8 +4899,7 @@ defmodule SymphonyElixir.CoreTest do
       assert File.exists?(Path.join(workspace, ".after_create_ran"))
       refute File.exists?(codex_stamp)
 
-      assert {"symphony/MT-MANUAL-IN-ARBEIT\n", 0} =
-               System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
+      assert {"symphony/MT-MANUAL-IN-ARBEIT\n", 0} = System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
 
       assert_receive {:memory_tracker_branch_update, "issue-manual-in-arbeit", "symphony/MT-MANUAL-IN-ARBEIT"}
       refute_receive {:memory_tracker_state_update, "issue-manual-in-arbeit", _state_name}, 100
@@ -3118,7 +4996,7 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, :tick)
 
         assert_receive {:memory_tracker_branch_update, ^issue_id, ^expected_branch}, 1_000
-        Process.sleep(200)
+        Process.sleep(350)
 
         assert File.dir?(workspace)
         assert File.exists?(Path.join(workspace, ".after_create_ran"))
@@ -3338,7 +5216,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Review (AI) issues to Test (AI) after a clean review turn" do
+  test "agent runner moves Review (AI) issues to Freigabe Review after a clean review turn" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3346,6 +5224,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3404,6 +5283,19 @@ defmodule SymphonyElixir.CoreTest do
 
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-handoff" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
       state_fetcher = fn [_issue_id] ->
         current_state = Agent.get(state_agent, & &1)
 
@@ -3430,9 +5322,460 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Test (AI)"}
-      assert "Test (AI)" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
     after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner keeps Review (AI) when the workpad still has open review checklist items" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-workpad-open-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-open"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-open"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-workpad-open" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Dateiname geprueft
+          - [ ] Read-only Review-Subagent gegen `origin/main` ausfuehren: ausstehend
+
+          ### Test
+
+          - [ ] Noch nicht gestartet
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-workpad-open",
+             identifier: "MT-REVIEW-OPEN",
+             title: "Review handoff blocked by open workpad items",
+             description: "Do not auto-transition review issues with open review checklist items",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-workpad-open",
+        identifier: "MT-REVIEW-OPEN",
+        title: "Review handoff blocked by open workpad items",
+        description: "Do not auto-transition review issues with open review checklist items",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-OPEN",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-workpad-open", _state_name}, 100
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner keeps Review (AI) when the workpad comment is missing" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-workpad-missing-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-missing-workpad"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-missing-workpad"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{})
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-workpad-missing",
+             identifier: "MT-REVIEW-MISSING",
+             title: "Review handoff blocked by missing workpad",
+             description: "Do not auto-transition review issues without a workpad",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-workpad-missing",
+        identifier: "MT-REVIEW-MISSING",
+        title: "Review handoff blocked by missing workpad",
+        description: "Do not auto-transition review issues without a workpad",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-MISSING",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-workpad-missing", _state_name}, 100
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner keeps Review (AI) when the workpad lacks a Review section" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-workpad-no-section-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-no-section"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-no-section"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-workpad-no-section" => [
+          """
+          ## Codex Workpad
+
+          ### Test
+
+          - [ ] Noch nicht gestartet
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-workpad-no-section",
+             identifier: "MT-REVIEW-NO-SECTION",
+             title: "Review handoff blocked by missing review section",
+             description: "Do not auto-transition review issues without a Review checklist section",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-workpad-no-section",
+        identifier: "MT-REVIEW-NO-SECTION",
+        title: "Review handoff blocked by missing review section",
+        description: "Do not auto-transition review issues without a Review checklist section",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-NO-SECTION",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-workpad-no-section", _state_name}, 100
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner keeps Review (AI) when the workpad Review section has no checklist items" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-workpad-no-checklist-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-no-checklist"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-no-checklist"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-workpad-no-checklist" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          Review lokal abgeschlossen.
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-workpad-no-checklist",
+             identifier: "MT-REVIEW-NO-CHECKLIST",
+             title: "Review handoff blocked by prose-only review section",
+             description: "Do not auto-transition review issues without an explicit completed Review checklist",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-workpad-no-checklist",
+        identifier: "MT-REVIEW-NO-CHECKLIST",
+        title: "Review handoff blocked by prose-only review section",
+        description: "Do not auto-transition review issues without an explicit completed Review checklist",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-NO-CHECKLIST",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-workpad-no-checklist", _state_name}, 100
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
@@ -3446,6 +5789,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3500,6 +5844,19 @@ defmodule SymphonyElixir.CoreTest do
 
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-dirty-handoff" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
       state_fetcher = fn [_issue_id] ->
         current_state = Agent.get(state_agent, & &1)
 
@@ -3529,6 +5886,7 @@ defmodule SymphonyElixir.CoreTest do
       assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
     after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
@@ -3542,6 +5900,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3595,6 +5954,19 @@ defmodule SymphonyElixir.CoreTest do
 
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-skip-handoff" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
       labels = [~s(skip "freigabe review")]
 
       state_fetcher = fn [_issue_id] ->
@@ -3627,6 +5999,7 @@ defmodule SymphonyElixir.CoreTest do
       assert_receive {:memory_tracker_state_update, "issue-review-skip-handoff", "Test (AI)"}
       assert "Test (AI)" == Agent.get(state_agent, & &1)
     after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end

@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Tracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_by_identifier(String.t()) :: {:ok, term()} | {:error, term()}
+  @callback fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
@@ -32,6 +33,11 @@ defmodule SymphonyElixir.Tracker do
   @spec fetch_issue_by_identifier(String.t()) :: {:ok, term()} | {:error, term()}
   def fetch_issue_by_identifier(identifier) when is_binary(identifier) do
     adapter().fetch_issue_by_identifier(identifier)
+  end
+
+  @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
+    adapter().fetch_issue_comment_bodies(issue_id)
   end
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
