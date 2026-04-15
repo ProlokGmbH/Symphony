@@ -200,6 +200,7 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp valid_review_recovered_context(_state, _context), do: nil
+
   defp active_repo_root(opts) do
     opts
     |> Keyword.get(:active_repo_root)

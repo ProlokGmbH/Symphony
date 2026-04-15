@@ -208,6 +208,7 @@ defmodule SymphonyElixir.AgentRunner do
        when is_map(turn_context) do
     opts = turn_context.opts
     max_turns = turn_context.max_turns
+
     prompt =
       build_turn_prompt(
         issue,
