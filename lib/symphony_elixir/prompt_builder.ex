@@ -30,7 +30,11 @@ defmodule SymphonyElixir.PromptBuilder do
       )
       |> IO.iodata_to_binary()
 
-    append_recovered_turn_context(rendered_prompt, Keyword.get(opts, :recovered_turn_context))
+    append_recovered_turn_context(
+      rendered_prompt,
+      issue,
+      Keyword.get(opts, :recovered_turn_context)
+    )
   end
 
   @spec build_prompt_for_issue_identifier(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -150,10 +154,11 @@ defmodule SymphonyElixir.PromptBuilder do
     end
   end
 
-  defp append_recovered_turn_context(prompt, context) when is_binary(prompt) and is_binary(context) do
-    trimmed_context = String.trim(context)
+  defp append_recovered_turn_context(prompt, %{state: state}, context)
+       when is_binary(prompt) and is_binary(state) do
+    trimmed_context = valid_review_recovered_context(state, context)
 
-    if trimmed_context == "" do
+    if is_nil(trimmed_context) do
       prompt
     else
       prompt <>
@@ -161,5 +166,25 @@ defmodule SymphonyElixir.PromptBuilder do
     end
   end
 
-  defp append_recovered_turn_context(prompt, _context), do: prompt
+  defp append_recovered_turn_context(prompt, _issue, _context), do: prompt
+
+  defp valid_review_recovered_context(state, context)
+       when is_binary(state) and is_binary(context) do
+    trimmed_state =
+      state
+      |> String.trim()
+      |> String.downcase()
+
+    trimmed_context = String.trim(context)
+
+    cond do
+      trimmed_state != "review (ai)" -> nil
+      trimmed_context == "" -> nil
+      String.starts_with?(trimmed_context, "Findings:") -> trimmed_context
+      String.starts_with?(trimmed_context, "Keine Findings.") -> trimmed_context
+      true -> nil
+    end
+  end
+
+  defp valid_review_recovered_context(_state, _context), do: nil
 end

@@ -13,7 +13,6 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
-  @post_review_clean_state_name "Test (AI)"
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
@@ -657,25 +656,8 @@ defmodule SymphonyElixir.AgentRunner do
       default_next_handoff_state(issue.state)
   end
 
-  defp resolve_review_handoff_state(%Issue{} = issue, workspace, worker_host)
-       when is_binary(workspace) do
-    case Workspace.git_status_snapshot(workspace, worker_host) do
-      {:ok, status_snapshot} ->
-        if String.trim(status_snapshot) == "" do
-          Workflow.resolve_target_status(
-            @review_handoff_state_name,
-            [~s(skip "freigabe review") | Issue.label_names(issue)]
-          ) || @post_review_clean_state_name
-        else
-          resolve_next_handoff_state(issue)
-        end
-
-      {:error, reason} ->
-        Logger.warning("Failed to inspect workspace state after review completion; falling back to standard review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-        resolve_next_handoff_state(issue)
-    end
-  end
+  defp resolve_review_handoff_state(%Issue{} = issue, _workspace, _worker_host),
+    do: resolve_next_handoff_state(issue)
 
   defp review_workpad_handoff_status(%Issue{id: issue_id}) when is_binary(issue_id) do
     with {:ok, comments} <- Tracker.fetch_issue_comment_bodies(issue_id) do
@@ -688,10 +670,15 @@ defmodule SymphonyElixir.AgentRunner do
   defp review_workpad_handoff_status(_issue), do: :ready
 
   defp review_workpad_status_from_body(body) when is_binary(body) do
-    if Workpad.section_has_open_checklist_items?(body, "Review"), do: :blocked, else: :ready
+    case Workpad.section_checklist_status(body, "Review") do
+      :closed -> :ready
+      :open -> :blocked
+      :missing -> :blocked
+      :no_checklist -> :blocked
+    end
   end
 
-  defp review_workpad_status_from_body(_body), do: :ready
+  defp review_workpad_status_from_body(_body), do: :blocked
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
     cond do

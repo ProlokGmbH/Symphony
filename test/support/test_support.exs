@@ -26,6 +26,8 @@ defmodule SymphonyElixir.TestSupport do
         only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
 
       setup do
+        SymphonyElixir.TestSupport.ensure_application_started()
+
         workflow_root =
           Path.join(
             System.tmp_dir!(),
@@ -70,6 +72,17 @@ defmodule SymphonyElixir.TestSupport do
 
   def restore_env(key, nil), do: System.delete_env(key)
   def restore_env(key, value), do: System.put_env(key, value)
+
+  def ensure_application_started do
+    case Process.whereis(SymphonyElixir.Supervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      _ ->
+        {:ok, _started} = Application.ensure_all_started(:symphony_elixir)
+        :ok
+    end
+  end
 
   def stop_default_http_server do
     case Process.whereis(SymphonyElixir.Supervisor) do

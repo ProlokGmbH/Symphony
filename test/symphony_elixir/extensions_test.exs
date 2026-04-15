@@ -261,6 +261,28 @@ defmodule SymphonyElixir.ExtensionsTest do
     refute Workpad.section_has_open_checklist_items?(workpad_body, "Test")
     refute Workpad.section_has_open_checklist_items?(workpad_body, "Plan")
     refute Workpad.section_has_open_checklist_items?(nil, "Review")
+    assert Workpad.section_checklist_status(workpad_body, "Review") == :open
+    assert Workpad.section_checklist_status(workpad_body, "Test") == :closed
+    assert Workpad.section_checklist_status(workpad_body, "Plan") == :missing
+    assert Workpad.section_checklist_status(nil, "Review") == :missing
+  end
+
+  test "workpad helper marks prose-only sections as missing an explicit checklist" do
+    workpad_body = """
+    ## Codex Workpad
+
+    ### Review
+
+    Review wurde lokal abgeschlossen.
+
+    ### Test
+
+    - [x] abgehakt
+    """
+
+    assert Workpad.section_checklist_status(workpad_body, "Review") == :no_checklist
+    assert Workpad.section_checklist_status(workpad_body, "Test") == :closed
+    refute Workpad.section_has_open_checklist_items?(workpad_body, "Review")
   end
 
   test "linear adapter delegates reads and validates mutation responses" do

@@ -25,16 +25,28 @@ defmodule SymphonyElixir.Workpad do
   @spec section_has_open_checklist_items?(term(), term()) :: boolean()
   def section_has_open_checklist_items?(body, section_title)
       when is_binary(body) and is_binary(section_title) do
-    case section_body(body, section_title) do
-      {:ok, section_body} ->
-        Regex.match?(~r/^\s*[-*]\s+\[ \]\s+/m, section_body)
-
-      :error ->
-        false
-    end
+    section_checklist_status(body, section_title) == :open
   end
 
   def section_has_open_checklist_items?(_body, _section_title), do: false
+
+  @spec section_checklist_status(term(), term()) :: :open | :closed | :missing | :no_checklist
+  def section_checklist_status(body, section_title)
+      when is_binary(body) and is_binary(section_title) do
+    case section_body(body, section_title) do
+      {:ok, section_body} ->
+        cond do
+          Regex.match?(~r/^\s*[-*]\s+\[ \]\s+/m, section_body) -> :open
+          Regex.match?(~r/^\s*[-*]\s+\[[xX]\]\s+/m, section_body) -> :closed
+          true -> :no_checklist
+        end
+
+      :error ->
+        :missing
+    end
+  end
+
+  def section_checklist_status(_body, _section_title), do: :missing
 
   defp section_body(body, section_title) when is_binary(body) and is_binary(section_title) do
     pattern = ~r/(?:^|\n)###\s+#{Regex.escape(section_title)}\s*\n(?<body>.*?)(?=\n###\s+|\z)/s
