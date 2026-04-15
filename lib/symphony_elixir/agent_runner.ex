@@ -208,7 +208,15 @@ defmodule SymphonyElixir.AgentRunner do
        when is_map(turn_context) do
     opts = turn_context.opts
     max_turns = turn_context.max_turns
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns, previous_turn_outcome)
+    prompt =
+      build_turn_prompt(
+        issue,
+        turn_context.workspace,
+        opts,
+        turn_number,
+        max_turns,
+        previous_turn_outcome
+      )
 
     turn_context.app_session
     |> AppServer.run_turn(
@@ -302,11 +310,23 @@ defmodule SymphonyElixir.AgentRunner do
        ),
        do: {:error, reason}
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns, _previous_turn_outcome) do
-    PromptBuilder.build_prompt(issue, Keyword.put_new(opts, :session_mode, :orchestrated))
+  defp build_turn_prompt(issue, workspace, opts, 1, _max_turns, _previous_turn_outcome) do
+    prompt_opts =
+      opts
+      |> Keyword.put_new(:session_mode, :orchestrated)
+      |> Keyword.put(:active_repo_root, workspace)
+
+    PromptBuilder.build_prompt(issue, prompt_opts)
   end
 
-  defp build_turn_prompt(%Issue{} = issue, _opts, turn_number, max_turns, previous_turn_outcome) do
+  defp build_turn_prompt(
+         %Issue{} = issue,
+         _workspace,
+         _opts,
+         turn_number,
+         max_turns,
+         previous_turn_outcome
+       ) do
     Workflow.prompt_snippet("continuation_guidance", %{
       continuation_intro: continuation_intro(previous_turn_outcome),
       turn_number: turn_number,

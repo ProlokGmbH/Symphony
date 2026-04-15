@@ -134,6 +134,11 @@ Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 Lokale Systemzeit für diesen Turn: {{ runtime.local_time }} ({{ runtime.timezone }})
 
+Pfadkontext für Skills in diesem Turn:
+- Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`
+- Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`
+- Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`
+
 Beschreibung:
 {% if issue.description %}
 {{ issue.description }}
@@ -179,10 +184,12 @@ Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigur
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
 - `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch mit dem neuesten `origin/main` synchronisieren. Wenn der Pull einen Konflikt nicht autonom auflösen kann und der aufrufende Ablauf keinen spezielleren manuellen Rücksprung definiert, dokumentiere den Blocker im Workpad und verschiebe nach `BLOCKER`.
-- `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, `.codex/skills/symphony-prereview/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
-- `symphony-review`: wenn das Ticket `Review (AI)` erreicht, `.codex/skills/symphony-review/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
-- `symphony-test`: wenn das Ticket `Test (AI)` erreicht, `.codex/skills/symphony-test/SKILL.md` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
-- `symphony-land`: wenn das Ticket `Merge (AI)` erreicht, `.codex/skills/symphony-land/SKILL.md` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
+- Repo-lokale `sym-*`-Skills werden immer direkt unter `{{ runtime.active_repo_skill_root }}` gesucht, also im aktuell bearbeiteten Repository/Worktree und nicht im Home-Verzeichnis oder relativ zu einem globalen Skill.
+- Globale `symphony-*`-Skills werden immer direkt unter den globalen Skill-Wurzeln `{{ runtime.global_skill_roots_text }}` gesucht und nicht zuerst relativ zum aktiven Repository.
+- `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, den globalen Skill `symphony-prereview` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
+- `symphony-review`: wenn das Ticket `Review (AI)` erreicht, den globalen Skill `symphony-review` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
+- `symphony-test`: wenn das Ticket `Test (AI)` erreicht, den globalen Skill `symphony-test` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
+- `symphony-land`: wenn das Ticket `Merge (AI)` erreicht, den globalen Skill `symphony-land` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
 ### Globale Arbeitsregeln
 
@@ -283,8 +290,8 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
 
 ### Ablauf
 
-1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue und befolge für Aufbau und Pflege des Kommentars den Skill `.codex/skills/symphony-workpad/SKILL.md`.
-2. Führe die inhaltliche Planung mit `.codex/skills/symphony-planning/SKILL.md` aus:
+1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue und befolge für Aufbau und Pflege des Kommentars den globalen Skill `symphony-workpad`.
+2. Führe die inhaltliche Planung mit dem globalen Skill `symphony-planning` aus:
    - prüfe, ob die Ticketbeschreibung ausführlich genug für sichere Umsetzung ist,
    - stelle bei langen Beschreibungen sicher, dass oben eine kurze Zusammenfassung mit Trenner `---` vor dem Haupttext steht,
    - du darfst die Ticketbeschreibung in diesem Status automatisiert ändern, wenn das für eine vollständige Planung nötig ist,
@@ -317,7 +324,7 @@ nach `PreReview (AI)`.
 
 ### Ablauf
 
-1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß `.codex/skills/symphony-workpad/SKILL.md` als aktive Ausführungs-Checkliste.
+1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
 2. Führe anschließend den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
 3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
 4. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
@@ -369,7 +376,7 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Ablauf
 
-1. Öffne `.codex/skills/symphony-prereview/SKILL.md` und führe den dort definierten Ablauf aus.
+1. Öffne den globalen Skill `symphony-prereview` und führe den dort definierten Ablauf aus.
 2. Der Skill enthält die repository-spezifische PreReview-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die gezielte Schrittwiederholung ohne kompletten Neustart.
 
 ### Abschluss und nächster Status
@@ -394,7 +401,7 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 ### Ablauf
 
 1. Führe zu Beginn den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
-2. Öffne `.codex/skills/symphony-review/SKILL.md` und führe den dort definierten Ablauf aus.
+2. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
 3. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
 4. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
@@ -447,7 +454,7 @@ Den Branch vor dem Test gegen `origin/main` synchronisieren, den repository-spez
 
 1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht `Test (AI) Autocommit`.
 2. Führe anschließend den Skill `symphony-pull` aus.
-3. Öffne `.codex/skills/symphony-test/SKILL.md` und führe den dort definierten Ablauf aus.
+3. Öffne den globalen Skill `symphony-test` und führe den dort definierten Ablauf aus.
 4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
 5. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `Test (AI) Autocommit` committet werden.
 
@@ -523,7 +530,7 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 
 ### Ablauf
 
-1. Öffne `.codex/skills/symphony-land/SKILL.md` und befolge den dort definierten Ablauf.
+1. Öffne den globalen Skill `symphony-land` und befolge den dort definierten Ablauf.
 2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht `Merge (AI) Autocommit`.
 3. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
 4. Falls ein erneuter Pull oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit der Commit-Nachricht `Merge (AI) Autocommit`, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
@@ -596,7 +603,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 ## Workpad-Handhabung
 
 Für Aufbau, Standardstruktur und Pflege des persistierenden Workpad-Kommentars ist
-`.codex/skills/symphony-workpad/SKILL.md` die maßgebliche Quelle.
+der globale Skill `symphony-workpad` die maßgebliche Quelle.
 
 - Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Codex Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
 - Die Schrittreihenfolge der einzelnen Workflow-Phasen und alle Statusübergänge bleiben ausschließlich in dieser `WORKFLOW.md` definiert.
@@ -604,7 +611,7 @@ Für Aufbau, Standardstruktur und Pflege des persistierenden Workpad-Kommentars 
 ## Planungs-Handhabung
 
 Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
-`.codex/skills/symphony-planning/SKILL.md` die maßgebliche Quelle.
+der globale Skill `symphony-planning` die maßgebliche Quelle.
 
 - Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind ausschließlich in `Planung (AI)` zulässig.
 - Interaktive Sitzungen dürfen auf Benutzeranweisung später erneut in die Planung eingreifen.
