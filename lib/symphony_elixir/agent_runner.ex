@@ -213,7 +213,7 @@ defmodule SymphonyElixir.AgentRunner do
     issue_state_fetcher = turn_context.issue_state_fetcher
     worker_host = turn_context.worker_host
     max_turns = turn_context.max_turns
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+    prompt = build_turn_prompt(issue, workspace, opts, turn_number, max_turns)
 
     with {:ok, turn_session} <-
            AppServer.run_turn(
@@ -249,11 +249,16 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns) do
-    PromptBuilder.build_prompt(issue, Keyword.put_new(opts, :session_mode, :orchestrated))
+  defp build_turn_prompt(issue, workspace, opts, 1, _max_turns) do
+    prompt_opts =
+      opts
+      |> Keyword.put_new(:session_mode, :orchestrated)
+      |> Keyword.put(:active_repo_root, workspace)
+
+    PromptBuilder.build_prompt(issue, prompt_opts)
   end
 
-  defp build_turn_prompt(%Issue{} = issue, _opts, turn_number, max_turns) do
+  defp build_turn_prompt(%Issue{} = issue, _workspace, _opts, turn_number, max_turns) do
     """
     Continuation guidance:
 

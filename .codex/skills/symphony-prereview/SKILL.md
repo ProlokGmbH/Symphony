@@ -2,7 +2,7 @@
 name: symphony-prereview
 description:
   Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
-  `.codex/skills/sym-prereview/SKILL.md`, fuehre die dort definierten
+  `sym-prereview` aus dem aktuell bearbeiteten Repository/Worktree, fuehre die dort definierten
   `PreReview (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
   Workpad als Checklistenpunkt, setze Fixes sofort um und wiederhole nach
   einem Fix nur den fehlgeschlagenen Schritt, bis der Workspace sauber ist
@@ -17,7 +17,7 @@ Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 ## Ziel
 
 - Lies die repository-spezifischen Anweisungen aus dem Skill `sym-prereview` unter
-  `.codex/skills/sym-prereview/SKILL.md`.
+  `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md`.
 - Fuehre die dort definierte Review-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Review` jeden Review-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
@@ -27,15 +27,17 @@ Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 
 ## Repository-spezifische Anweisungen
 
-- Oeffne zu Beginn `.codex/skills/sym-prereview/SKILL.md` und lies die Datei vollstaendig.
+- Oeffne zu Beginn den repo-lokalen Skill `sym-prereview` unter
+  `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` und lies die Datei vollstaendig.
 - Verwende den Skill als massgebliche Quelle fuer die konkrete PreReview-Checkliste und ihre Reihenfolge.
 - Erfinde keine fehlenden Review-Schritte aus frueheren Repository-Konventionen.
-- Wenn `.codex/skills/sym-prereview/SKILL.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
+- Suche den repo-lokalen Skill immer im aktuell bearbeiteten Repository/Worktree und nicht relativ zu diesem `symphony-prereview`-Verzeichnis.
+- Wenn `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
 
 ## Workpad-Aktualisierung
 
 - Nutze den vorhandenen Kommentar `## Codex Workpad`.
-- Spiegele die Schritte aus `.codex/skills/sym-prereview/SKILL.md` unter `### Review`
+- Spiegele die Schritte aus `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` unter `### Review`
   als Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschliesslich den Abschnitt `### Review`; aendere `### Test` nicht.
 - Pflege dort pro Schritt genau einen kurzen Eintrag, zum Beispiel:
@@ -47,7 +49,7 @@ Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 
 ## PreReview-Schleife
 
-1. Lies `.codex/skills/sym-prereview/SKILL.md` und beginne mit dem ersten dort definierten Schritt.
+1. Lies `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` und beginne mit dem ersten dort definierten Schritt.
 2. Aktualisiere nach jedem Schritt zuerst den zugehoerigen Checklistenpunkt unter `### Review` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
 3. Wenn ein Schritt fehlschlaegt oder konkrete Aenderungen verlangt:
    - setze den Fix sofort um,
