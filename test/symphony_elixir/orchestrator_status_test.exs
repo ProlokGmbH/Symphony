@@ -1563,6 +1563,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
   test "orchestrator requests idle shutdown after the configured inactivity timeout" do
     parent = self()
+    restore_default_orchestrator = suspend_default_supervised_orchestrator()
+
+    on_exit(restore_default_orchestrator)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -1593,6 +1596,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
   test "codex activity resets the idle shutdown timer" do
     parent = self()
+    restore_default_orchestrator = suspend_default_supervised_orchestrator()
+
+    on_exit(restore_default_orchestrator)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -1692,6 +1698,28 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert rendered =~ "app_status=offline"
     refute rendered =~ "Timestamp:"
+  end
+
+  defp suspend_default_supervised_orchestrator do
+    maybe_terminate_default_supervised_orchestrator()
+    &restart_default_supervised_orchestrator/0
+  end
+
+  defp maybe_terminate_default_supervised_orchestrator do
+    if is_pid(Process.whereis(SymphonyElixir.Supervisor)) and
+         is_pid(Process.whereis(SymphonyElixir.Orchestrator)) do
+      :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
+    end
+  end
+
+  defp restart_default_supervised_orchestrator do
+    if is_pid(Process.whereis(SymphonyElixir.Supervisor)) and
+         is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
+      case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
+    end
   end
 
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
