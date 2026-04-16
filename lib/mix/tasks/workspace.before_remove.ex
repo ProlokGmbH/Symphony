@@ -132,8 +132,12 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       :ok ->
         try do
           maybe_delete_remote_branch(source_repo, branch)
-          maybe_delete_local_branch_after_worktree_removal(source_repo, workspace, branch)
-          prune_worktrees(source_repo)
+
+          worktree_remove_status =
+            maybe_delete_local_branch_after_worktree_removal(source_repo, workspace, branch)
+
+          prune_status = prune_worktrees(source_repo)
+          maybe_remove_empty_worktrees_base_dir(source_repo, workspace, worktree_remove_status, prune_status)
         after
           restore_original_cwd(original_cwd, source_repo)
         end
@@ -201,8 +205,12 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
 
   defp maybe_delete_local_branch_after_worktree_removal(source_repo, workspace, branch) do
     case remove_worktree(source_repo, workspace) do
-      :ok -> maybe_delete_local_branch(source_repo, branch)
-      :error -> :ok
+      :ok ->
+        maybe_delete_local_branch(source_repo, branch)
+        :ok
+
+      :error ->
+        :error
     end
   end
 
@@ -375,8 +383,27 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       {:error, {status, output}} ->
         trimmed_output = String.trim(output)
         Mix.shell().error("Failed to prune Git worktrees in #{source_repo}: exit #{status}#{format_output(trimmed_output)}")
+        :error
     end
   end
+
+  defp maybe_remove_empty_worktrees_base_dir(source_repo, workspace, :ok, _prune_status)
+       when is_binary(source_repo) and is_binary(workspace) do
+    base_dir = Path.expand(Path.dirname(workspace))
+    expected_base_dir = Path.expand(source_repo) <> "-worktrees"
+
+    if base_dir == expected_base_dir do
+      case File.rmdir(base_dir) do
+        :ok ->
+          Mix.shell().info("Removed empty worktrees base directory #{base_dir}")
+
+        {:error, _reason} ->
+          :ok
+      end
+    end
+  end
+
+  defp maybe_remove_empty_worktrees_base_dir(_source_repo, _workspace, _remove_status, _prune_status), do: :ok
 
   defp current_branch(nil) do
     case run_command("git", ["branch", "--show-current"]) do

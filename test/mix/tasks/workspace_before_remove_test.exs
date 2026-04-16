@@ -375,6 +375,163 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     )
   end
 
+  test "removes an empty -worktrees base directory after deleting the last worktree" do
+    with_fake_gh(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn _log_path ->
+        %{
+          root: root,
+          source_repo: source_repo,
+          worktree: worktree,
+          worktree_git_dir: worktree_git_dir
+        } =
+          create_worktree_fixture!(
+            "symphony/pro-141-last-worktree",
+            worktree_relative_path: "repo-worktrees/PRO-141"
+          )
+
+        worktrees_base_dir = source_repo <> "-worktrees"
+        original_cwd = File.cwd!()
+
+        try do
+          File.cd!(worktree)
+
+          output =
+            capture_io(fn ->
+              BeforeRemove.run([])
+            end)
+
+          assert output =~ "Removed Git worktree #{worktree}"
+          assert output =~ "Removed empty worktrees base directory #{worktrees_base_dir}"
+        after
+          File.cd!(original_cwd)
+        end
+
+        refute File.exists?(worktree)
+        refute File.exists?(worktree_git_dir)
+        refute File.exists?(worktrees_base_dir)
+
+        {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"])
+        refute worktree_list =~ worktree
+
+        File.rm_rf!(root)
+      end
+    )
+  end
+
+  test "keeps a non-empty -worktrees base directory after deleting a worktree" do
+    with_fake_gh(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn _log_path ->
+        %{root: root, source_repo: source_repo, worktree: worktree} =
+          create_worktree_fixture!(
+            "symphony/pro-141-keep-base-dir",
+            worktree_relative_path: "repo-worktrees/PRO-141"
+          )
+
+        worktrees_base_dir = source_repo <> "-worktrees"
+        sentinel = Path.join(worktrees_base_dir, "keep.txt")
+        File.write!(sentinel, "keep\n")
+        original_cwd = File.cwd!()
+
+        try do
+          File.cd!(worktree)
+
+          output =
+            capture_io(fn ->
+              BeforeRemove.run([])
+            end)
+
+          assert output =~ "Removed Git worktree #{worktree}"
+          refute output =~ "Removed empty worktrees base directory #{worktrees_base_dir}"
+        after
+          File.cd!(original_cwd)
+        end
+
+        assert File.dir?(worktrees_base_dir)
+        assert File.read!(sentinel) == "keep\n"
+
+        File.rm_rf!(root)
+      end
+    )
+  end
+
+  test "does not remove an unrelated empty -worktrees directory after deleting a worktree" do
+    with_fake_gh(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn _log_path ->
+        %{root: root, source_repo: source_repo, worktree: worktree, worktree_git_dir: worktree_git_dir} =
+          create_worktree_fixture!(
+            "symphony/pro-141-unrelated-base-dir",
+            worktree_relative_path: "other-worktrees/PRO-141"
+          )
+
+        unrelated_base_dir = Path.dirname(worktree)
+        refute unrelated_base_dir == source_repo <> "-worktrees"
+        original_cwd = File.cwd!()
+
+        try do
+          File.cd!(worktree)
+
+          output =
+            capture_io(fn ->
+              BeforeRemove.run([])
+            end)
+
+          assert output =~ "Removed Git worktree #{worktree}"
+          refute output =~ "Removed empty worktrees base directory #{unrelated_base_dir}"
+        after
+          File.cd!(original_cwd)
+        end
+
+        refute File.exists?(worktree)
+        refute File.exists?(worktree_git_dir)
+        assert File.dir?(unrelated_base_dir)
+
+        File.rm_rf!(root)
+      end
+    )
+  end
+
   test "supports workspace and source repo overrides with repo auto-detection" do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "workspace-before-remove-overrides-#{unique}")
@@ -1307,6 +1464,72 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end
   end
 
+  test "removes an empty -worktrees base directory even when pruning worktrees fails" do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "workspace-before-remove-prune-base-dir-#{unique}")
+    source_repo = Path.join(root, "repo")
+    worktrees_base_dir = source_repo <> "-worktrees"
+    workspace = Path.join(worktrees_base_dir, "feature-prune-failure")
+
+    File.rm_rf!(root)
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(source_repo)
+    File.write!(Path.join(workspace, "sentinel.txt"), "cleanup me\n")
+
+    git_script = """
+    #!/bin/sh
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "list" ] && [ "$5" = "--porcelain" ]; then
+      printf 'worktree #{workspace}\\nHEAD abc123\\nbranch refs/heads/feature/prune-failure\\n'
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "ls-remote" ] && [ "$4" = "--exit-code" ] && [ "$5" = "--heads" ] && [ "$6" = "origin" ] && [ "$7" = "feature/prune-failure" ]; then
+      exit 2
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "remove" ] && [ "$5" = "--force" ] && [ "$6" = "#{workspace}" ]; then
+      rm -rf "$6"
+      exit 0
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "show-ref" ] && [ "$4" = "--verify" ] && [ "$5" = "--quiet" ] && [ "$6" = "refs/heads/feature/prune-failure" ]; then
+      exit 1
+    fi
+
+    if [ "$1" = "-C" ] && [ "$2" = "#{source_repo}" ] && [ "$3" = "worktree" ] && [ "$4" = "prune" ]; then
+      printf 'stale metadata\\n' >&2
+      exit 23
+    fi
+
+    exit 99
+    """
+
+    try do
+      with_fake_binaries(%{"gh" => "#!/bin/sh\nexit 1\n", "git" => git_script}, fn _log_path ->
+        {output, error_output} =
+          capture_task_output(fn ->
+            BeforeRemove.run([
+              "--branch",
+              "feature/prune-failure",
+              "--workspace",
+              workspace,
+              "--source-repo",
+              source_repo
+            ])
+          end)
+
+        assert output =~ "Removed Git worktree #{workspace}"
+        assert output =~ "Removed empty worktrees base directory #{worktrees_base_dir}"
+        assert error_output =~ "Failed to prune Git worktrees in #{source_repo}: exit 23"
+        assert error_output =~ "output=\"stale metadata\""
+        refute File.exists?(workspace)
+        refute File.exists?(worktrees_base_dir)
+      end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
   test "skips worktree removal when git path resolution returns an empty path" do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "workspace-before-remove-empty-path-#{unique}")
@@ -2008,15 +2231,17 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end
   end
 
-  defp create_worktree_fixture!(branch) do
+  defp create_worktree_fixture!(branch, opts \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "workspace-before-remove-worktree-#{unique}")
     origin_repo = Path.join(root, "origin.git")
     source_repo = Path.join(root, "repo")
-    worktree = Path.join(root, "wt")
+    worktree_relative_path = Keyword.get(opts, :worktree_relative_path, "wt")
+    worktree = Path.join(root, worktree_relative_path)
 
     File.rm_rf!(root)
     File.mkdir_p!(root)
+    File.mkdir_p!(Path.dirname(worktree))
 
     git_cmd!(["init", "--bare", origin_repo])
     git_cmd!(["init", "-b", "main", source_repo])
