@@ -30,10 +30,14 @@ defmodule SymphonyElixir.PromptBuilder do
       )
       |> IO.iodata_to_binary()
 
-    append_recovered_turn_context(
-      rendered_prompt,
+    recovered_turn_context = Keyword.get(opts, :recovered_turn_context)
+
+    rendered_prompt
+    |> append_recovered_turn_context(issue, recovered_turn_context)
+    |> append_recovered_review_subagent_wait(
       issue,
-      Keyword.get(opts, :recovered_turn_context)
+      recovered_turn_context,
+      Keyword.get(opts, :recovered_review_subagent_ids)
     )
   end
 
@@ -43,6 +47,25 @@ defmodule SymphonyElixir.PromptBuilder do
       {:ok, build_prompt(issue, opts)}
     end
   end
+
+  @doc false
+  @spec normalize_recovered_review_context(term()) :: String.t() | nil
+  def normalize_recovered_review_context(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      no_findings_context?(trimmed) ->
+        normalize_no_findings_context(trimmed)
+
+      true ->
+        normalize_findings_context(trimmed)
+    end
+  end
+
+  def normalize_recovered_review_context(_value), do: nil
 
   defp prompt_template!({:ok, %{prompt_template: prompt}}), do: default_prompt(prompt)
 
@@ -181,6 +204,33 @@ defmodule SymphonyElixir.PromptBuilder do
 
   defp append_recovered_turn_context(prompt, _issue, _context), do: prompt
 
+  defp append_recovered_review_subagent_wait(
+         prompt,
+         %{state: state},
+         recovered_turn_context,
+         review_subagent_ids
+       )
+       when is_binary(prompt) and is_binary(state) do
+    if valid_review_recovered_context(state, recovered_turn_context) do
+      prompt
+    else
+      case valid_recovered_review_subagent_ids(state, review_subagent_ids) do
+        [] ->
+          prompt
+
+        agent_ids ->
+          prompt <>
+            "\n\n" <>
+            Workflow.prompt_snippet("recovered_review_subagent_wait", %{
+              agent_ids_text: Enum.join(agent_ids, "\n")
+            })
+      end
+    end
+  end
+
+  defp append_recovered_review_subagent_wait(prompt, _issue, _context, _review_subagent_ids),
+    do: prompt
+
   defp valid_review_recovered_context(state, context)
        when is_binary(state) and is_binary(context) do
     trimmed_state =
@@ -193,13 +243,87 @@ defmodule SymphonyElixir.PromptBuilder do
     cond do
       trimmed_state != "review (ai)" -> nil
       trimmed_context == "" -> nil
-      String.starts_with?(trimmed_context, "Findings:") -> trimmed_context
-      String.starts_with?(trimmed_context, "Keine Findings.") -> trimmed_context
-      true -> nil
+      true -> normalize_recovered_review_context(trimmed_context) || trimmed_context
     end
   end
 
   defp valid_review_recovered_context(_state, _context), do: nil
+
+  defp valid_recovered_review_subagent_ids(state, review_subagent_ids)
+       when is_binary(state) do
+    trimmed_state =
+      state
+      |> String.trim()
+      |> String.downcase()
+
+    if trimmed_state == "review (ai)" do
+      review_subagent_ids
+      |> normalize_recovered_review_subagent_ids()
+      |> Enum.to_list()
+      |> Enum.sort()
+    else
+      []
+    end
+  end
+
+  defp normalize_recovered_review_subagent_ids(value) when is_struct(value, MapSet), do: value
+
+  defp normalize_recovered_review_subagent_ids(value) when is_list(value) do
+    value
+    |> Enum.filter(&valid_recovered_review_subagent_id?/1)
+    |> Enum.map(&String.trim/1)
+    |> MapSet.new()
+  end
+
+  defp normalize_recovered_review_subagent_ids(_value), do: MapSet.new()
+
+  defp valid_recovered_review_subagent_id?(value) when is_binary(value), do: String.trim(value) != ""
+  defp valid_recovered_review_subagent_id?(_value), do: false
+
+  defp no_findings_context?(value) when is_binary(value) do
+    String.match?(value, ~r/^(?:keine(?:\s+konkreten)? findings|no(?:\s+concrete)? findings)(?:[.!:]|\s|$)/iu)
+  end
+
+  defp normalize_no_findings_context(value) when is_binary(value) do
+    [rest] =
+      Regex.run(
+        ~r/^(?:keine(?:\s+konkreten)? findings|no(?:\s+concrete)? findings)(?:[.!:]?)(?:\s*\n)?\s*(.*)$/isu,
+        value,
+        capture: :all_but_first
+      )
+
+    append_no_findings_suffix(String.trim(rest))
+  end
+
+  defp normalize_findings_context(value) when is_binary(value) do
+    case Regex.run(
+           ~r/^(?:\*\*findings\*\*|findings)(?:\s*:)?(?:\s*\n)?\s*(.*)$/isu,
+           value,
+           capture: :all_but_first
+         ) do
+      [rest] ->
+        append_findings_suffix(String.trim(rest))
+
+      _ ->
+        normalize_implicit_findings_context(value)
+    end
+  end
+
+  defp normalize_implicit_findings_context(value) when is_binary(value) do
+    if implicit_findings_context?(value) do
+      append_findings_suffix(String.trim(value))
+    end
+  end
+
+  defp implicit_findings_context?(value) when is_binary(value) do
+    String.match?(value, ~r/^(?:[-*+]\s+\S|\d+\.\s+\S)/u)
+  end
+
+  defp append_no_findings_suffix(""), do: "Keine Findings."
+  defp append_no_findings_suffix(rest), do: "Keine Findings.\n" <> rest
+
+  defp append_findings_suffix(""), do: "Findings:"
+  defp append_findings_suffix(rest), do: "Findings:\n" <> rest
 
   defp active_repo_root(opts) do
     opts

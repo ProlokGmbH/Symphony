@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, PromptBuilder, StatusDashboard, Tracker, Workflow, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -167,7 +167,9 @@ defmodule SymphonyElixir.Orchestrator do
                   error: "agent exited: #{inspect(reason)}",
                   worker_host: Map.get(running_entry, :worker_host),
                   workspace_path: Map.get(running_entry, :workspace_path),
-                  recovered_turn_context: recoverable_turn_context(running_entry, reason)
+                  recovered_turn_context: recoverable_turn_context(running_entry, reason),
+                  review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+                  review_subagent_ids: review_subagent_ids_for_retry(running_entry)
                 })
 
               Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
@@ -203,7 +205,14 @@ defmodule SymphonyElixir.Orchestrator do
       ) do
     case Map.get(running, issue_id) do
       nil ->
-        {:noreply, state}
+        case maybe_integrate_retry_codex_update(state, issue_id, update) do
+          {:updated, next_state} ->
+            notify_dashboard()
+            {:noreply, touch_activity(next_state)}
+
+          :unchanged ->
+            {:noreply, state}
+        end
 
       running_entry ->
         {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
@@ -263,7 +272,9 @@ defmodule SymphonyElixir.Orchestrator do
                 error: "agent exited: #{inspect(exit_reason)}",
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path),
-                recovered_turn_context: recoverable_turn_context(running_entry, exit_reason)
+                recovered_turn_context: recoverable_turn_context(running_entry, exit_reason),
+                review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+                review_subagent_ids: review_subagent_ids_for_retry(running_entry)
               })
           end
 
@@ -547,7 +558,12 @@ defmodule SymphonyElixir.Orchestrator do
       |> terminate_running_issue(issue_id, false)
       |> schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
+        error: "stalled for #{elapsed_ms}ms without codex activity",
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path),
+        recovered_turn_context: recoverable_turn_context(running_entry, :stalled),
+        review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+        review_subagent_ids: review_subagent_ids_for_retry(running_entry)
       })
     else
       state
@@ -835,6 +851,14 @@ defmodule SymphonyElixir.Orchestrator do
             turn_count: 0,
             retry_attempt: normalize_retry_attempt(attempt),
             recovered_turn_context: nil,
+            recovered_review_subagent_call_ids:
+              run_opts
+              |> Keyword.get(:recovered_review_subagent_call_ids)
+              |> normalize_review_subagent_call_ids(),
+            recovered_review_subagent_ids:
+              run_opts
+              |> Keyword.get(:recovered_review_subagent_ids)
+              |> normalize_review_subagent_ids(),
             review_subagent_call_ids: MapSet.new(),
             review_subagent_ids: MapSet.new(),
             started_at: DateTime.utc_now()
@@ -901,6 +925,8 @@ defmodule SymphonyElixir.Orchestrator do
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     recovered_turn_context = pick_retry_recovered_turn_context(previous_retry, metadata)
+    review_subagent_call_ids = pick_retry_review_subagent_call_ids(previous_retry, metadata)
+    review_subagent_ids = pick_retry_review_subagent_ids(previous_retry, metadata)
 
     if is_reference(old_timer) do
       Process.cancel_timer(old_timer)
@@ -924,7 +950,9 @@ defmodule SymphonyElixir.Orchestrator do
             error: error,
             worker_host: worker_host,
             workspace_path: workspace_path,
-            recovered_turn_context: recovered_turn_context
+            recovered_turn_context: recovered_turn_context,
+            review_subagent_call_ids: review_subagent_call_ids,
+            review_subagent_ids: review_subagent_ids
           })
     }
   end
@@ -937,7 +965,9 @@ defmodule SymphonyElixir.Orchestrator do
           error: Map.get(retry_entry, :error),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
-          recovered_turn_context: Map.get(retry_entry, :recovered_turn_context)
+          recovered_turn_context: Map.get(retry_entry, :recovered_turn_context),
+          review_subagent_call_ids: Map.get(retry_entry, :review_subagent_call_ids),
+          review_subagent_ids: Map.get(retry_entry, :review_subagent_ids)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -981,6 +1011,9 @@ defmodule SymphonyElixir.Orchestrator do
 
         cleanup_issue_workspace(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
+
+      clean_review_retry_handoff_ready?(issue, metadata) ->
+        handle_clean_review_retry_handoff(state, issue_id, issue, attempt, metadata)
 
       retry_candidate_issue?(issue, terminal_states) ->
         handle_active_retry(state, issue, attempt, metadata)
@@ -1071,7 +1104,7 @@ defmodule SymphonyElixir.Orchestrator do
          issue,
          attempt,
          metadata[:worker_host],
-         recovered_turn_context_run_opts(metadata)
+         retry_run_opts(metadata)
        )}
     else
       Logger.debug("No available slots for retrying #{issue_context(issue)}; retrying again")
@@ -1093,6 +1126,49 @@ defmodule SymphonyElixir.Orchestrator do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
   end
 
+  defp maybe_integrate_retry_codex_update(%State{} = state, issue_id, update)
+       when is_binary(issue_id) and is_map(update) do
+    case Map.get(state.retry_attempts, issue_id) do
+      nil ->
+        :unchanged
+
+      retry_entry ->
+        tracking_entry = %{
+          recovered_turn_context: Map.get(retry_entry, :recovered_turn_context),
+          recovered_review_subagent_call_ids: MapSet.new(),
+          recovered_review_subagent_ids: MapSet.new(),
+          review_subagent_call_ids:
+            retry_entry
+            |> Map.get(:review_subagent_call_ids)
+            |> normalize_review_subagent_call_ids(),
+          review_subagent_ids:
+            retry_entry
+            |> Map.get(:review_subagent_ids)
+            |> normalize_review_subagent_ids()
+        }
+
+        {updated_tracking_entry, _token_delta} = integrate_codex_update(tracking_entry, update)
+
+        updated_retry_entry =
+          retry_entry
+          |> Map.put(:recovered_turn_context, Map.get(updated_tracking_entry, :recovered_turn_context))
+          |> Map.put(
+            :review_subagent_call_ids,
+            review_subagent_call_ids_for_retry(updated_tracking_entry)
+          )
+          |> Map.put(
+            :review_subagent_ids,
+            review_subagent_ids_for_retry(updated_tracking_entry)
+          )
+
+        if updated_retry_entry == retry_entry do
+          :unchanged
+        else
+          {:updated, %{state | retry_attempts: Map.put(state.retry_attempts, issue_id, updated_retry_entry)}}
+        end
+    end
+  end
+
   defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
        when is_binary(issue_id) and is_map(running_entry) do
     if manual_in_progress_issue_state?(running_entry.issue.state) do
@@ -1103,6 +1179,7 @@ defmodule SymphonyElixir.Orchestrator do
       |> release_issue_claim(issue_id)
     else
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+      log_review_retry_context(running_entry, session_id)
 
       state
       |> complete_issue(issue_id, running_entry.issue.state)
@@ -1111,7 +1188,9 @@ defmodule SymphonyElixir.Orchestrator do
         delay_type: :continuation,
         worker_host: Map.get(running_entry, :worker_host),
         workspace_path: Map.get(running_entry, :workspace_path),
-        recovered_turn_context: Map.get(running_entry, :recovered_turn_context)
+        recovered_turn_context: Map.get(running_entry, :recovered_turn_context),
+        review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+        review_subagent_ids: review_subagent_ids_for_retry(running_entry)
       })
     end
   end
@@ -1228,17 +1307,37 @@ defmodule SymphonyElixir.Orchestrator do
     metadata[:recovered_turn_context] || Map.get(previous_retry, :recovered_turn_context)
   end
 
+  defp pick_retry_review_subagent_call_ids(previous_retry, metadata) do
+    (metadata[:review_subagent_call_ids] || Map.get(previous_retry, :review_subagent_call_ids))
+    |> normalize_review_subagent_call_ids()
+  end
+
+  defp pick_retry_review_subagent_ids(previous_retry, metadata) do
+    (metadata[:review_subagent_ids] || Map.get(previous_retry, :review_subagent_ids))
+    |> normalize_review_subagent_ids()
+  end
+
   defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
 
   defp maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
     Map.put(running_entry, key, value)
   end
 
-  defp recovered_turn_context_run_opts(%{recovered_turn_context: context}) when is_binary(context) do
-    [recovered_turn_context: context]
+  defp retry_run_opts(metadata) when is_map(metadata) do
+    []
+    |> maybe_put_retry_run_opt(:recovered_turn_context, metadata[:recovered_turn_context])
+    |> maybe_put_retry_run_opt(
+      :recovered_review_subagent_call_ids,
+      metadata[:review_subagent_call_ids]
+    )
+    |> maybe_put_retry_run_opt(:recovered_review_subagent_ids, metadata[:review_subagent_ids])
   end
 
-  defp recovered_turn_context_run_opts(_metadata), do: []
+  defp maybe_put_retry_run_opt(run_opts, _key, nil) when is_list(run_opts), do: run_opts
+
+  defp maybe_put_retry_run_opt(run_opts, key, value) when is_list(run_opts) do
+    Keyword.put(run_opts, key, value)
+  end
 
   defp select_worker_host(%State{} = state, preferred_worker_host) do
     case Config.settings!().worker.ssh_hosts do
@@ -1450,9 +1549,16 @@ defmodule SymphonyElixir.Orchestrator do
     last_reported_output = Map.get(running_entry, :codex_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :codex_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
+    previous_review_subagent_call_ids = tracked_review_subagent_call_ids(running_entry)
+    previous_review_subagent_ids = tracked_review_subagent_ids(running_entry)
+    review_completion = extract_review_subagent_completion_text(running_entry, update)
+    recovered_turn_context = review_completion || Map.get(running_entry, :recovered_turn_context)
 
-    review_subagent_call_ids =
-      review_subagent_call_ids_for_update(running_entry, existing_session_id, update)
+    recovered_review_subagent_call_ids = recovered_review_subagent_call_ids_for_update(running_entry, review_completion)
+
+    recovered_review_subagent_ids = recovered_review_subagent_ids_for_update(running_entry, review_completion)
+
+    review_subagent_call_ids = review_subagent_call_ids_for_update(running_entry, existing_session_id, update)
 
     review_subagent_ids =
       review_subagent_ids_for_update(
@@ -1461,6 +1567,23 @@ defmodule SymphonyElixir.Orchestrator do
         update,
         review_subagent_call_ids
       )
+
+    maybe_log_review_completion_capture(
+      running_entry,
+      update,
+      review_completion,
+      review_subagent_call_ids,
+      review_subagent_ids
+    )
+
+    maybe_log_review_subagent_tracking_update(
+      running_entry,
+      update,
+      previous_review_subagent_call_ids,
+      previous_review_subagent_ids,
+      review_subagent_call_ids,
+      review_subagent_ids
+    )
 
     {
       Map.merge(running_entry, %{
@@ -1476,9 +1599,11 @@ defmodule SymphonyElixir.Orchestrator do
         codex_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
         codex_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
         turn_count: turn_count_for_update(turn_count, existing_session_id, update),
+        recovered_review_subagent_call_ids: recovered_review_subagent_call_ids,
+        recovered_review_subagent_ids: recovered_review_subagent_ids,
         review_subagent_call_ids: review_subagent_call_ids,
         review_subagent_ids: review_subagent_ids,
-        recovered_turn_context: recovered_turn_context_for_update(running_entry, update)
+        recovered_turn_context: recovered_turn_context
       }),
       token_delta
     }
@@ -1528,16 +1653,11 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp recovered_turn_context_for_update(running_entry, update) when is_map(running_entry) and is_map(update) do
-    extract_review_subagent_completion_text(running_entry, update) ||
-      Map.get(running_entry, :recovered_turn_context)
-  end
-
   defp review_subagent_call_ids_for_update(running_entry, existing_session_id, update)
        when is_map(running_entry) and is_map(update) do
     running_entry
     |> review_subagent_call_ids_base(existing_session_id, update)
-    |> MapSet.union(extract_review_subagent_call_ids(update))
+    |> MapSet.union(extract_review_subagent_call_ids(running_entry, update))
   end
 
   defp review_subagent_ids_for_update(
@@ -1554,6 +1674,66 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp recoverable_turn_context(running_entry, _reason) when is_map(running_entry) do
     Map.get(running_entry, :recovered_turn_context)
+  end
+
+  defp review_subagent_call_ids_for_retry(running_entry) when is_map(running_entry) do
+    if is_binary(Map.get(running_entry, :recovered_turn_context)) do
+      MapSet.new()
+    else
+      tracked_review_subagent_call_ids(running_entry)
+    end
+  end
+
+  defp review_subagent_ids_for_retry(running_entry) when is_map(running_entry) do
+    if is_binary(Map.get(running_entry, :recovered_turn_context)) do
+      MapSet.new()
+    else
+      tracked_review_subagent_ids(running_entry)
+    end
+  end
+
+  defp recovered_review_subagent_call_ids_for_update(running_entry, review_completion)
+       when is_map(running_entry) do
+    if is_binary(review_completion) do
+      MapSet.new()
+    else
+      running_entry
+      |> Map.get(:recovered_review_subagent_call_ids, MapSet.new())
+      |> normalize_review_subagent_call_ids()
+    end
+  end
+
+  defp recovered_review_subagent_ids_for_update(running_entry, review_completion)
+       when is_map(running_entry) do
+    if is_binary(review_completion) do
+      MapSet.new()
+    else
+      running_entry
+      |> Map.get(:recovered_review_subagent_ids, MapSet.new())
+      |> normalize_review_subagent_ids()
+    end
+  end
+
+  defp tracked_review_subagent_call_ids(running_entry) when is_map(running_entry) do
+    running_entry
+    |> Map.get(:recovered_review_subagent_call_ids, MapSet.new())
+    |> normalize_review_subagent_call_ids()
+    |> MapSet.union(
+      running_entry
+      |> Map.get(:review_subagent_call_ids, MapSet.new())
+      |> normalize_review_subagent_call_ids()
+    )
+  end
+
+  defp tracked_review_subagent_ids(running_entry) when is_map(running_entry) do
+    running_entry
+    |> Map.get(:recovered_review_subagent_ids, MapSet.new())
+    |> normalize_review_subagent_ids()
+    |> MapSet.union(
+      running_entry
+      |> Map.get(:review_subagent_ids, MapSet.new())
+      |> normalize_review_subagent_ids()
+    )
   end
 
   defp review_subagent_call_ids_base(running_entry, existing_session_id, update)
@@ -1601,7 +1781,8 @@ defmodule SymphonyElixir.Orchestrator do
       extract_subagent_completion_from_wait_agent_update(running_entry, update)
   end
 
-  defp extract_review_subagent_call_ids(update) when is_map(update) do
+  defp extract_review_subagent_call_ids(running_entry, update)
+       when is_map(running_entry) and is_map(update) do
     [
       Map.get(update, :payload),
       Map.get(update, "payload"),
@@ -1609,56 +1790,110 @@ defmodule SymphonyElixir.Orchestrator do
       Map.get(update, "raw")
     ]
     |> Enum.reduce(MapSet.new(), fn value, ids ->
-      Enum.reduce(extract_review_subagent_call_ids_from_event(value), ids, fn id, acc ->
+      Enum.reduce(extract_review_subagent_call_ids_from_event(running_entry, value), ids, fn id, acc ->
         MapSet.put(acc, id)
       end)
     end)
   end
 
-  defp extract_review_subagent_call_ids_from_event(value) when is_binary(value) do
+  defp extract_review_subagent_call_ids_from_event(running_entry, value)
+       when is_map(running_entry) and is_binary(value) do
     case Jason.decode(value) do
-      {:ok, decoded} -> extract_review_subagent_call_ids_from_event(decoded)
+      {:ok, decoded} -> extract_review_subagent_call_ids_from_event(running_entry, decoded)
       _ -> []
     end
   end
 
-  defp extract_review_subagent_call_ids_from_event(%{
+  defp extract_review_subagent_call_ids_from_event(running_entry, %{
          "method" => "item/tool/call",
          "params" => params
-       }) do
-    extract_review_subagent_call_ids_from_tool_call_params(params)
+       })
+       when is_map(running_entry) do
+    extract_review_subagent_call_ids_from_tool_call_params(running_entry, params)
   end
 
-  defp extract_review_subagent_call_ids_from_event(%{method: "item/tool/call", params: params}) do
-    extract_review_subagent_call_ids_from_tool_call_params(params)
+  defp extract_review_subagent_call_ids_from_event(running_entry, %{method: "item/tool/call", params: params})
+       when is_map(running_entry) do
+    extract_review_subagent_call_ids_from_tool_call_params(running_entry, params)
   end
 
-  defp extract_review_subagent_call_ids_from_event(_value), do: []
+  defp extract_review_subagent_call_ids_from_event(
+         running_entry,
+         %{"method" => method, "params" => %{"item" => item}}
+       )
+       when is_map(running_entry) and method in ["item/started", "item/completed"] do
+    extract_review_subagent_call_ids_from_item(running_entry, item)
+  end
 
-  defp extract_review_subagent_call_ids_from_tool_call_params(params) when is_map(params) do
-    tool_name =
-      Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") ||
-        Map.get(params, :name)
+  defp extract_review_subagent_call_ids_from_event(
+         running_entry,
+         %{method: method, params: %{item: item}}
+       )
+       when is_map(running_entry) and method in ["item/started", "item/completed"] do
+    extract_review_subagent_call_ids_from_item(running_entry, item)
+  end
 
-    call_id = Map.get(params, "callId") || Map.get(params, :callId)
-    arguments = Map.get(params, "arguments") || Map.get(params, :arguments)
+  defp extract_review_subagent_call_ids_from_event(_running_entry, _value), do: []
 
-    if tool_name == "spawn_agent" and valid_review_subagent_call_id?(call_id) and
-         review_subagent_request?(arguments) do
+  defp extract_review_subagent_call_ids_from_tool_call_params(running_entry, params)
+       when is_map(running_entry) and is_map(params) do
+    tool_name = tool_call_tool_name(params)
+    call_id = tool_call_call_id(params)
+    arguments = tool_call_arguments(params)
+
+    reviewed_spawn_agent_call_id(running_entry, tool_name, call_id, arguments)
+  end
+
+  defp extract_review_subagent_call_ids_from_tool_call_params(_running_entry, _params), do: []
+
+  defp extract_review_subagent_call_ids_from_item(running_entry, item)
+       when is_map(running_entry) and is_map(item) do
+    if collab_spawn_agent_item?(item) and
+         track_review_subagent_spawn_call?(running_entry, collab_spawn_agent_arguments(item)) do
+      candidate_review_subagent_call_ids_from_item(item)
+    else
+      []
+    end
+  end
+
+  defp extract_review_subagent_call_ids_from_item(_running_entry, _item), do: []
+
+  defp reviewed_spawn_agent_call_id(running_entry, tool_name, call_id, arguments)
+       when is_map(running_entry) and is_binary(call_id) do
+    if spawn_agent_tool_name?(tool_name) and valid_review_subagent_call_id?(call_id) and
+         track_review_subagent_spawn_call?(running_entry, arguments) do
       [String.trim(call_id)]
     else
       []
     end
   end
 
-  defp extract_review_subagent_call_ids_from_tool_call_params(_params), do: []
+  defp reviewed_spawn_agent_call_id(_running_entry, _tool_name, _call_id, _arguments), do: []
+
+  defp tool_call_tool_name(params) when is_map(params) do
+    Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") ||
+      Map.get(params, :name)
+  end
+
+  defp tool_call_call_id(params) when is_map(params) do
+    Map.get(params, "callId") || Map.get(params, :callId)
+  end
+
+  defp tool_call_arguments(params) when is_map(params) do
+    Map.get(params, "arguments") || Map.get(params, :arguments)
+  end
+
+  defp track_review_subagent_spawn_call?(running_entry, arguments) when is_map(running_entry) do
+    review_ai_issue_state_for_running_entry?(running_entry) or review_subagent_request?(arguments)
+  end
 
   defp extract_review_subagent_ids(update, review_subagent_call_ids) when is_map(update) do
     [
       Map.get(update, :payload),
       Map.get(update, "payload"),
       Map.get(update, :raw),
-      Map.get(update, "raw")
+      Map.get(update, "raw"),
+      synthetic_tool_call_output_event(update)
     ]
     |> Enum.reduce(MapSet.new(), fn value, ids ->
       Enum.reduce(extract_review_subagent_ids_from_event(value, review_subagent_call_ids), ids, fn
@@ -1692,22 +1927,42 @@ defmodule SymphonyElixir.Orchestrator do
   defp extract_review_subagent_ids_from_event(_value, _review_subagent_call_ids), do: []
 
   defp extract_review_subagent_ids_from_item(item, review_subagent_call_ids) when is_map(item) do
-    item_type = Map.get(item, "type") || Map.get(item, :type)
+    cond do
+      function_call_spawn_output_item?(item) and
+          trusted_review_subagent_spawn_output?(item, review_subagent_call_ids) ->
+        item
+        |> Map.get("output", Map.get(item, :output))
+        |> extract_review_subagent_ids_from_spawn_output()
 
-    tool_name =
-      Map.get(item, "tool") || Map.get(item, :tool) || Map.get(item, "name") || Map.get(item, :name)
+      collab_spawn_agent_item?(item) and trusted_review_subagent_spawn_output?(item, review_subagent_call_ids) ->
+        extract_review_subagent_ids_from_collab_spawn_item(item)
 
-    if item_type == "function_call_output" and tool_name == "spawn_agent" and
-         trusted_review_subagent_spawn_output?(item, review_subagent_call_ids) do
-      item
-      |> Map.get("output", Map.get(item, :output))
-      |> extract_review_subagent_ids_from_spawn_output()
-    else
-      []
+      true ->
+        []
     end
   end
 
   defp extract_review_subagent_ids_from_item(_item, _review_subagent_call_ids), do: []
+
+  defp extract_review_subagent_ids_from_collab_spawn_item(item) when is_map(item) do
+    receiver_thread_ids =
+      item
+      |> Map.get("receiverThreadIds", Map.get(item, :receiverThreadIds, []))
+      |> List.wrap()
+
+    agent_state_ids =
+      item
+      |> Map.get("agentsStates", Map.get(item, :agentsStates))
+      |> case do
+        %{} = states -> Map.keys(states)
+        _ -> []
+      end
+
+    (receiver_thread_ids ++ agent_state_ids)
+    |> Enum.filter(&valid_review_subagent_id?/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.uniq()
+  end
 
   defp extract_review_subagent_ids_from_spawn_output(value) when is_binary(value) do
     case Jason.decode(value) do
@@ -1765,6 +2020,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp normalize_review_subagent_ids(value) when is_list(value) do
     value
     |> Enum.filter(&valid_review_subagent_id?/1)
+    |> Enum.map(&String.trim/1)
     |> MapSet.new()
   end
 
@@ -1784,22 +2040,64 @@ defmodule SymphonyElixir.Orchestrator do
     normalized_text = String.downcase(review_text)
 
     fork_context == false and
-      default_review_subagent_agent_type?(agent_type) and
-      String.contains?(normalized_text, "origin/main") and
-      String.contains?(normalized_text, "worktree") and
-      (String.contains?(normalized_text, "read-only") or
-         String.contains?(normalized_text, "read only")) and
-      String.contains?(review_text, "Findings:") and
-      String.contains?(review_text, "Keine Findings.")
+      review_subagent_agent_type?(agent_type) and
+      review_subagent_request_shape?(normalized_text)
   end
 
   defp review_subagent_request?(_value), do: false
 
-  defp default_review_subagent_agent_type?(nil), do: true
-  defp default_review_subagent_agent_type?(""), do: true
-  defp default_review_subagent_agent_type?(:default), do: true
-  defp default_review_subagent_agent_type?("default"), do: true
-  defp default_review_subagent_agent_type?(_value), do: false
+  defp review_subagent_agent_type?(nil), do: true
+  defp review_subagent_agent_type?(""), do: true
+  defp review_subagent_agent_type?(:default), do: true
+  defp review_subagent_agent_type?("default"), do: true
+  defp review_subagent_agent_type?(:explorer), do: true
+  defp review_subagent_agent_type?("explorer"), do: true
+  defp review_subagent_agent_type?(_value), do: false
+
+  defp review_subagent_request_shape?(normalized_text) when is_binary(normalized_text) do
+    review_subagent_request_review_scope?(normalized_text) and
+      review_subagent_request_read_only?(normalized_text) and
+      review_subagent_request_expected_output?(normalized_text)
+  end
+
+  defp review_subagent_request_review_scope?(normalized_text) when is_binary(normalized_text) do
+    String.contains?(normalized_text, "review") and
+      String.contains?(normalized_text, "origin/main") and
+      review_subagent_request_scope_target?(normalized_text)
+  end
+
+  defp review_subagent_request_read_only?(normalized_text) when is_binary(normalized_text) do
+    String.contains?(normalized_text, "read-only") or
+      String.contains?(normalized_text, "read only")
+  end
+
+  defp review_subagent_request_expected_output?(normalized_text) when is_binary(normalized_text) do
+    String.contains?(normalized_text, "findings") and
+      review_subagent_request_zero_findings_clause?(normalized_text)
+  end
+
+  defp review_subagent_request_scope_target?(normalized_text) when is_binary(normalized_text) do
+    Enum.any?(
+      [
+        "worktree",
+        "repository",
+        "repo",
+        "diff",
+        "changed files",
+        "scoped files"
+      ],
+      &String.contains?(normalized_text, &1)
+    )
+  end
+
+  defp review_subagent_request_zero_findings_clause?(normalized_text) when is_binary(normalized_text) do
+    String.contains?(normalized_text, "keine findings") or
+      String.contains?(normalized_text, "no findings") or
+      String.contains?(normalized_text, "nichts findest") or
+      String.contains?(normalized_text, "if you find nothing") or
+      String.contains?(normalized_text, "if you have no findings") or
+      String.contains?(normalized_text, "if there are no findings")
+  end
 
   defp review_subagent_request_text(value) when is_map(value) do
     [Map.get(value, "message") || Map.get(value, :message) | review_subagent_request_item_texts(value)]
@@ -1828,6 +2126,35 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp trusted_review_subagent_spawn_output?(_item, _review_subagent_call_ids), do: false
 
+  defp function_call_spawn_output_item?(item) when is_map(item) do
+    item_type(item) == "function_call_output" and spawn_agent_tool_name?(item_tool_name(item))
+  end
+
+  defp collab_spawn_agent_item?(item) when is_map(item) do
+    item_type(item) == "collabAgentToolCall" and spawn_agent_tool_name?(item_tool_name(item))
+  end
+
+  defp collab_wait_agent_item?(item) when is_map(item) do
+    item_type(item) == "collabAgentToolCall" and wait_agent_tool_name?(item_tool_name(item))
+  end
+
+  defp item_type(item) when is_map(item), do: Map.get(item, "type") || Map.get(item, :type)
+  defp item_type(_item), do: nil
+
+  defp item_tool_name(item) when is_map(item) do
+    Map.get(item, "tool") || Map.get(item, :tool) || Map.get(item, "name") || Map.get(item, :name)
+  end
+
+  defp item_tool_name(_item), do: nil
+
+  defp collab_spawn_agent_arguments(item) when is_map(item) do
+    %{
+      "message" => Map.get(item, "prompt") || Map.get(item, :prompt),
+      "agent_type" => nil,
+      "fork_context" => false
+    }
+  end
+
   defp candidate_review_subagent_call_ids_from_item(item) when is_map(item) do
     [
       Map.get(item, "id"),
@@ -1841,12 +2168,71 @@ defmodule SymphonyElixir.Orchestrator do
     |> Enum.map(&String.trim/1)
   end
 
+  defp synthetic_tool_call_output_event(update) when is_map(update) do
+    with %{} = payload <- tool_call_payload(update),
+         "item/tool/call" <- tool_call_method(payload),
+         %{} = params <- tool_call_params(payload),
+         tool_name when is_binary(tool_name) <- tool_call_name_from_params(params),
+         call_id when is_binary(call_id) <- tool_call_id_from_params(params),
+         true <- valid_review_subagent_call_id?(call_id),
+         output when is_binary(output) <- tool_call_result_output(update) do
+      build_tool_call_output_event(String.trim(call_id), tool_name, output)
+    else
+      _ -> nil
+    end
+  end
+
+  defp tool_call_payload(update) when is_map(update) do
+    Map.get(update, :payload) || Map.get(update, "payload")
+  end
+
+  defp tool_call_method(payload) when is_map(payload) do
+    Map.get(payload, "method") || Map.get(payload, :method)
+  end
+
+  defp tool_call_params(payload) when is_map(payload) do
+    Map.get(payload, "params") || Map.get(payload, :params)
+  end
+
+  defp tool_call_name_from_params(params) when is_map(params) do
+    Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") ||
+      Map.get(params, :name)
+  end
+
+  defp tool_call_id_from_params(params) when is_map(params) do
+    Map.get(params, "callId") || Map.get(params, :callId)
+  end
+
+  defp tool_call_result_output(update) when is_map(update) do
+    update
+    |> Map.get(:tool_result, Map.get(update, "tool_result"))
+    |> case do
+      %{} = tool_result -> Map.get(tool_result, "output") || Map.get(tool_result, :output)
+      _ -> nil
+    end
+  end
+
+  defp build_tool_call_output_event(call_id, tool_name, output)
+       when is_binary(call_id) and is_binary(tool_name) and is_binary(output) do
+    %{
+      "method" => "item/completed",
+      "params" => %{
+        "item" => %{
+          "id" => call_id,
+          "callId" => call_id,
+          "type" => "function_call_output",
+          "tool" => tool_name,
+          "name" => tool_name,
+          "output" => output
+        }
+      }
+    }
+  end
+
   defp extract_subagent_completion_from_tagged_notification_candidates(running_entry, update)
        when is_map(running_entry) and is_map(update) do
-    review_subagent_ids =
-      running_entry
-      |> Map.get(:review_subagent_ids, MapSet.new())
-      |> normalize_review_subagent_ids()
+    review_subagent_ids = tracked_review_subagent_ids(running_entry)
+    review_subagent_call_ids = tracked_review_subagent_call_ids(running_entry)
 
     [
       Map.get(update, :payload),
@@ -1854,17 +2240,31 @@ defmodule SymphonyElixir.Orchestrator do
       Map.get(update, :raw),
       Map.get(update, "raw")
     ]
-    |> Enum.find_value(&extract_subagent_completion_from_tagged_notification_event(&1, review_subagent_ids))
+    |> Enum.find_value(
+      &extract_subagent_completion_from_tagged_notification_event(
+        &1,
+        review_subagent_ids,
+        review_subagent_call_ids
+      )
+    )
   end
 
   defp extract_subagent_completion_from_tagged_notification_candidates(_running_entry, _update),
     do: nil
 
-  defp extract_subagent_completion_from_tagged_notification_event(value, review_subagent_ids)
+  defp extract_subagent_completion_from_tagged_notification_event(
+         value,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
        when is_binary(value) do
     case Jason.decode(value) do
       {:ok, decoded} ->
-        extract_subagent_completion_from_tagged_notification_event(decoded, review_subagent_ids)
+        extract_subagent_completion_from_tagged_notification_event(
+          decoded,
+          review_subagent_ids,
+          review_subagent_call_ids
+        )
 
       _ ->
         nil
@@ -1876,9 +2276,14 @@ defmodule SymphonyElixir.Orchestrator do
            "method" => "codex/event/user_message",
            "params" => %{"msg" => msg}
          },
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        ) do
-    extract_subagent_completion_from_user_message(msg, review_subagent_ids)
+    extract_subagent_completion_from_user_message(
+      msg,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
   end
 
   defp extract_subagent_completion_from_tagged_notification_event(
@@ -1886,20 +2291,38 @@ defmodule SymphonyElixir.Orchestrator do
            method: "codex/event/user_message",
            params: %{msg: msg}
          },
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        ) do
-    extract_subagent_completion_from_user_message(msg, review_subagent_ids)
+    extract_subagent_completion_from_user_message(
+      msg,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
   end
 
-  defp extract_subagent_completion_from_tagged_notification_event(_value, _review_subagent_ids),
-    do: nil
+  defp extract_subagent_completion_from_tagged_notification_event(
+         _value,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
 
-  defp extract_subagent_completion_from_user_message(msg, review_subagent_ids) when is_map(msg) do
+  defp extract_subagent_completion_from_user_message(
+         msg,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(msg) do
     with content when is_list(content) <- user_message_content(msg),
          tagged_text when is_binary(tagged_text) <- find_tagged_subagent_notification_text(content),
          {:ok, payload} <- decode_tagged_payload(tagged_text, "subagent_notification"),
          completion when is_binary(completion) <-
-           valid_subagent_completion_from_payload(payload, review_subagent_ids),
+           valid_subagent_completion_from_payload(
+             payload,
+             review_subagent_ids,
+             review_subagent_call_ids
+           ),
          trimmed when trimmed != "" <- String.trim(completion) do
       trimmed
     else
@@ -1907,91 +2330,270 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp extract_subagent_completion_from_user_message(_msg, _review_subagent_ids), do: nil
+  defp extract_subagent_completion_from_user_message(
+         _msg,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
 
   defp extract_subagent_completion_from_wait_agent_update(running_entry, update)
        when is_map(running_entry) and is_map(update) do
-    review_subagent_ids =
-      running_entry
-      |> Map.get(:review_subagent_ids, MapSet.new())
-      |> normalize_review_subagent_ids()
+    review_subagent_ids = tracked_review_subagent_ids(running_entry)
+    review_subagent_call_ids = tracked_review_subagent_call_ids(running_entry)
 
     [
       Map.get(update, :payload),
       Map.get(update, "payload"),
       Map.get(update, :raw),
-      Map.get(update, "raw")
+      Map.get(update, "raw"),
+      synthetic_tool_call_output_event(update)
     ]
-    |> Enum.find_value(&extract_subagent_completion_from_wait_agent_event(&1, review_subagent_ids))
+    |> Enum.find_value(
+      &extract_subagent_completion_from_wait_agent_event(
+        &1,
+        review_subagent_ids,
+        review_subagent_call_ids
+      )
+    )
   end
 
   defp extract_subagent_completion_from_wait_agent_update(_running_entry, _update), do: nil
 
-  defp extract_subagent_completion_from_wait_agent_event(value, review_subagent_ids)
+  defp extract_subagent_completion_from_wait_agent_event(
+         value,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
        when is_binary(value) do
     case Jason.decode(value) do
-      {:ok, decoded} -> extract_subagent_completion_from_wait_agent_event(decoded, review_subagent_ids)
-      _ -> nil
+      {:ok, decoded} ->
+        extract_subagent_completion_from_wait_agent_event(
+          decoded,
+          review_subagent_ids,
+          review_subagent_call_ids
+        )
+
+      _ ->
+        nil
     end
   end
 
   defp extract_subagent_completion_from_wait_agent_event(
          %{"method" => "item/completed", "params" => %{"item" => item}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        ) do
-    extract_subagent_completion_from_wait_agent_item(item, review_subagent_ids)
+    extract_subagent_completion_from_wait_agent_item(
+      item,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
   end
 
   defp extract_subagent_completion_from_wait_agent_event(
          %{method: "item/completed", params: %{item: item}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        ) do
-    extract_subagent_completion_from_wait_agent_item(item, review_subagent_ids)
+    extract_subagent_completion_from_wait_agent_item(
+      item,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
   end
 
-  defp extract_subagent_completion_from_wait_agent_event(_value, _review_subagent_ids), do: nil
+  defp extract_subagent_completion_from_wait_agent_event(
+         _value,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
 
-  defp extract_subagent_completion_from_wait_agent_item(item, review_subagent_ids) when is_map(item) do
-    item_type = Map.get(item, "type") || Map.get(item, :type)
-    tool_name = Map.get(item, "tool") || Map.get(item, :tool) || Map.get(item, "name") || Map.get(item, :name)
+  defp extract_subagent_completion_from_wait_agent_item(
+         item,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(item) do
+    cond do
+      item_type(item) == "function_call_output" and wait_agent_tool_name?(item_tool_name(item)) ->
+        item
+        |> Map.get("output", Map.get(item, :output))
+        |> extract_subagent_completion_from_wait_agent_result(
+          review_subagent_ids,
+          review_subagent_call_ids
+        )
 
-    if item_type == "function_call_output" and tool_name == "wait_agent" do
-      item
-      |> Map.get("output", Map.get(item, :output))
-      |> extract_subagent_completion_from_wait_agent_result(review_subagent_ids)
+      collab_wait_agent_item?(item) ->
+        extract_subagent_completion_from_collab_wait_item(
+          item,
+          review_subagent_ids,
+          review_subagent_call_ids
+        )
+
+      true ->
+        nil
     end
   end
 
-  defp extract_subagent_completion_from_wait_agent_item(_item, _review_subagent_ids), do: nil
+  defp extract_subagent_completion_from_wait_agent_item(
+         _item,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
 
-  defp extract_subagent_completion_from_wait_agent_result(value, review_subagent_ids)
-       when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, decoded} -> extract_subagent_completion_from_wait_agent_result(decoded, review_subagent_ids)
+  defp extract_subagent_completion_from_collab_wait_item(
+         item,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(item) do
+    item
+    |> collab_wait_agent_status()
+    |> extract_subagent_completion_from_wait_agent_status(
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
+  end
+
+  defp collab_wait_agent_status(item) when is_map(item) do
+    item
+    |> Map.get("agentsStates", Map.get(item, :agentsStates))
+    |> case do
+      %{} = agents_states ->
+        Enum.reduce(agents_states, %{}, &put_collab_wait_agent_completion/2)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp put_collab_wait_agent_completion({agent_id, entry}, acc) when is_map(acc) do
+    case collab_wait_agent_completion_entry(agent_id, entry) do
+      {normalized_agent_id, completion} ->
+        Map.put(acc, normalized_agent_id, %{"completed" => completion})
+
+      nil ->
+        acc
+    end
+  end
+
+  defp put_collab_wait_agent_completion(_entry, acc), do: acc
+
+  defp collab_wait_agent_completion_entry(agent_id, entry)
+       when is_binary(agent_id) and is_map(entry) do
+    with true <- valid_review_subagent_id?(agent_id),
+         completion when is_binary(completion) <- collab_wait_agent_completion_text(entry),
+         trimmed_completion when is_binary(trimmed_completion) <- trimmed_non_empty_binary(completion) do
+      {String.trim(agent_id), trimmed_completion}
+    else
       _ -> nil
     end
   end
 
-  defp extract_subagent_completion_from_wait_agent_result(%{"timed_out" => true}, _review_subagent_ids),
-    do: nil
+  defp collab_wait_agent_completion_entry(_agent_id, _entry), do: nil
 
-  defp extract_subagent_completion_from_wait_agent_result(%{timed_out: true}, _review_subagent_ids),
-    do: nil
+  defp collab_wait_agent_completion_text(%{"status" => "completed", "message" => message})
+       when is_binary(message),
+       do: message
 
-  defp extract_subagent_completion_from_wait_agent_result(%{"status" => status}, review_subagent_ids)
-       when is_map(status) do
-    extract_subagent_completion_from_wait_agent_status(status, review_subagent_ids)
+  defp collab_wait_agent_completion_text(%{status: "completed", message: message})
+       when is_binary(message),
+       do: message
+
+  defp collab_wait_agent_completion_text(%{"completed" => completion})
+       when is_binary(completion),
+       do: completion
+
+  defp collab_wait_agent_completion_text(%{completed: completion})
+       when is_binary(completion),
+       do: completion
+
+  defp collab_wait_agent_completion_text(%{"status" => %{"completed" => completion}})
+       when is_binary(completion),
+       do: completion
+
+  defp collab_wait_agent_completion_text(%{status: %{completed: completion}})
+       when is_binary(completion),
+       do: completion
+
+  defp collab_wait_agent_completion_text(_entry), do: nil
+
+  defp extract_subagent_completion_from_wait_agent_result(
+         value,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} ->
+        extract_subagent_completion_from_wait_agent_result(
+          decoded,
+          review_subagent_ids,
+          review_subagent_call_ids
+        )
+
+      _ ->
+        nil
+    end
   end
 
-  defp extract_subagent_completion_from_wait_agent_result(%{status: status}, review_subagent_ids)
+  defp extract_subagent_completion_from_wait_agent_result(
+         %{"timed_out" => true},
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
+
+  defp extract_subagent_completion_from_wait_agent_result(
+         %{timed_out: true},
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
+
+  defp extract_subagent_completion_from_wait_agent_result(
+         %{"status" => status},
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
        when is_map(status) do
-    extract_subagent_completion_from_wait_agent_status(status, review_subagent_ids)
+    extract_subagent_completion_from_wait_agent_status(
+      status,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
   end
 
-  defp extract_subagent_completion_from_wait_agent_result(_value, _review_subagent_ids), do: nil
+  defp extract_subagent_completion_from_wait_agent_result(
+         %{status: status},
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(status) do
+    extract_subagent_completion_from_wait_agent_status(
+      status,
+      review_subagent_ids,
+      review_subagent_call_ids
+    )
+  end
 
-  defp extract_subagent_completion_from_wait_agent_status(status, review_subagent_ids)
-       when is_map(status) and is_struct(review_subagent_ids, MapSet) do
+  defp extract_subagent_completion_from_wait_agent_result(
+         _value,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
+
+  defp extract_subagent_completion_from_wait_agent_status(
+         status,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(status) and is_struct(review_subagent_ids, MapSet) and
+              is_struct(review_subagent_call_ids, MapSet) do
     Enum.find_value(status, fn
       {agent_id, entry} ->
         extract_subagent_completion_from_wait_agent_status_entry(
@@ -2002,10 +2604,20 @@ defmodule SymphonyElixir.Orchestrator do
 
       _ ->
         nil
-    end)
+    end) ||
+      unverified_review_subagent_completion_from_wait_agent_status(
+        status,
+        review_subagent_ids,
+        review_subagent_call_ids
+      )
   end
 
-  defp extract_subagent_completion_from_wait_agent_status(_status, _review_subagent_ids), do: nil
+  defp extract_subagent_completion_from_wait_agent_status(
+         _status,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
 
   defp extract_subagent_completion_from_wait_agent_status_entry(
          agent_id,
@@ -2043,14 +2655,81 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp review_subagent_id_matches?(_review_subagent_ids, _agent_id), do: false
 
-  defp valid_recovered_review_completion(value) when is_binary(value) do
-    trimmed = String.trim(value)
+  defp unverified_review_subagent_completion_from_wait_agent_status(
+         status,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(status) and is_struct(review_subagent_ids, MapSet) and
+              is_struct(review_subagent_call_ids, MapSet) do
+    if trusted_unverified_review_wait_agent_status?(
+         status,
+         review_subagent_ids,
+         review_subagent_call_ids
+       ) do
+      status
+      |> Enum.reduce([], &collect_unverified_review_wait_agent_completion/2)
+      |> Enum.uniq()
+      |> one_unverified_review_wait_agent_completion()
+    end
+  end
 
-    cond do
-      trimmed == "" -> nil
-      String.starts_with?(trimmed, "Findings:") -> trimmed
-      String.starts_with?(trimmed, "Keine Findings.") -> trimmed
-      true -> nil
+  defp unverified_review_subagent_completion_from_wait_agent_status(
+         _status,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
+
+  defp trusted_unverified_review_wait_agent_status?(
+         status,
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_map(status) and is_struct(review_subagent_ids, MapSet) and
+              is_struct(review_subagent_call_ids, MapSet) do
+    map_size(status) == 1 and MapSet.size(review_subagent_ids) == 0 and
+      MapSet.size(review_subagent_call_ids) > 0
+  end
+
+  defp collect_unverified_review_wait_agent_completion(entry, acc) do
+    case unverified_review_wait_agent_completion_candidate(entry) do
+      nil -> acc
+      candidate -> [candidate | acc]
+    end
+  end
+
+  defp unverified_review_wait_agent_completion_candidate({agent_id, %{"completed" => completion}})
+       when is_binary(agent_id) and is_binary(completion) do
+    normalized_unverified_review_wait_agent_completion(agent_id, completion)
+  end
+
+  defp unverified_review_wait_agent_completion_candidate({agent_id, %{completed: completion}})
+       when is_binary(agent_id) and is_binary(completion) do
+    normalized_unverified_review_wait_agent_completion(agent_id, completion)
+  end
+
+  defp unverified_review_wait_agent_completion_candidate(_entry), do: nil
+
+  defp normalized_unverified_review_wait_agent_completion(agent_id, completion)
+       when is_binary(agent_id) and is_binary(completion) do
+    case valid_recovered_review_completion(completion) do
+      normalized when is_binary(normalized) -> {String.trim(agent_id), normalized}
+      _ -> nil
+    end
+  end
+
+  defp one_unverified_review_wait_agent_completion([{_agent_id, completion}]), do: completion
+  defp one_unverified_review_wait_agent_completion(_candidates), do: nil
+
+  defp valid_recovered_review_completion(value) when is_binary(value) do
+    PromptBuilder.normalize_recovered_review_context(value) || trimmed_non_empty_binary(value)
+  end
+
+  defp trimmed_non_empty_binary(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
 
@@ -2059,7 +2738,214 @@ defmodule SymphonyElixir.Orchestrator do
     normalize_issue_state(state_name) == "review (ai)"
   end
 
-  defp review_codex_state_for_running_entry?(_running_entry), do: false
+  defp review_codex_state_for_running_entry?(running_entry) when is_map(running_entry) do
+    MapSet.size(tracked_review_subagent_call_ids(running_entry)) > 0 or
+      MapSet.size(tracked_review_subagent_ids(running_entry)) > 0 or
+      is_binary(Map.get(running_entry, :recovered_turn_context))
+  end
+
+  defp review_ai_issue_state_for_running_entry?(%{issue: %{state: state_name}})
+       when is_binary(state_name) do
+    normalize_issue_state(state_name) == "review (ai)"
+  end
+
+  defp review_ai_issue_state_for_running_entry?(_running_entry), do: false
+
+  defp spawn_agent_tool_name?(tool_name), do: normalize_subagent_tool_name(tool_name) == "spawn_agent"
+
+  defp wait_agent_tool_name?(tool_name) do
+    normalize_tool = normalize_subagent_tool_name(tool_name)
+    normalize_tool == "wait_agent" or normalize_tool == "wait"
+  end
+
+  defp normalize_subagent_tool_name(tool_name) when is_binary(tool_name) do
+    tool_name
+    |> String.trim()
+    |> String.replace("-", "_")
+    |> Macro.underscore()
+  end
+
+  defp normalize_subagent_tool_name(_tool_name), do: nil
+
+  defp maybe_log_review_completion_capture(
+         %{issue: %Issue{} = issue} = running_entry,
+         update,
+         review_completion,
+         review_subagent_call_ids,
+         review_subagent_ids
+       )
+       when is_binary(review_completion) and is_map(update) and
+              is_struct(review_subagent_call_ids, MapSet) and
+              is_struct(review_subagent_ids, MapSet) do
+    Logger.info(
+      "Captured review subagent completion: #{issue_context(issue)} session_id=#{running_entry_session_id(running_entry)} event=#{inspect(update[:event])}#{review_update_source_suffix(update)} recovered_kind=#{review_recovered_context_kind(review_completion)} review_subagent_call_ids=#{MapSet.size(review_subagent_call_ids)} review_subagent_ids=#{MapSet.size(review_subagent_ids)}"
+    )
+  end
+
+  defp maybe_log_review_completion_capture(
+         _running_entry,
+         _update,
+         _review_completion,
+         _review_subagent_call_ids,
+         _review_subagent_ids
+       ),
+       do: :ok
+
+  defp maybe_log_review_subagent_tracking_update(
+         %{issue: %Issue{} = issue} = running_entry,
+         update,
+         previous_review_subagent_call_ids,
+         previous_review_subagent_ids,
+         review_subagent_call_ids,
+         review_subagent_ids
+       )
+       when is_map(update) and is_struct(previous_review_subagent_call_ids, MapSet) and
+              is_struct(previous_review_subagent_ids, MapSet) and
+              is_struct(review_subagent_call_ids, MapSet) and
+              is_struct(review_subagent_ids, MapSet) do
+    added_review_subagent_call_ids =
+      MapSet.difference(review_subagent_call_ids, previous_review_subagent_call_ids)
+
+    added_review_subagent_ids =
+      MapSet.difference(review_subagent_ids, previous_review_subagent_ids)
+
+    if MapSet.size(added_review_subagent_call_ids) > 0 or MapSet.size(added_review_subagent_ids) > 0 do
+      Logger.info(
+        "Tracked review subagent handoff: #{issue_context(issue)} session_id=#{running_entry_session_id(running_entry)} event=#{inspect(update[:event])}#{review_update_source_suffix(update)} added_review_subagent_call_ids=#{format_review_subagent_log_values(added_review_subagent_call_ids)} added_review_subagent_ids=#{format_review_subagent_log_values(added_review_subagent_ids)} review_subagent_call_ids=#{MapSet.size(review_subagent_call_ids)} review_subagent_ids=#{MapSet.size(review_subagent_ids)}"
+      )
+    end
+  end
+
+  defp maybe_log_review_subagent_tracking_update(
+         _running_entry,
+         _update,
+         _previous_review_subagent_call_ids,
+         _previous_review_subagent_ids,
+         _review_subagent_call_ids,
+         _review_subagent_ids
+       ),
+       do: :ok
+
+  defp log_review_retry_context(%{issue: %Issue{} = issue} = running_entry, session_id)
+       when is_binary(session_id) do
+    review_subagent_call_ids = review_subagent_call_ids_for_retry(running_entry)
+    review_subagent_ids = review_subagent_ids_for_retry(running_entry)
+    recovered_kind = review_recovered_context_kind(Map.get(running_entry, :recovered_turn_context))
+    review_subagent_call_id_count = review_subagent_count(review_subagent_call_ids)
+    review_subagent_id_count = review_subagent_count(review_subagent_ids)
+
+    if normalize_issue_state(issue.state) == "review (ai)" or recovered_kind != :none or
+         review_subagent_call_id_count > 0 or review_subagent_id_count > 0 do
+      Logger.info(
+        "Review continuation handoff prepared: #{issue_context(issue)} session_id=#{session_id} recovered_kind=#{recovered_kind} review_subagent_call_ids=#{review_subagent_call_id_count} review_subagent_ids=#{review_subagent_id_count}"
+      )
+    end
+  end
+
+  defp log_review_retry_context(_running_entry, _session_id), do: :ok
+
+  defp clean_review_retry_handoff_ready?(%Issue{state: state}, metadata)
+       when is_binary(state) and is_map(metadata) do
+    normalize_issue_state(state) == "review (ai)" and
+      review_recovered_context_kind(metadata[:recovered_turn_context]) == :no_findings
+  end
+
+  defp clean_review_retry_handoff_ready?(_issue, _metadata), do: false
+
+  defp handle_clean_review_retry_handoff(%State{} = state, issue_id, %Issue{} = issue, attempt, metadata)
+       when is_binary(issue_id) and is_integer(attempt) and is_map(metadata) do
+    next_state = review_handoff_target_state(issue)
+
+    case Tracker.update_issue_state(issue.id, next_state) do
+      :ok ->
+        Logger.info("Completed clean review handoff from recovered subagent result without dispatch: #{issue_context(issue)} next_state=#{next_state}")
+
+        {:noreply, state |> complete_issue(issue_id, issue.state) |> release_issue_claim(issue_id)}
+
+      {:error, reason} ->
+        Logger.warning("Failed clean review handoff from recovered subagent result; retrying without dispatch: #{issue_context(issue)} next_state=#{next_state} reason=#{inspect(reason)}")
+
+        {:noreply,
+         schedule_issue_retry(
+           state,
+           issue.id,
+           attempt + 1,
+           Map.merge(metadata, %{
+             identifier: issue.identifier,
+             error: "review handoff state update failed: #{inspect(reason)}"
+           })
+         )}
+    end
+  end
+
+  defp review_handoff_target_state(%Issue{} = issue) do
+    Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) || "Freigabe Review"
+  end
+
+  defp review_recovered_context_kind(value) when is_binary(value) do
+    case PromptBuilder.normalize_recovered_review_context(value) do
+      "Keine Findings." <> _ -> :no_findings
+      "Findings:" <> _ -> :findings
+      _ -> :none
+    end
+  end
+
+  defp review_recovered_context_kind(_value), do: :none
+
+  defp format_review_subagent_log_values(values) when is_struct(values, MapSet) do
+    values
+    |> Enum.to_list()
+    |> Enum.sort()
+    |> Enum.join(",")
+    |> case do
+      "" -> "none"
+      joined -> joined
+    end
+  end
+
+  defp review_subagent_count(values) when is_struct(values, MapSet), do: Enum.count(values)
+
+  defp review_update_source_suffix(update) when is_map(update) do
+    payload = Map.get(update, :payload) || Map.get(update, "payload")
+    method = payload_method(payload)
+    item = payload_item(payload)
+    item_type = item_type(item)
+    tool_name = item_tool_name(item)
+
+    source_fields =
+      []
+      |> append_source_field("source_method", method)
+      |> append_source_field("source_item_type", item_type)
+      |> append_source_field("source_tool", tool_name)
+
+    case source_fields do
+      [] -> ""
+      fields -> " " <> Enum.join(fields, " ")
+    end
+  end
+
+  defp payload_method(payload) when is_map(payload), do: Map.get(payload, "method") || Map.get(payload, :method)
+  defp payload_method(_payload), do: nil
+
+  defp payload_item(payload) when is_map(payload) do
+    payload
+    |> Map.get("params", Map.get(payload, :params))
+    |> case do
+      %{} = params -> Map.get(params, "item") || Map.get(params, :item)
+      _ -> nil
+    end
+  end
+
+  defp payload_item(_payload), do: nil
+
+  defp append_source_field(fields, _key, value) when not is_binary(value), do: fields
+
+  defp append_source_field(fields, key, value) when is_list(fields) and is_binary(key) do
+    case String.trim(value) do
+      "" -> fields
+      trimmed -> fields ++ ["#{key}=#{trimmed}"]
+    end
+  end
 
   defp find_tagged_subagent_notification_text(content) when is_list(content) do
     Enum.find_value(content, fn
@@ -2124,45 +3010,85 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp valid_subagent_completion_from_payload(
          %{"agent_path" => agent_path, "status" => %{"completed" => completion}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        )
        when is_binary(agent_path) and is_binary(completion) do
-    if review_subagent_id_matches?(review_subagent_ids, agent_path) do
+    if review_subagent_id_matches?(review_subagent_ids, agent_path) or
+         trusted_unverified_review_subagent_notification?(
+           review_subagent_ids,
+           review_subagent_call_ids
+         ) do
       valid_recovered_review_completion(completion)
     end
   end
 
   defp valid_subagent_completion_from_payload(
          %{agent_path: agent_path, status: %{completed: completion}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        )
        when is_binary(agent_path) and is_binary(completion) do
-    if review_subagent_id_matches?(review_subagent_ids, agent_path) do
+    if review_subagent_id_matches?(review_subagent_ids, agent_path) or
+         trusted_unverified_review_subagent_notification?(
+           review_subagent_ids,
+           review_subagent_call_ids
+         ) do
       valid_recovered_review_completion(completion)
     end
   end
 
   defp valid_subagent_completion_from_payload(
          %{"agent_id" => agent_id, "status" => %{"completed" => completion}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        )
        when is_binary(agent_id) and is_binary(completion) do
-    if review_subagent_id_matches?(review_subagent_ids, agent_id) do
+    if review_subagent_id_matches?(review_subagent_ids, agent_id) or
+         trusted_unverified_review_subagent_notification?(
+           review_subagent_ids,
+           review_subagent_call_ids
+         ) do
       valid_recovered_review_completion(completion)
     end
   end
 
   defp valid_subagent_completion_from_payload(
          %{agent_id: agent_id, status: %{completed: completion}},
-         review_subagent_ids
+         review_subagent_ids,
+         review_subagent_call_ids
        )
        when is_binary(agent_id) and is_binary(completion) do
-    if review_subagent_id_matches?(review_subagent_ids, agent_id) do
+    if review_subagent_id_matches?(review_subagent_ids, agent_id) or
+         trusted_unverified_review_subagent_notification?(
+           review_subagent_ids,
+           review_subagent_call_ids
+         ) do
       valid_recovered_review_completion(completion)
     end
   end
 
-  defp valid_subagent_completion_from_payload(_payload, _review_subagent_ids), do: nil
+  defp valid_subagent_completion_from_payload(
+         _payload,
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: nil
+
+  defp trusted_unverified_review_subagent_notification?(
+         review_subagent_ids,
+         review_subagent_call_ids
+       )
+       when is_struct(review_subagent_ids, MapSet) and
+              is_struct(review_subagent_call_ids, MapSet) do
+    MapSet.size(review_subagent_ids) == 0 and MapSet.size(review_subagent_call_ids) == 1
+  end
+
+  defp trusted_unverified_review_subagent_notification?(
+         _review_subagent_ids,
+         _review_subagent_call_ids
+       ),
+       do: false
 
   defp schedule_tick(%State{} = state, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
     if is_reference(state.tick_timer_ref) do
