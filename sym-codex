@@ -229,11 +229,14 @@ sym_codex_build_manual_prompt() {
   local interactive_workflow_file="$3"
   local project_root="$4"
   local issue_identifier="$5"
+  local workspace="$6"
 
   (
     cd "$source_repo" || exit 1
+    export SYMPHONY_ACTIVE_REPO_ROOT="$workspace"
     export SYMPHONY_PROJECT_ROOT="$project_root"
     export SYMPHONY_PROJECT_WORKTREES_ROOT="${project_root}-worktrees"
+    export SYMPHONY_SOURCE_REPO="$source_repo"
     export SYMPHONY_WORKFLOW_FILE="$workflow_file"
     export SYMPHONY_WORKFLOW_DIR
     SYMPHONY_WORKFLOW_DIR="$(cd "$(dirname "$workflow_file")" >/dev/null 2>&1 && pwd -P)"
@@ -533,7 +536,7 @@ sym_codex_run() {
   fi
 
   if (( ! observer_mode )); then
-    prompt_context="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier")" ||
+    prompt_context="$(sym_codex_build_manual_prompt "$source_repo" "$workflow_file" "$interactive_workflow_file" "$project_root" "$issue_identifier" "$workspace")" ||
       sym_codex_die "cannot build prompt for $issue_identifier"
     sym_codex_parse_manual_prompt_context "$prompt_context"
     prompt="$SYM_CODEX_PROMPT"

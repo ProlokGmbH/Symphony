@@ -4,13 +4,14 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH, Workflow}
 
   @initialize_id 1
   @thread_start_id 2
   @turn_start_id 3
   @port_line_bytes 1_048_576
   @max_stream_log_bytes 1_000
+  @post_turn_completion_drain_ms 500
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
 
   @type session :: %{
@@ -307,12 +308,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       "id" => @turn_start_id,
       "params" => %{
         "threadId" => thread_id,
-        "input" => [
-          %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ],
+        "input" => turn_input(prompt, issue),
         "cwd" => workspace,
         "title" => "#{issue.identifier}: #{issue.title}",
         "approvalPolicy" => approval_policy,
@@ -324,6 +320,35 @@ defmodule SymphonyElixir.Codex.AppServer do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
       other -> other
     end
+  end
+
+  defp turn_input(prompt, issue) when is_binary(prompt) do
+    [
+      %{
+        "type" => "text",
+        "text" => prompt
+      }
+      | review_subagent_authorization_input(issue)
+    ]
+  end
+
+  defp review_subagent_authorization_input(%{state: state}) when is_binary(state) do
+    if String.trim(state) == "Review (AI)" do
+      [
+        %{
+          "type" => "text",
+          "text" => review_subagent_authorization_text()
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp review_subagent_authorization_input(_issue), do: []
+
+  defp review_subagent_authorization_text do
+    Workflow.prompt_snippet("review_subagent_authorization")
   end
 
   defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
@@ -367,7 +392,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     case Jason.decode(payload_string) do
       {:ok, %{"method" => "turn/completed"} = payload} ->
         emit_turn_event(on_message, :turn_completed, payload, payload_string, port, payload)
-        {:ok, :turn_completed}
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
 
       {:ok, %{"method" => "turn/failed", "params" => _} = payload} ->
         emit_turn_event(
@@ -438,6 +463,128 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
+  defp drain_post_completion_messages(
+         port,
+         on_message,
+         pending_line,
+         tool_executor,
+         auto_approve_requests
+       ) do
+    receive do
+      {^port, {:data, {:eol, chunk}}} ->
+        complete_line = pending_line <> to_string(chunk)
+
+        handle_post_completion_incoming(
+          port,
+          on_message,
+          complete_line,
+          tool_executor,
+          auto_approve_requests
+        )
+
+      {^port, {:data, {:noeol, chunk}}} ->
+        drain_post_completion_messages(
+          port,
+          on_message,
+          pending_line <> to_string(chunk),
+          tool_executor,
+          auto_approve_requests
+        )
+
+      {^port, {:exit_status, status}} ->
+        if status == 0 do
+          {:ok, :turn_completed}
+        else
+          {:error, {:port_exit, status}}
+        end
+    after
+      @post_turn_completion_drain_ms ->
+        {:ok, :turn_completed}
+    end
+  end
+
+  defp handle_post_completion_incoming(
+         port,
+         on_message,
+         data,
+         tool_executor,
+         auto_approve_requests
+       ) do
+    payload_string = to_string(data)
+
+    case Jason.decode(payload_string) do
+      {:ok, %{"method" => "turn/completed"} = payload} ->
+        emit_turn_event(on_message, :turn_completed, payload, payload_string, port, payload)
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
+
+      {:ok, %{"method" => "turn/failed", "params" => _} = payload} ->
+        emit_turn_event(
+          on_message,
+          :turn_failed,
+          payload,
+          payload_string,
+          port,
+          Map.get(payload, "params")
+        )
+
+        {:error, {:turn_failed, Map.get(payload, "params")}}
+
+      {:ok, %{"method" => "turn/cancelled", "params" => _} = payload} ->
+        emit_turn_event(
+          on_message,
+          :turn_cancelled,
+          payload,
+          payload_string,
+          port,
+          Map.get(payload, "params")
+        )
+
+        {:error, {:turn_cancelled, Map.get(payload, "params")}}
+
+      {:ok, %{"method" => method} = payload}
+      when is_binary(method) ->
+        handle_post_completion_method(
+          port,
+          on_message,
+          payload,
+          payload_string,
+          method,
+          tool_executor,
+          auto_approve_requests
+        )
+
+      {:ok, payload} ->
+        emit_message(
+          on_message,
+          :other_message,
+          %{
+            payload: payload,
+            raw: payload_string
+          },
+          metadata_from_message(port, payload)
+        )
+
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
+
+      {:error, _reason} ->
+        log_non_json_stream_line(payload_string, "turn stream")
+
+        if protocol_message_candidate?(payload_string) do
+          emit_message(
+            on_message,
+            :malformed,
+            %{
+              payload: payload_string,
+              raw: payload_string
+            },
+            metadata_from_message(port, %{raw: payload_string})
+          )
+        end
+
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
+    end
+  end
+
   defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
     emit_message(
       on_message,
@@ -449,6 +596,66 @@ defmodule SymphonyElixir.Codex.AppServer do
       },
       metadata_from_message(port, payload)
     )
+  end
+
+  defp handle_post_completion_method(
+         port,
+         on_message,
+         payload,
+         payload_string,
+         method,
+         tool_executor,
+         auto_approve_requests
+       ) do
+    metadata = metadata_from_message(port, payload)
+
+    case maybe_handle_approval_request(
+           port,
+           method,
+           payload,
+           payload_string,
+           on_message,
+           metadata,
+           tool_executor,
+           auto_approve_requests
+         ) do
+      :input_required ->
+        emit_message(
+          on_message,
+          :turn_input_required,
+          %{payload: payload, raw: payload_string},
+          metadata
+        )
+
+        {:error, {:turn_input_required, payload}}
+
+      :approved ->
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
+
+      :approval_required ->
+        emit_message(
+          on_message,
+          :approval_required,
+          %{payload: payload, raw: payload_string},
+          metadata
+        )
+
+        {:error, {:approval_required, payload}}
+
+      :unhandled ->
+        emit_message(
+          on_message,
+          :notification,
+          %{
+            payload: payload,
+            raw: payload_string
+          },
+          metadata
+        )
+
+        Logger.debug("Codex notification: #{inspect(method)}")
+        drain_post_completion_messages(port, on_message, "", tool_executor, auto_approve_requests)
+    end
   end
 
   defp handle_turn_method(
@@ -575,7 +782,12 @@ defmodule SymphonyElixir.Codex.AppServer do
         _ -> :tool_call_failed
       end
 
-    emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+    emit_message(
+      on_message,
+      event,
+      %{payload: payload, raw: payload_string, tool_result: result},
+      metadata
+    )
 
     :approved
   end

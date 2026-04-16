@@ -29,11 +29,9 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:error, {:invalid_workspace_cwd, :workspace_root, _path}} =
-               AppServer.run(workspace_root, "guard", issue)
+      assert {:error, {:invalid_workspace_cwd, :workspace_root, _path}} = AppServer.run(workspace_root, "guard", issue)
 
-      assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} =
-               AppServer.run(outside_workspace, "guard", issue)
+      assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} = AppServer.run(outside_workspace, "guard", issue)
     after
       File.rm_rf(test_root)
     end
@@ -69,8 +67,7 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:error, {:invalid_workspace_cwd, :symlink_escape, ^symlink_workspace, _root}} =
-               AppServer.run(symlink_workspace, "guard", issue)
+      assert {:error, {:invalid_workspace_cwd, :symlink_escape, ^symlink_workspace, _root}} = AppServer.run(symlink_workspace, "guard", issue)
     after
       File.rm_rf(test_root)
     end
@@ -253,8 +250,7 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:error, {:turn_input_required, payload}} =
-               AppServer.run(workspace, "Needs input", issue)
+      assert {:error, {:turn_input_required, payload}} = AppServer.run(workspace, "Needs input", issue)
 
       assert payload["method"] == "turn/input_required"
     after
@@ -316,8 +312,7 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:error, {:approval_required, payload}} =
-               AppServer.run(workspace, "Handle approval request", issue)
+      assert {:error, {:approval_required, payload}} = AppServer.run(workspace, "Handle approval request", issue)
 
       assert payload["method"] == "item/commandExecution/requestApproval"
     after
@@ -624,8 +619,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       on_message = fn message -> send(self(), {:app_server_message, message}) end
 
-      assert {:ok, _result} =
-               AppServer.run(workspace, "Handle generic tool input", issue, on_message: on_message)
+      assert {:ok, _result} = AppServer.run(workspace, "Handle generic tool input", issue, on_message: on_message)
 
       assert_received {:app_server_message,
                        %{
@@ -711,8 +705,7 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:ok, _result} =
-               AppServer.run(workspace, "Handle option based tool input", issue)
+      assert {:ok, _result} = AppServer.run(workspace, "Handle option based tool input", issue)
 
       trace = File.read!(trace_file)
       lines = String.split(trace, "\n", trim: true)
@@ -913,6 +906,7 @@ defmodule SymphonyElixir.AppServerTest do
       }
 
       test_pid = self()
+      on_message = fn message -> send(test_pid, {:app_server_message, message}) end
 
       tool_executor = fn tool, arguments ->
         send(test_pid, {:tool_called, tool, arguments})
@@ -929,12 +923,25 @@ defmodule SymphonyElixir.AppServerTest do
       end
 
       assert {:ok, _result} =
-               AppServer.run(workspace, "Handle supported tool calls", issue, tool_executor: tool_executor)
+               AppServer.run(workspace, "Handle supported tool calls", issue,
+                 on_message: on_message,
+                 tool_executor: tool_executor
+               )
 
       assert_received {:tool_called, "linear_graphql",
                        %{
                          "query" => "query Viewer { viewer { id } }",
                          "variables" => %{"includeTeams" => false}
+                       }}
+
+      assert_received {:app_server_message,
+                       %{
+                         event: :tool_call_completed,
+                         payload: %{"params" => %{"name" => "linear_graphql"}},
+                         tool_result: %{
+                           "success" => true,
+                           "output" => ~s({"data":{"viewer":{"id":"usr_123"}}})
+                         }
                        }}
 
       trace = File.read!(trace_file)
@@ -1193,8 +1200,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       log =
         capture_log(fn ->
-          assert {:ok, _result} =
-                   AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
+          assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
         end)
 
       assert_received {:app_server_message, %{event: :turn_completed}}
@@ -1266,11 +1272,105 @@ defmodule SymphonyElixir.AppServerTest do
       test_pid = self()
       on_message = fn message -> send(test_pid, {:app_server_message, message}) end
 
-      assert {:ok, _result} =
-               AppServer.run(workspace, "Capture malformed protocol line", issue, on_message: on_message)
+      assert {:ok, _result} = AppServer.run(workspace, "Capture malformed protocol line", issue, on_message: on_message)
 
       assert_received {:app_server_message, %{event: :malformed, payload: "{\"method\":\"turn/completed\""}}
       assert_received {:app_server_message, %{event: :turn_completed}}
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server drains trailing subagent notifications after turn completion" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-post-completion-notification-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-94")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-94"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-94"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '%s\\n' '{"method":"codex/event/user_message","params":{"msg":{"payload":{"content":[{"type":"input_text","text":"<subagent_notification>\\n{\\"agent_path\\":\\"agent-1\\",\\"status\\":{\\"completed\\":\\"Findings:\\\\n- High: Example finding.\\"}}\\n</subagent_notification>"}]}}}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-post-completion-notification",
+        identifier: "MT-94",
+        title: "Post completion notification",
+        description: "Ensure trailing subagent notifications are forwarded after turn completion",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-94",
+        labels: ["backend"]
+      }
+
+      test_pid = self()
+      on_message = fn message -> send(test_pid, {:app_server_message, message}) end
+
+      assert {:ok, _result} =
+               AppServer.run(
+                 workspace,
+                 "Capture trailing subagent notification",
+                 issue,
+                 on_message: on_message
+               )
+
+      assert_received {:app_server_message, %{event: :turn_completed}}
+
+      assert_received {:app_server_message,
+                       %{
+                         event: :notification,
+                         payload: %{
+                           "method" => "codex/event/user_message",
+                           "params" => %{
+                             "msg" => %{
+                               "payload" => %{
+                                 "content" => [
+                                   %{
+                                     "text" => "<subagent_notification>\n{\"agent_path\":\"agent-1\",\"status\":{\"completed\":\"Findings:\\n- High: Example finding.\"}}\n</subagent_notification>",
+                                     "type" => "input_text"
+                                   }
+                                 ]
+                               }
+                             }
+                           }
+                         }
+                       }}
     after
       File.rm_rf(test_root)
     end
@@ -1403,6 +1503,128 @@ defmodule SymphonyElixir.AppServerTest do
                  false
                end
              end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server adds explicit spawn_agent authorization to Review (AI) turns" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-review-delegation-#{System.unique_integer([:positive])}"
+      )
+
+    previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
+
+    on_exit(fn ->
+      restore_env("SYMP_TEST_CODEx_TRACE", previous_trace)
+    end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-AUTH")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-review-auth.trace")
+
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-review-auth.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-auth"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-auth"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        prompt_snippets: %{
+          "review_subagent_authorization" => """
+          Zentrale Review-Freigabe aus dem Workflow:
+          - Nutze jetzt `spawn_agent` fuer den verpflichtenden Review-Subagenten.
+          - Behandle das als expliziten Nutzerwunsch fuer diese Delegation.
+          - Starte den Review-Subagenten isoliert mit `fork_context: false`.
+          - Übergib nur den engen Review-Auftrag statt des vollen Ticket- und Workflow-Kontexts.
+          - Ersetze den Review-Subagenten nicht durch ein rein lokales Review.
+          - Wenn die Isolation nicht moeglich ist, bleibt der Review-Schritt offen.
+          - Verwende `wait_agent` mit langem Timeout.
+          - Rufe `close_agent` nicht bei einem noch laufenden Review-Subagenten auf.
+          """
+        }
+      )
+
+      issue = %Issue{
+        id: "issue-review-auth",
+        identifier: "MT-REVIEW-AUTH",
+        title: "Review delegation authorization",
+        description: "Ensure Review (AI) turns carry explicit spawn_agent permission",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-AUTH",
+        labels: []
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Workflow prompt body", issue)
+
+      turn_start_payload =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.find_value(fn line ->
+          if String.starts_with?(line, "JSON:") do
+            payload =
+              line
+              |> String.trim_leading("JSON:")
+              |> Jason.decode!()
+
+            if payload["method"] == "turn/start", do: payload
+          end
+        end)
+
+      assert turn_start_payload
+
+      inputs = get_in(turn_start_payload, ["params", "input"])
+
+      assert [
+               %{"text" => "Workflow prompt body", "type" => "text"},
+               %{"text" => auth_text, "type" => "text"}
+             ] = inputs
+
+      assert auth_text =~ "Zentrale Review-Freigabe aus dem Workflow:"
+      assert auth_text =~ "Nutze jetzt `spawn_agent` fuer den verpflichtenden Review-Subagenten."
+      assert auth_text =~ "Behandle das als expliziten Nutzerwunsch fuer diese Delegation."
+      assert auth_text =~ "Starte den Review-Subagenten isoliert mit `fork_context: false`."
+      assert auth_text =~ "Übergib nur den engen Review-Auftrag statt des vollen Ticket- und Workflow-Kontexts."
+      assert auth_text =~ "Ersetze den Review-Subagenten nicht durch ein rein lokales Review."
+      assert auth_text =~ "Wenn die Isolation nicht moeglich ist, bleibt der Review-Schritt offen."
+      assert auth_text =~ "Verwende `wait_agent` mit langem Timeout."
+      assert auth_text =~ "Rufe `close_agent` nicht bei einem noch laufenden Review-Subagenten auf."
     after
       File.rm_rf(test_root)
     end

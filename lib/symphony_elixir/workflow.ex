@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Workflow do
   @workflow_file_name "WORKFLOW.md"
   @status_overview_heading "## Statusübersicht"
   @status_overview_separator ~r/^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/u
+  @prompt_snippets_key "prompt_snippets"
+  @render_opts [strict_variables: true, strict_filters: true]
   @direct_skip_state_names [
     "freigabe planung",
     "freigabe implementierung",
@@ -98,6 +100,13 @@ defmodule SymphonyElixir.Workflow do
       _ ->
         load()
     end
+  end
+
+  @spec prompt_snippet(atom() | String.t(), map()) :: String.t()
+  def prompt_snippet(name, assigns \\ %{}) when (is_atom(name) or is_binary(name)) and is_map(assigns) do
+    name
+    |> prompt_snippet_template!()
+    |> render_prompt_snippet(assigns)
   end
 
   @spec load() :: {:ok, loaded_workflow()} | {:error, term()}
@@ -193,6 +202,98 @@ defmodule SymphonyElixir.Workflow do
         {:error, {:workflow_parse_error, reason}}
     end
   end
+
+  defp prompt_snippet_template!(name) do
+    snippet_key = normalize_prompt_snippet_name(name)
+
+    case current() do
+      {:ok, %{config: config}} when is_map(config) ->
+        prompt_snippet_from_config!(config, snippet_key)
+
+      {:error, reason} ->
+        raise RuntimeError,
+              "workflow_prompt_snippet_unavailable: snippet=#{inspect(snippet_key)} reason=#{inspect(reason)}"
+    end
+  end
+
+  defp normalize_prompt_snippet_name(name) when is_atom(name), do: Atom.to_string(name)
+  defp normalize_prompt_snippet_name(name) when is_binary(name), do: name
+
+  defp prompt_snippet_from_config!(config, snippet_key)
+       when is_map(config) and is_binary(snippet_key) do
+    config
+    |> prompt_snippets_config!(snippet_key)
+    |> prompt_snippet_value!(snippet_key)
+  end
+
+  defp prompt_snippets_config!(config, snippet_key) when is_map(config) and is_binary(snippet_key) do
+    case fetch_config_value(config, @prompt_snippets_key) do
+      prompt_snippets when is_map(prompt_snippets) ->
+        prompt_snippets
+
+      nil ->
+        raise RuntimeError,
+              "workflow_prompt_snippets_missing: snippet=#{inspect(snippet_key)}"
+
+      other ->
+        raise RuntimeError,
+              "workflow_prompt_snippets_invalid: value=#{inspect(other)}"
+    end
+  end
+
+  defp prompt_snippet_value!(prompt_snippets, snippet_key)
+       when is_map(prompt_snippets) and is_binary(snippet_key) do
+    case fetch_config_value(prompt_snippets, snippet_key) do
+      template when is_binary(template) ->
+        if String.trim(template) == "" do
+          raise RuntimeError,
+                "workflow_prompt_snippet_empty: snippet=#{inspect(snippet_key)}"
+        else
+          template
+        end
+
+      nil ->
+        raise RuntimeError,
+              "workflow_prompt_snippet_missing: snippet=#{inspect(snippet_key)}"
+
+      other ->
+        raise RuntimeError,
+              "workflow_prompt_snippet_invalid: snippet=#{inspect(snippet_key)} value=#{inspect(other)}"
+    end
+  end
+
+  defp fetch_config_value(config, key) when is_map(config) and is_binary(key) do
+    Enum.find_value(config, fn
+      {config_key, value} ->
+        if to_string(config_key) == key, do: value
+    end)
+  end
+
+  defp render_prompt_snippet(template, assigns) when is_binary(template) and is_map(assigns) do
+    template
+    |> Solid.parse!()
+    |> Solid.render!(to_solid_map(assigns), @render_opts)
+    |> IO.iodata_to_binary()
+  rescue
+    error ->
+      reraise %RuntimeError{
+                message: "workflow_prompt_snippet_parse_error: #{Exception.message(error)} snippet=#{inspect(template)}"
+              },
+              __STACKTRACE__
+  end
+
+  defp to_solid_map(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), to_solid_value(value)} end)
+  end
+
+  defp to_solid_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp to_solid_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp to_solid_value(%Date{} = value), do: Date.to_iso8601(value)
+  defp to_solid_value(%Time{} = value), do: Time.to_iso8601(value)
+  defp to_solid_value(%_{} = value), do: value |> Map.from_struct() |> to_solid_map()
+  defp to_solid_value(value) when is_map(value), do: to_solid_map(value)
+  defp to_solid_value(value) when is_list(value), do: Enum.map(value, &to_solid_value/1)
+  defp to_solid_value(value), do: value
 
   defp split_front_matter(content) do
     lines = String.split(content, ~r/\R/, trim: false)
