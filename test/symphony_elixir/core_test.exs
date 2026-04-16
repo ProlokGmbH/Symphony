@@ -4540,6 +4540,50 @@ defmodule SymphonyElixir.CoreTest do
     assert PromptBuilder.build_prompt(issue) == "exec="
   end
 
+  test "prompt builder prefers the detected symphony executable from PATH" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-prompt-builder-exec-#{System.unique_integer([:positive])}"
+      )
+
+    bin_dir = Path.join(test_root, "bin")
+    fake_symphony = Path.join(bin_dir, "symphony")
+    original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+
+      if is_nil(original_script_name) do
+        Application.delete_env(:symphony_elixir, :escript_script_name)
+      else
+        Application.put_env(:symphony_elixir, :escript_script_name, original_script_name)
+      end
+
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(bin_dir)
+    File.write!(fake_symphony, "#!/bin/sh\n")
+    File.chmod!(fake_symphony, 0o755)
+    System.put_env("PATH", bin_dir)
+    Application.put_env(:symphony_elixir, :escript_script_name, ~c"/opt/fallback/symphony")
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "exec={{ runtime.symphony_executable_dir }}")
+
+    issue = %Issue{
+      identifier: "MT-698CE1",
+      title: "Detected symphony executable",
+      description: "Prompt should use the executable found on PATH",
+      state: "Review",
+      url: "https://example.org/issues/MT-698CE1",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "exec=#{bin_dir}"
+  end
+
   test "prompt builder trims blank env paths and falls back from missing HOME to the escript path" do
     original_script_name = Application.get_env(:symphony_elixir, :escript_script_name)
     original_prompt_builder_user_home = Application.get_env(:symphony_elixir, :prompt_builder_user_home)
