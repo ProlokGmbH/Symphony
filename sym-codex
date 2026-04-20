@@ -291,7 +291,7 @@ sym_codex_set_launch_profile() {
 
   case "$workflow_step" in
     "Review (AI)")
-      SYM_CODEX_REASONING_EFFORT="xhigh"
+      SYM_CODEX_REASONING_EFFORT="high"
       ;;
   esac
 }

@@ -133,7 +133,7 @@ defmodule SymCodexScriptTest do
     assert output =~ "--config model_reasoning_effort=high"
   end
 
-  test "sym-codex uses xhigh reasoning for Review (AI)" do
+  test "sym-codex uses high reasoning for Review (AI)" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -154,7 +154,7 @@ defmodule SymCodexScriptTest do
              )
 
     assert output =~ "--model gpt-5.4"
-    assert output =~ "--config model_reasoning_effort=xhigh"
+    assert output =~ "--config model_reasoning_effort=high"
   end
 
   test "sym-codex exports the active worktree while building the manual prompt" do
