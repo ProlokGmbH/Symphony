@@ -469,7 +469,7 @@ Den Branch vor dem Test gegen `origin/main` synchronisieren, den repository-spez
 2. Führe anschließend den Skill `symphony-pull` aus.
 3. Öffne den globalen Skill `symphony-test` und führe den dort definierten Ablauf aus.
 4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-5. Nutze das Workpad in diesem Status nur für `### Test`, `### Verlauf` und Pull-Nachweise. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+5. Nutze das Workpad in diesem Status für `### Test`, `### Verlauf`, Pull-Nachweise und die bereits aus früheren Phasen übernommene `### Validierung`. Die dort festgehaltenen ticketseitigen Validierungsvorgaben bleiben bindend. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 6. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `Test (AI) Autocommit` committet werden.
 
 ### Abschluss und nächster Status
@@ -546,7 +546,7 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 
 1. Öffne den globalen Skill `symphony-land` und befolge den dort definierten Ablauf.
 2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht `Merge (AI) Autocommit`.
-3. Das Workpad dient in diesem Status nur der Fortschritts- und Merge-Dokumentation. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
 5. Falls ein erneuter Pull oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit der Commit-Nachricht `Merge (AI) Autocommit`, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
 
