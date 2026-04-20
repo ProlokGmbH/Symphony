@@ -5102,6 +5102,18 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`Test (AI) Autocommit`"
     assert prompt =~ "`Merge (AI) Autocommit`"
+    assert prompt =~ "Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung."
+
+    assert prompt =~
+             "Nutze das Workpad in diesem Status für `### Test`, `### Verlauf`, Pull-Nachweise und die bereits aus früheren Phasen übernommene `### Validierung`."
+
+    assert prompt =~ "Die dort festgehaltenen ticketseitigen Validierungsvorgaben bleiben bindend."
+    assert prompt =~ "Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation."
+
+    assert prompt =~
+             "Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen."
+
+    assert prompt =~ "Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen."
     assert prompt =~ ~r/(Continuation context|Fortsetzungskontext):/
     assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
   end
