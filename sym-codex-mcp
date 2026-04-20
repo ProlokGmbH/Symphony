@@ -66,9 +66,29 @@ sym_codex_mcp_run_mix() {
   fi
 }
 
+sym_codex_mcp_compile_lock_mismatch() {
+  local output="$1"
+
+  [[ "$output" == *"Unchecked dependencies for environment"* &&
+    "$output" == *"lock mismatch"* ]]
+}
+
 sym_codex_mcp_prepare_mix() {
   local source_repo="$1"
+  local output=""
 
+  if output="$(sym_codex_mcp_run_mix "$source_repo" compile 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+
+  if ! sym_codex_mcp_compile_lock_mismatch "$output"; then
+    return 1
+  fi
+
+  sym_codex_mcp_run_mix "$source_repo" deps.get 1>&2
   sym_codex_mcp_run_mix "$source_repo" compile 1>&2
 }
 
