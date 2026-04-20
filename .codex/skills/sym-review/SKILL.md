@@ -16,7 +16,7 @@ Verwende diesen Skill `sym-review` als massgebliche Checkliste fuer
 2. Starte einen read-only Review-Subagenten fuer den aktuellen Worktree gegen `origin/main` und verwende dessen Ausgabe ausschliesslich als Grundlage fuer deine eigenen Fixes.
    - Nutze den in der aktuellen Session zulaessigen Delegationspfad fuer diesen Pflicht-Review.
    - Starte den Pflicht-Subagenten isoliert mit `fork_context: false`.
-   - Verwende dafür niemals `agent_type: "explorer"`. Der Review-Lauf braucht den normalen `default`-Agenten mit maximaler Reasoning-Tiefe, nicht einen Explorer-basierten Kurzpfad.
+   - Verwende dafür niemals `agent_type: "explorer"`. Der Review-Lauf braucht den normalen `default`-Agenten mit `reasoning_effort: "high"`, nicht einen Explorer-basierten Kurzpfad.
    - Verwende dafuer das staerkste in der Session verfuegbare Frontier-Modell oder andernfalls das geerbte Standardmodell; vermeide fest verdrahtete Modellnamen.
    - Übergib dem Subagenten nur den engen read-only Review-Auftrag und nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
    - Weise den Subagenten an, alle Änderungen im aktuellen Worktree gegen `origin/main` zu berücksichtigen: Branch-Commits, gestagte Änderungen, ungestagte Änderungen und untracked Dateien.
