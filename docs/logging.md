@@ -30,6 +30,7 @@ When logging Codex execution lifecycle events, include:
 
 - `AgentRunner`: log start/completion/failure with issue context, plus `session_id` when known.
 - `Orchestrator`: log dispatch, retry, terminal/non-active transitions, and worker exits with issue context. Include `session_id` whenever running-entry data has it.
+- `Orchestrator`: for Review-(AI)-Handoffs zusätzlich festhalten, ob `spawn_agent`-/`wait_agent`-Signale erfasst wurden, inklusive `recovered_kind`, der getrackten Review-Sub-Agent-Call-/Agent-ID-Anzahlen und der Rohquelle (`source_method`, `source_item_type`, `source_tool`) des erkannten Handoff-Events.
 - `Codex.AppServer`: log session start/completion/error with issue context and `session_id`.
 
 ## Checklist For New Logs

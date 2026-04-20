@@ -100,6 +100,18 @@ prompt_snippets:
     ```text
     {{ context }}
     ```
+  recovered_review_subagent_wait: |
+    Wiederhergestellter Review-Subagent-Status:
+
+    - Der unmittelbar vorherige Codex-Turn endete, während ein Review-Subagent noch lief und noch kein finales Ergebnis vorlag.
+    - Starte nicht sofort einen neuen Review-Subagenten. Prüfe stattdessen zuerst den bereits laufenden Review-Subagenten erneut mit `wait_agent` und langem Timeout.
+    - Wenn `wait_agent` nur ein Timeout liefert oder weiterhin kein finales Ergebnis enthält, bleibt der Review-Schritt offen und derselbe Subagent läuft weiter.
+
+    Bekannte laufende Review-Subagent-IDs:
+
+    ```text
+    {{ agent_ids_text }}
+    ```
   review_subagent_authorization: |
     Review-(AI)-Delegationsfreigabe:
     - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein Repository-Skill einen Review-Subagenten verlangt.
