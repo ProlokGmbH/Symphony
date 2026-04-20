@@ -174,6 +174,13 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))"
     assert prompt =~ "Application.ensure_all_started(:req)"
     assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
+    assert prompt =~ "verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap"
+    assert prompt =~ "query BootstrapIssue($key: String!)"
+    assert prompt =~ "query BootstrapIssueByTeamAndNumber($teamKey: String!, $number: Float!)"
+    assert prompt =~ "Wenn in der aktuellen Session bereits bestätigt ist, dass `issue(id: $key)` Issue-Keys akzeptiert"
+    assert prompt =~ "Nutze die dabei zurückgegebene interne `id` anschließend für eng begrenzte Folgeabfragen über `issue(id: $id)`."
+    assert prompt =~ "Verwende in dieser ersten Anfrage keine spekulativen Felder oder Filter wie `links` oder `issues(filter: { identifier: ... })`"
+    assert prompt =~ "führe zuerst gezielte Introspection über den in der Session verfügbaren Linear-Zugriff aus."
     assert prompt =~ "Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt"
     assert prompt =~ "einen dedizierten Blocker-Kommentar außerhalb des Workpads"
     assert prompt =~ "erstelle den kanonischen `## Codex Workpad`-Kommentar"
@@ -188,6 +195,21 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`"
     assert prompt =~ "den globalen Skill `symphony-review` explizit öffnen"
     assert prompt =~ "den globalen Skill `symphony-workpad`"
+  end
+
+  test "repo-local symphony-linear skill documents schema-valid issue lookup patterns and fallback" do
+    skill_path = Path.expand("../../.codex/skills/symphony-linear/SKILL.md", __DIR__)
+    skill = File.read!(skill_path)
+
+    assert skill =~ "### Ein Issue per Key, Team/Nummer oder id abfragen"
+    assert skill =~ "query BootstrapIssue($key: String!)"
+    assert skill =~ "query BootstrapIssueByTeamAndNumber($teamKey: String!, $number: Float!)"
+    assert skill =~ "query IssueById($id: String!)"
+    assert skill =~ "orientieren willst, splitte den Identifier in"
+    assert skill =~ "Nutze keinen Fallback `issues(filter: { identifier: ... })`"
+    assert skill =~ "wie `links` in die erste Anfrage aufzunehmen."
+    refute skill =~ "query IssueByIdentifier($identifier: String!)"
+    refute skill =~ "links {\n"
   end
 
   test "workflow derives ordered states from the current WORKFLOW.md status overview" do
@@ -1211,12 +1233,13 @@ defmodule SymphonyElixir.CoreTest do
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(350)
     state = :sys.get_state(pid)
+    observed_ms = System.monotonic_time(:millisecond)
 
     refute Map.has_key?(state.running, issue_id)
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+    assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -1293,6 +1316,7 @@ defmodule SymphonyElixir.CoreTest do
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(350)
     state = :sys.get_state(pid)
+    observed_ms = System.monotonic_time(:millisecond)
 
     assert %{
              attempt: 1,
@@ -1301,7 +1325,7 @@ defmodule SymphonyElixir.CoreTest do
              recovered_turn_context: "Findings:\n- High: Example finding."
            } = state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+    assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
   end
 
   test "normal worker completion keeps late subagent findings from tagged user messages until continuation retry is scheduled" do
@@ -1365,6 +1389,7 @@ defmodule SymphonyElixir.CoreTest do
 
     Process.sleep(350)
     state = :sys.get_state(pid)
+    observed_ms = System.monotonic_time(:millisecond)
 
     assert %{
              attempt: 1,
@@ -1373,7 +1398,7 @@ defmodule SymphonyElixir.CoreTest do
              recovered_turn_context: "Findings:\n- High: Late example finding."
            } = state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+    assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
   end
 
   test "normal worker completion ignores tagged subagent findings from unknown agents" do
@@ -1772,6 +1797,7 @@ defmodule SymphonyElixir.CoreTest do
 
     Process.sleep(350)
     state = :sys.get_state(pid)
+    observed_ms = System.monotonic_time(:millisecond)
 
     assert %{
              attempt: 1,
@@ -1780,7 +1806,7 @@ defmodule SymphonyElixir.CoreTest do
              recovered_turn_context: "Findings:\n- High: Late wait_agent finding."
            } = state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, trigger_ms, 1_150, 2_500)
+    assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
   end
 
   test "normal worker completion ignores timed out wait_agent findings from item completion output" do
@@ -2797,6 +2823,21 @@ defmodule SymphonyElixir.CoreTest do
 
     assert scheduled_delay_ms >= min_delay_ms
     assert scheduled_delay_ms <= max_delay_ms
+  end
+
+  defp assert_due_after_observation(
+         due_at_ms,
+         trigger_ms,
+         observed_ms,
+         min_total_delay_ms,
+         max_remaining_delay_ms
+       ) do
+    total_delay_ms = due_at_ms - trigger_ms
+    remaining_delay_ms = due_at_ms - observed_ms
+
+    assert total_delay_ms >= min_total_delay_ms
+    assert remaining_delay_ms >= 0
+    assert remaining_delay_ms <= max_remaining_delay_ms
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)

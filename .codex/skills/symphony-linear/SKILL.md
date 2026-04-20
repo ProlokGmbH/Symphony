@@ -75,19 +75,29 @@ query CommentCreateInputShape {
 
 ## Häufige Abläufe
 
-### Ein Issue per Key, Identifier oder id abfragen
+### Ein Issue per Key, Team/Nummer oder id abfragen
 
-Nutze sie in dieser Reihenfolge:
+Nutze einen abgesicherten Bootstrap:
 
-- Starte mit `issue(id: $key)`, wenn du einen Ticket-Key wie `MT-686` hast.
-- Weiche auf `issues(filter: ...)` aus, wenn du Identifier-Suche brauchst.
-- Sobald du die interne Issue-id hast, bevorzuge `issue(id: $id)` für engere
-  Abfragen.
+- Wenn in deiner aktuellen Session bereits bestaetigt ist, dass
+  `issue(id: $key)` Issue-Keys wie `MT-686` akzeptiert, beginne mit einer
+  kleinen `issue(id: $key)`-Abfrage, die nur die sofort benoetigten Felder
+  liest.
+- Wenn dieser Direktpfad noch nicht bestaetigt ist oder du dich am bereits
+  implementierten Repo-Lookup orientieren willst, splitte den Identifier in
+  Team-Key und Nummer und frage ueber `issues(filter: {team, number})` ab.
+- Sobald du die interne Issue-`id` kennst, bevorzuge `issue(id: $id)` fuer
+  engere Folgeabfragen.
+- Nutze keinen Fallback `issues(filter: { identifier: ... })`;
+  `IssueFilter.identifier` ist in der aktuellen Linear-API nicht verfuegbar.
+- Wenn du nicht sicher bist, ob ein Feld, ein Input-Typ oder eine Mutation
+  existiert, fuehre zuerst gezielte Introspection aus, statt spekulative Felder
+  wie `links` in die erste Anfrage aufzunehmen.
 
-Abfrage per Issue-Key:
+Bootstrap-Abfrage per Issue-Key:
 
 ```graphql
-query IssueByKey($key: String!) {
+query BootstrapIssue($key: String!) {
   issue(id: $key) {
     id
     identifier
@@ -97,30 +107,15 @@ query IssueByKey($key: String!) {
       name
       type
     }
-    project {
-      id
-      name
-    }
-    branchName
-    url
-    description
-    updatedAt
-    links {
-      nodes {
-        id
-        url
-        title
-      }
-    }
   }
 }
 ```
 
-Abfrage per Identifier-Filter:
+Repo-ausgerichteter Bootstrap per Team-Key und Nummer:
 
 ```graphql
-query IssueByIdentifier($identifier: String!) {
-  issues(filter: { identifier: { eq: $identifier } }, first: 1) {
+query BootstrapIssueByTeamAndNumber($teamKey: String!, $number: Float!) {
+  issues(filter: { team: { key: { eq: $teamKey } }, number: { eq: $number } }, first: 1) {
     nodes {
       id
       identifier
@@ -130,23 +125,15 @@ query IssueByIdentifier($identifier: String!) {
         name
         type
       }
-      project {
-        id
-        name
-      }
-      branchName
-      url
-      description
-      updatedAt
     }
   }
 }
 ```
 
-Einen Key in eine interne id auflösen:
+Dasselbe Feld akzeptiert auch die interne Issue-`id`, sobald du sie kennst:
 
 ```graphql
-query IssueByIdOrKey($id: String!) {
+query IssueById($id: String!) {
   issue(id: $id) {
     id
     identifier
@@ -155,7 +142,7 @@ query IssueByIdOrKey($id: String!) {
 }
 ```
 
-Das Issue lesen, sobald die interne id bekannt ist:
+Breitere Folgeabfrage, sobald die interne `id` bekannt ist:
 
 ```graphql
 query IssueDetails($id: String!) {
@@ -165,6 +152,7 @@ query IssueDetails($id: String!) {
     title
     url
     description
+    updatedAt
     state {
       id
       name

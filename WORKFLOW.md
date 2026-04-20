@@ -171,6 +171,46 @@ Keine Beschreibung vorhanden.
 
 Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Codex Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
 
+Wenn du einen Ticket-Key wie `PRO-190` hast und zuerst nur Status, Titel und die interne Linear-`id` brauchst, verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap und führe erst danach breitere Folgeabfragen aus:
+
+- Wenn in der aktuellen Session bereits bestätigt ist, dass `issue(id: $key)` Issue-Keys akzeptiert, nutze diese Minimalabfrage:
+
+```graphql
+query BootstrapIssue($key: String!) {
+  issue(id: $key) {
+    id
+    identifier
+    title
+    state {
+      id
+      name
+      type
+    }
+  }
+}
+```
+
+- Wenn dieser Direktpfad in der aktuellen Session noch nicht bestätigt ist oder du dich am bereits implementierten Repo-Lookup orientieren willst, splitte den Key in Team-Key und Nummer und nutze stattdessen diese Abfrage:
+
+```graphql
+query BootstrapIssueByTeamAndNumber($teamKey: String!, $number: Float!) {
+  issues(filter: { team: { key: { eq: $teamKey } }, number: { eq: $number } }, first: 1) {
+    nodes {
+      id
+      identifier
+      title
+      state {
+        id
+        name
+        type
+      }
+    }
+  }
+}
+```
+
+Nutze die dabei zurückgegebene interne `id` anschließend für eng begrenzte Folgeabfragen über `issue(id: $id)`. Verwende in dieser ersten Anfrage keine spekulativen Felder oder Filter wie `links` oder `issues(filter: { identifier: ... })`; wenn du zusätzliche Felder, Input-Typen oder Mutationen brauchst und ihre aktuelle Form nicht sicher kennst, führe zuerst gezielte Introspection über den in der Session verfügbaren Linear-Zugriff aus.
+
 ### Git-Branch-Kontrakt
 
 - Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`.
