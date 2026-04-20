@@ -20,12 +20,15 @@ Verwende diesen Skill `sym-review` als massgebliche Checkliste fuer
    - Verwende dafuer das staerkste in der Session verfuegbare Frontier-Modell oder andernfalls das geerbte Standardmodell; vermeide fest verdrahtete Modellnamen.
    - Übergib dem Subagenten nur den engen read-only Review-Auftrag und nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
    - Weise den Subagenten an, alle Änderungen im aktuellen Worktree gegen `origin/main` zu berücksichtigen: Branch-Commits, gestagte Änderungen, ungestagte Änderungen und untracked Dateien.
+   - Weise den Subagenten explizit an, `Findings:` nur für tatsächliche, klar belegbare und reviewer-relevante Probleme oder Spezifikationsabweichungen zu verwenden, die sich direkt aus dem gezeigten Code oder reproduzierbaren Signalen stützen lassen.
+   - Weise den Subagenten explizit an, keine Vermutungen, hypothetischen Risiken ohne Nachweis, Stil-/Nitpick-Hinweise oder obskuren Low-Priority-Randfälle als Findings zu melden.
+   - Weise den Subagenten explizit an, bei Unsicherheit oder nur schwachen Hinweisen kein `Findings:` zu erzwingen, sondern `Keine Findings.` zu melden und offene Restrisiken oder Testlücken höchstens knapp nachgelagert zu nennen.
    - Übergib zusätzliche Review-Hinweise aus dem aktuellen Prompt unter der Überschrift `Zusätzliche Review-Hinweise`, wenn solche Hinweise vorhanden sind.
    - Weise den Subagenten explizit an, strikt read-only zu bleiben: keine Dateien ändern, keine Commits erzeugen und keine Fixes implementieren.
    - Weise den Subagenten explizit an, keine Workpad-, Linear- oder Statusänderungen vorzunehmen und keine weiteren Subagenten zu starten.
    - Weise den Subagenten explizit an, nur Findings zu liefern. Die Bewertung der Findings, die Umsetzung der Fixes und jedes erneute Review bleiben ausschließlich beim aufrufenden Agenten.
    - Verlange eine explizite Abschlussausgabe in genau einer der beiden Formen:
-     - `Findings:` mit priorisierten Befunden inklusive Datei-/Zeilenreferenzen
+     - `Findings:` mit priorisierten, belastbaren Befunden inklusive Datei-/Zeilenreferenzen und knapper Begründung
      - `Keine Findings.` optional mit kurzen Restrisiken oder Testlücken
    - Wenn der Subagent `Findings:` meldet, gilt Schritt 2 als nicht bestanden. Markiere den Schritt nicht als erledigt, sondern behebe die Findings selbst im aktuellen Workspace und starte anschließend die Checkliste erneut bei Schritt 1.
    - Schritt 2 ist erst dann erfolgreich abgeschlossen, wenn ein erneuter read-only Review-Durchlauf mit `Keine Findings.` endet.
