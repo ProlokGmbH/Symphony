@@ -376,6 +376,27 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec clear_review_autocommit_marker_for_existing_issue_workspace(
+          map() | String.t() | nil,
+          worker_host()
+        ) :: :ok | {:error, term()}
+  def clear_review_autocommit_marker_for_existing_issue_workspace(
+        issue_or_identifier,
+        worker_host \\ nil
+      ) do
+    issue_context = issue_context(issue_or_identifier)
+    safe_id = safe_identifier(issue_context.issue_identifier)
+
+    with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
+         :ok <- validate_workspace_path(workspace, worker_host) do
+      if workspace_exists?(workspace, worker_host) do
+        clear_review_autocommit_marker(workspace, worker_host)
+      else
+        :ok
+      end
+    end
+  end
+
   defp local_git_status_snapshot(workspace) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
@@ -588,6 +609,7 @@ defmodule SymphonyElixir.Workspace do
   defp marker_file_exists?(workspace, nil) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} -> {:ok, :not_git_repo}
         {:ok, marker_path} -> {:ok, File.exists?(marker_path)}
         other -> other
       end
@@ -598,6 +620,9 @@ defmodule SymphonyElixir.Workspace do
        when is_binary(workspace) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
       case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
         {:ok, marker_path} ->
           workspace
           |> remote_review_autocommit_marker_exists_script(marker_path)
@@ -613,11 +638,11 @@ defmodule SymphonyElixir.Workspace do
   defp write_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
         {:ok, marker_path} ->
-          case File.write(marker_path, "true\n") do
-            :ok -> :ok
-            {:error, reason} -> {:error, {:workspace_review_autocommit_marker_write_failed, :local, reason}}
-          end
+          write_review_autocommit_marker_at_path(marker_path, :local)
 
         other ->
           other
@@ -629,6 +654,9 @@ defmodule SymphonyElixir.Workspace do
        when is_binary(workspace) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
       case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
         {:ok, marker_path} ->
           workspace
           |> remote_write_review_autocommit_marker_script(marker_path)
@@ -644,12 +672,11 @@ defmodule SymphonyElixir.Workspace do
   defp delete_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
         {:ok, marker_path} ->
-          case File.rm(marker_path) do
-            :ok -> :ok
-            {:error, :enoent} -> {:ok, :missing}
-            {:error, reason} -> {:error, {:workspace_review_autocommit_marker_delete_failed, :local, reason}}
-          end
+          delete_review_autocommit_marker_at_path(marker_path, :local)
 
         other ->
           other
@@ -661,6 +688,9 @@ defmodule SymphonyElixir.Workspace do
        when is_binary(workspace) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
       case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
         {:ok, marker_path} ->
           workspace
           |> remote_delete_review_autocommit_marker_script(marker_path)
@@ -768,6 +798,49 @@ defmodule SymphonyElixir.Workspace do
 
   defp handle_marker_delete_result({output, status}, location) do
     {:error, {:workspace_review_autocommit_marker_delete_failed, location, status, output}}
+  end
+
+  defp write_review_autocommit_marker_at_path(marker_path, location)
+       when is_binary(marker_path) do
+    case File.write(marker_path, "true\n") do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_review_autocommit_marker_write_failed, location, reason}}
+    end
+  end
+
+  defp delete_review_autocommit_marker_at_path(marker_path, location)
+       when is_binary(marker_path) do
+    case File.rm(marker_path) do
+      :ok -> :ok
+      {:error, :enoent} -> {:ok, :missing}
+      {:error, reason} -> {:error, {:workspace_review_autocommit_marker_delete_failed, location, reason}}
+    end
+  end
+
+  defp workspace_exists?(workspace, nil) when is_binary(workspace) do
+    File.dir?(workspace)
+  end
+
+  defp workspace_exists?(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    script =
+      [
+        remote_hook_env_exports(),
+        "if [ -d #{shell_escape(workspace)} ]; then printf 'present\\n'; else printf 'missing\\n'; fi"
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {output, 0}} ->
+        output
+        |> IO.iodata_to_binary()
+        |> String.trim()
+        |> Kernel.==("present")
+
+      _ ->
+        false
+    end
   end
 
   defp handle_git_path_failure(location, 128, output) do

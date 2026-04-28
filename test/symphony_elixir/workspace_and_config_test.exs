@@ -293,12 +293,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     try do
       source_repo = Path.join(test_root, "source")
-      workspace_a = Path.join([test_root, "worktrees", "MT-REVIEW-A"])
-      workspace_b = Path.join([test_root, "worktrees", "MT-REVIEW-B"])
+      workspace_root = Path.join(test_root, "worktrees")
+      workspace_a = Path.join([workspace_root, "MT-REVIEW-A"])
+      workspace_b = Path.join([workspace_root, "MT-REVIEW-B"])
 
       File.mkdir_p!(Path.dirname(workspace_a))
       File.mkdir_p!(source_repo)
       File.write!(Path.join(source_repo, "README.md"), "base\n")
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "init", "-b", "main"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
