@@ -157,6 +157,11 @@ Beschreibung:
 {% else %}
 Keine Beschreibung vorhanden.
 {% endif %}
+{% if runtime.docs_review_hint_enabled %}
+
+Zusätzliche Review-Hinweise:
+{{ runtime.review_additional_hints }}
+{% endif %}
 
 ## Zweck und Grundregeln
 

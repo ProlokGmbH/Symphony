@@ -5119,6 +5119,61 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ ~r/(retry attempt #2|Wiederholungsversuch Nr\. 2)/
   end
 
+  test "in-repo WORKFLOW.md adds docs review hints only for Review (AI) when docs exist" do
+    workflow_path = Workflow.workflow_file_path()
+    repo_root = File.cwd!()
+    no_docs_root = Path.join(System.tmp_dir!(), "prompt-builder-no-docs-#{System.unique_integer([:positive])}")
+    workflow_file = Path.join(repo_root, "WORKFLOW.md")
+
+    Workflow.set_workflow_file_path(workflow_file)
+
+    on_exit(fn ->
+      Workflow.set_workflow_file_path(workflow_path)
+      File.rm_rf(no_docs_root)
+    end)
+
+    File.mkdir_p!(no_docs_root)
+
+    review_issue = %Issue{
+      identifier: "MT-616R",
+      title: "Review with docs hint",
+      description: "Prompt should include docs-specific review guidance",
+      state: "Review (AI)",
+      url: "https://example.org/issues/MT-616R/review-with-docs-hint",
+      labels: []
+    }
+
+    review_prompt =
+      PromptBuilder.build_prompt(review_issue,
+        active_repo_root: repo_root,
+        source_repo_root: repo_root,
+        workflow_file: workflow_file
+      )
+
+    assert review_prompt =~ "Zusätzliche Review-Hinweise:"
+    assert review_prompt =~ "Das aktive Repository enthält ein `docs/`-Verzeichnis."
+    assert review_prompt =~ "Dokumentationskonsistenz und mögliche Dokumentationsdrift"
+    assert review_prompt =~ "Code, Workflow-/Skill-Texten und Inhalten unter `docs/`"
+
+    in_arbeit_prompt =
+      PromptBuilder.build_prompt(%{review_issue | state: "In Arbeit (AI)"},
+        active_repo_root: repo_root,
+        source_repo_root: repo_root,
+        workflow_file: workflow_file
+      )
+
+    refute in_arbeit_prompt =~ "Zusätzliche Review-Hinweise:"
+
+    review_prompt_without_docs =
+      PromptBuilder.build_prompt(review_issue,
+        active_repo_root: no_docs_root,
+        source_repo_root: repo_root,
+        workflow_file: workflow_file
+      )
+
+    refute review_prompt_without_docs =~ "Zusätzliche Review-Hinweise:"
+  end
+
   test "in-repo WORKFLOW_INTERACTIVE.md renders planning and workpad skill guidance" do
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
     original_workflow_path = Workflow.workflow_file_path()
