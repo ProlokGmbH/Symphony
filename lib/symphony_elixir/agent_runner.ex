@@ -10,6 +10,7 @@ defmodule SymphonyElixir.AgentRunner do
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
   @review_codex_state_name "review (ai)"
+  @review_autocommit_message "Review (AI) Autocommit"
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
@@ -67,7 +68,8 @@ defmodule SymphonyElixir.AgentRunner do
 
             try do
               with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
-                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
+                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host),
+                   :ok <- maybe_prepare_workspace_for_issue_run(issue, workspace, worker_host, opts) do
                 run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
               end
             after
@@ -591,6 +593,44 @@ defmodule SymphonyElixir.AgentRunner do
         Logger.warning("Failed to sync Linear branch name for #{issue_context(issue)}: #{inspect(reason)}")
 
         :ok
+    end
+  end
+
+  defp maybe_prepare_workspace_for_issue_run(%Issue{} = issue, workspace, worker_host, opts)
+       when is_binary(workspace) and is_list(opts) do
+    if review_autocommit_required?(issue, opts) do
+      maybe_create_review_autocommit(issue, workspace, worker_host)
+    else
+      :ok
+    end
+  end
+
+  defp maybe_prepare_workspace_for_issue_run(_issue, _workspace, _worker_host, _opts), do: :ok
+
+  defp review_autocommit_required?(%Issue{state: state}, opts)
+       when is_binary(state) and is_list(opts) do
+    review_codex_state?(state) and is_nil(Keyword.get(opts, :attempt))
+  end
+
+  defp review_autocommit_required?(_issue, _opts), do: false
+
+  defp maybe_create_review_autocommit(%Issue{} = issue, workspace, worker_host) do
+    case Workspace.commit_all_changes(workspace, @review_autocommit_message, worker_host) do
+      {:ok, :clean} ->
+        Logger.info("Skipped review autocommit for clean workspace #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:ok, :not_git_repo} ->
+        Logger.info("Skipped review autocommit because the workspace is not a git repository #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:ok, :committed} ->
+        Logger.info("Created review autocommit before first review turn #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed review autocommit before first review turn #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
+        {:error, {:review_autocommit_failed, reason}}
     end
   end
 

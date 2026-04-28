@@ -333,6 +333,19 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec commit_all_changes(Path.t(), String.t(), worker_host()) ::
+          {:ok, :clean | :committed | :not_git_repo} | {:error, term()}
+  def commit_all_changes(workspace, message, worker_host \\ nil)
+      when is_binary(workspace) and is_binary(message) do
+    trimmed_message = String.trim(message)
+
+    if trimmed_message == "" do
+      {:error, {:workspace_git_commit_message_missing, worker_host || :local}}
+    else
+      commit_all_changes_with_message(workspace, trimmed_message, worker_host)
+    end
+  end
+
   defp local_git_status_snapshot(workspace) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
@@ -427,6 +440,91 @@ defmodule SymphonyElixir.Workspace do
       branch_name -> {:ok, branch_name}
     end
   end
+
+  defp commit_all_changes_with_message(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) do
+    case git_status_snapshot(workspace, worker_host) do
+      {:ok, ""} ->
+        {:ok, :clean}
+
+      {:ok, _status} ->
+        commit_workspace_changes(workspace, message, worker_host)
+
+      {:error, reason} ->
+        normalize_commit_all_changes_error(reason)
+    end
+  end
+
+  defp commit_workspace_changes(workspace, message, nil)
+       when is_binary(workspace) and is_binary(message) do
+    local_commit_all_changes(workspace, message)
+  end
+
+  defp commit_workspace_changes(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) and is_binary(worker_host) do
+    remote_commit_all_changes(workspace, message, worker_host)
+  end
+
+  defp normalize_commit_all_changes_error(reason) do
+    if not_git_repository_error?(reason) do
+      {:ok, :not_git_repo}
+    else
+      {:error, reason}
+    end
+  end
+
+  defp local_commit_all_changes(workspace, message)
+       when is_binary(workspace) and is_binary(message) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case System.cmd(
+             "sh",
+             ["-lc", ~s(git add -A && git commit -m "$SYMPHONY_GIT_COMMIT_MESSAGE")],
+             cd: workspace,
+             env: [{"SYMPHONY_GIT_COMMIT_MESSAGE", message} | Enum.into(RuntimePaths.builtin_env(), [])],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} ->
+          {:ok, :committed}
+
+        {output, status} ->
+          {:error, {:workspace_git_commit_failed, :local, status, output}}
+      end
+    end
+  end
+
+  defp remote_commit_all_changes(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      script =
+        [
+          remote_hook_env_exports(),
+          "cd #{shell_escape(workspace)}",
+          "git add -A",
+          "git commit -m #{shell_escape(message)}"
+        ]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+
+      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+        {:ok, {_output, 0}} ->
+          {:ok, :committed}
+
+        {:ok, {output, status}} ->
+          {:error, {:workspace_git_commit_failed, worker_host, status, output}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp not_git_repository_error?({:workspace_git_status_failed, _location, 128, output}) do
+    output
+    |> IO.iodata_to_binary()
+    |> String.contains?("not a git repository")
+  end
+
+  defp not_git_repository_error?(_reason), do: false
 
   defp ensure_expected_branch(workspace, _expected_branch, issue_context, worker_host)
        when is_binary(workspace) do

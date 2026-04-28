@@ -5099,6 +5099,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "globalen Skill `symphony-workpad`"
     assert prompt =~ "globalen Skill `symphony-land`"
     assert prompt =~ "Freigabe Review"
+    assert prompt =~ "`Review (AI) Autocommit`"
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`Test (AI) Autocommit`"
     assert prompt =~ "`Merge (AI) Autocommit`"
@@ -7116,6 +7117,261 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner creates a review autocommit before the first Review (AI) dispatch when the workspace is dirty" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-dirty-preflight-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-PREFLIGHT")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty before review\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'HEAD:%s\\n' "$(git log -1 --pretty=%s)" >> "$trace_file"
+
+      if git status --porcelain=v1 --untracked-files=all | grep -q .; then
+        printf 'DIRTY:yes\\n' >> "$trace_file"
+      else
+        printf 'DIRTY:no\\n' >> "$trace_file"
+      fi
+
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-preflight"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-preflight"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-dirty-preflight" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-dirty-preflight",
+             identifier: "MT-REVIEW-PREFLIGHT",
+             title: "Review preflight dirty workspace",
+             description: "Create a one-time review snapshot commit before the first review run",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-dirty-preflight",
+        identifier: "MT-REVIEW-PREFLIGHT",
+        title: "Review preflight dirty workspace",
+        description: "Create a one-time review snapshot commit before the first review run",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-PREFLIGHT",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-dirty-preflight", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
+      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips a second review autocommit on retry dispatches within Review (AI)" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-dirty-retry-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-RETRY")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# still dirty after prior review work\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'HEAD:%s\\n' "$(git log -1 --pretty=%s)" >> "$trace_file"
+
+      if git status --porcelain=v1 --untracked-files=all | grep -q .; then
+        printf 'DIRTY:yes\\n' >> "$trace_file"
+      else
+        printf 'DIRTY:no\\n' >> "$trace_file"
+      fi
+
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-retry"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-retry"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-dirty-retry" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-dirty-retry",
+             identifier: "MT-REVIEW-RETRY",
+             title: "Review retry keeps dirty workspace open",
+             description: "Do not create a second review snapshot commit on retries",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-dirty-retry",
+        identifier: "MT-REVIEW-RETRY",
+        title: "Review retry keeps dirty workspace open",
+        description: "Do not create a second review snapshot commit on retries",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-RETRY",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, attempt: 1, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-dirty-retry", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert File.read!(trace_file) =~ "HEAD:initial\nDIRTY:yes\n"
+      assert {"initial\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {status_output, 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
+      assert status_output =~ "README.md"
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
