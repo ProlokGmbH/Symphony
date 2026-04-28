@@ -332,6 +332,30 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "review autocommit marker cleanup tolerates localized non-git workspace errors" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-review-autocommit-localized-non-git-#{System.unique_integer([:positive])}"
+      )
+
+    previous_lc_all = System.get_env("LC_ALL")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-NON-GIT")
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+      File.mkdir_p!(workspace)
+      System.put_env("LC_ALL", "de_DE.UTF-8")
+
+      assert :ok = Workspace.clear_review_autocommit_marker(workspace)
+    after
+      restore_env("LC_ALL", previous_lc_all)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace replaces stale non-directory paths" do
     workspace_root =
       Path.join(
