@@ -120,7 +120,10 @@ defmodule SymphonyElixir.AgentRunner do
     case Workspace.create_for_issue(issue, worker_host) do
       {:ok, workspace} ->
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
-        maybe_sync_issue_branch_name(issue, workspace, worker_host)
+
+        with :ok <- maybe_clear_review_autocommit_marker(issue, workspace, worker_host) do
+          maybe_sync_issue_branch_name(issue, workspace, worker_host)
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -434,39 +437,51 @@ defmodule SymphonyElixir.AgentRunner do
          worker_host
        )
        when is_binary(issue_id) do
-    if state_changed_during_turn?(started_issue, issue) do
-      {:ok, issue, :normal}
-    else
-      case codex_issue_finalize_mode(started_issue.state) do
-        {:transition, error_event, log_label} ->
-          transition_issue_state(
-            issue,
-            issue_state_fetcher,
-            resolve_next_handoff_state(issue),
-            error_event,
-            log_label,
-            :stop
-          )
+    result =
+      if state_changed_during_turn?(started_issue, issue) do
+        {:ok, issue, :normal}
+      else
+        case codex_issue_finalize_mode(started_issue.state) do
+          {:transition, error_event, log_label} ->
+            transition_issue_state(
+              issue,
+              issue_state_fetcher,
+              resolve_next_handoff_state(issue),
+              error_event,
+              log_label,
+              :stop
+            )
 
-        :review ->
-          maybe_finalize_review_codex_issue(
-            issue,
-            issue_state_fetcher,
-            workspace,
-            worker_host
-          )
+          :review ->
+            maybe_finalize_review_codex_issue(
+              issue,
+              issue_state_fetcher,
+              workspace,
+              worker_host
+            )
 
-        :test ->
-          maybe_finalize_test_codex_issue(
-            issue,
-            issue_state_fetcher,
-            workspace,
-            worker_host
-          )
+          :test ->
+            maybe_finalize_test_codex_issue(
+              issue,
+              issue_state_fetcher,
+              workspace,
+              worker_host
+            )
 
-        :normal ->
-          {:ok, issue, :normal}
+          :normal ->
+            {:ok, issue, :normal}
+        end
       end
+
+    with {:ok, %Issue{} = current_issue, continuation_mode} <- result,
+         :ok <-
+           maybe_clear_review_autocommit_marker_after_review_departure(
+             started_issue,
+             current_issue,
+             workspace,
+             worker_host
+           ) do
+      {:ok, current_issue, continuation_mode}
     end
   end
 
@@ -642,6 +657,19 @@ defmodule SymphonyElixir.AgentRunner do
         )
 
         {:error, {:review_autocommit_marker_clear_failed, reason}}
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker_after_review_departure(
+         %Issue{} = started_issue,
+         %Issue{} = current_issue,
+         workspace,
+         worker_host
+       ) do
+    if review_codex_state?(started_issue.state) and not review_codex_state?(current_issue.state) do
+      maybe_clear_review_autocommit_marker(current_issue, workspace, worker_host)
+    else
+      :ok
     end
   end
 

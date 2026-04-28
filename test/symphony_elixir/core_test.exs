@@ -7534,6 +7534,191 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner clears the review autocommit marker after leaving Review (AI)" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-marker-clear-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-MARKER")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty before first review\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'HEAD:%s\\n' "$(git log -1 --pretty=%s)" >> "$trace_file"
+
+      if git status --porcelain=v1 --untracked-files=all | grep -q .; then
+        printf 'DIRTY:yes\\n' >> "$trace_file"
+      else
+        printf 'DIRTY:no\\n' >> "$trace_file"
+      fi
+
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-marker"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-marker"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-marker-clear" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [x] Review subagent completed without findings
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-marker-clear",
+             identifier: "MT-REVIEW-MARKER",
+             title: "Review marker cleared on handoff",
+             description: "Clear the review marker after leaving Review (AI)",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-marker-clear",
+        identifier: "MT-REVIEW-MARKER",
+        title: "Review marker cleared on handoff",
+        description: "Clear the review marker after leaving Review (AI)",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-MARKER",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+
+      File.write!(Path.join(workspace, "README.md"), "# dirty before second review\n")
+      Agent.update(state_agent, fn _state -> "Review (AI)" end)
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+
+      assert File.read!(trace_file) =~
+               "HEAD:Review (AI) Autocommit\nDIRTY:no\nHEAD:Review (AI) Autocommit\nDIRTY:no\n"
+
+      assert {log_output, 0} =
+               System.cmd("git", ["-C", workspace, "log", "--pretty=%s", "--max-count=3"])
+
+      assert log_output =~ "Review (AI) Autocommit\nReview (AI) Autocommit\ninitial\n"
+      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner clears the review autocommit marker while bootstrapping manual In Arbeit" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-marker-clear-manual-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-MANUAL")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      assert {"", 0} = System.cmd("git", ["-C", workspace, "config", "--local", "symphony.review-ai-autocommit.done", "true"])
+      assert {"true\n", 0} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        max_turns: 3
+      )
+
+      issue = %Issue{
+        id: "issue-review-marker-clear-manual",
+        identifier: "MT-REVIEW-MANUAL",
+        title: "Manual In Arbeit clears review marker",
+        description: "Clear the review marker when bootstrapping manual in-progress work",
+        state: "In Arbeit",
+        url: "https://example.org/issues/MT-REVIEW-MANUAL",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue)
+      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner skips Freigabe Review after a clean review turn when the label is set" do
     test_root =
       Path.join(
