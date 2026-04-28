@@ -34,6 +34,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 
 - Öffne zu Beginn den repo-lokalen Skill `sym-review` unter
   `<aktives-repo-root>/.codex/skills/sym-review/SKILL.md` und lies die Datei vollständig.
+- Wenn der aktuelle Prompt einen Abschnitt `Zusätzliche Review-Hinweise` enthält, übernimm diesen Hinweis in deinen Arbeitskontext und reiche ihn unter derselben Überschrift an den repo-lokalen `sym-review`-Skill weiter.
 - Verwende den Skill als maßgebliche Quelle für die konkrete Review-Checkliste und ihre Reihenfolge.
 - Erfinde keine fehlenden Review-Schritte aus früheren Repository-Konventionen.
 - Suche den repo-lokalen Skill immer im aktuell bearbeiteten Repository/Worktree und nicht relativ zu diesem `symphony-review`-Verzeichnis.

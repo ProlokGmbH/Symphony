@@ -113,6 +113,7 @@ defmodule SymphonyElixir.PromptBuilder do
     source_repo_root = source_repo_root(opts)
     active_repo_skill_root = Path.join(active_repo_root, ".codex/skills")
     global_skill_roots = global_skill_roots()
+    review_additional_hints = review_additional_hints(issue, active_repo_root)
 
     %{
       "local_time" => local_timestamp(),
@@ -126,6 +127,8 @@ defmodule SymphonyElixir.PromptBuilder do
       "source_repo_root" => source_repo_root,
       "workflow_file" => workflow_file(opts),
       "workflow_dir" => Path.dirname(workflow_file(opts)),
+      "docs_review_hint_enabled" => is_binary(review_additional_hints),
+      "review_additional_hints" => review_additional_hints || "",
       "global_skill_roots" => global_skill_roots,
       "global_skill_roots_text" => Enum.join(global_skill_roots, ", "),
       "codex_home" => codex_home_dir() || "",
@@ -189,6 +192,21 @@ defmodule SymphonyElixir.PromptBuilder do
       prompt
     end
   end
+
+  defp review_additional_hints(%{state: state}, active_repo_root)
+       when is_binary(state) and is_binary(active_repo_root) do
+    if String.trim(state) == "Review (AI)" and File.dir?(Path.join(active_repo_root, "docs")) do
+      """
+      - Das aktive Repository enthält ein `docs/`-Verzeichnis.
+      - Prüfe Dokumentationskonsistenz und mögliche Dokumentationsdrift zwischen Code, Workflow-/Skill-Texten und Inhalten unter `docs/`.
+      - Reiche diesen Hinweis in der bestehenden Delegationskette bis zum verpflichtenden read-only Review-Subagenten weiter.
+      - Melde nötige Doku-Anpassungen als reguläre Findings.
+      """
+      |> String.trim()
+    end
+  end
+
+  defp review_additional_hints(_issue, _active_repo_root), do: nil
 
   defp append_recovered_turn_context(prompt, %{state: state}, context)
        when is_binary(prompt) and is_binary(state) do
