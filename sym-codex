@@ -286,7 +286,7 @@ sym_codex_parse_manual_prompt_context() {
 sym_codex_set_launch_profile() {
   local workflow_step="$1"
 
-  SYM_CODEX_MODEL="gpt-5.4"
+  SYM_CODEX_MODEL="gpt-5.5"
   SYM_CODEX_REASONING_EFFORT="high"
 
   case "$workflow_step" in

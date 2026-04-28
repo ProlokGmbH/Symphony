@@ -129,7 +129,7 @@ defmodule SymCodexScriptTest do
                ]
              )
 
-    assert output =~ "--model gpt-5.4"
+    assert output =~ "--model gpt-5.5"
     assert output =~ "--config model_reasoning_effort=high"
   end
 
@@ -153,7 +153,7 @@ defmodule SymCodexScriptTest do
                ]
              )
 
-    assert output =~ "--model gpt-5.4"
+    assert output =~ "--model gpt-5.5"
     assert output =~ "--config model_reasoning_effort=high"
   end
 
