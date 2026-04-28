@@ -637,7 +637,10 @@ defmodule SymphonyElixir.AgentRunner do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to clear stale review autocommit marker before non-review run #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
+        Logger.warning(
+          "Failed to clear stale review autocommit marker before non-review run #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}"
+        )
+
         {:error, {:review_autocommit_marker_clear_failed, reason}}
     end
   end

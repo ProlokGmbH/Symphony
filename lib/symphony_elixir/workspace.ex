@@ -351,28 +351,17 @@ defmodule SymphonyElixir.Workspace do
           {:ok, :already_recorded | :clean | :committed | :not_git_repo} | {:error, term()}
   def prepare_review_autocommit(workspace, message, worker_host \\ nil)
       when is_binary(workspace) and is_binary(message) do
-    with {:ok, marker_present?} <- review_autocommit_marker_present?(workspace, worker_host) do
-      if marker_present? do
+    case review_autocommit_marker_present?(workspace, worker_host) do
+      {:ok, true} ->
         {:ok, :already_recorded}
-      else
-        case commit_all_changes(workspace, message, worker_host) do
-          {:ok, :clean} ->
-            with :ok <- put_review_autocommit_marker(workspace, worker_host) do
-              {:ok, :clean}
-            end
 
-          {:ok, :committed} ->
-            with :ok <- put_review_autocommit_marker(workspace, worker_host) do
-              {:ok, :committed}
-            end
+      {:ok, false} ->
+        workspace
+        |> commit_all_changes(message, worker_host)
+        |> record_review_autocommit_result(workspace, worker_host)
 
-          {:ok, :not_git_repo} ->
-            {:ok, :not_git_repo}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -579,193 +568,170 @@ defmodule SymphonyElixir.Workspace do
     put_local_git_config(workspace, @review_autocommit_marker_key, "true", worker_host)
   end
 
+  defp record_review_autocommit_result({:ok, :clean}, workspace, worker_host) do
+    with :ok <- put_review_autocommit_marker(workspace, worker_host) do
+      {:ok, :clean}
+    end
+  end
+
+  defp record_review_autocommit_result({:ok, :committed}, workspace, worker_host) do
+    with :ok <- put_review_autocommit_marker(workspace, worker_host) do
+      {:ok, :committed}
+    end
+  end
+
+  defp record_review_autocommit_result(result, _workspace, _worker_host), do: result
+
   defp get_local_git_config(workspace, key, nil)
        when is_binary(workspace) and is_binary(key) do
     with :ok <- validate_workspace_path(workspace, nil) do
-      case System.cmd("git", ["config", "--local", "--get", key],
-             cd: workspace,
-             env: Enum.into(RuntimePaths.builtin_env(), []),
-             stderr_to_stdout: true
-           ) do
-        {output, 0} ->
-          {:ok, output |> IO.iodata_to_binary() |> String.trim()}
-
-        {_output, 1} ->
-          {:ok, :missing}
-
-        {output, 128} ->
-          if not_git_repository_error?({:workspace_git_status_failed, :local, 128, output}) do
-            {:ok, :not_git_repo}
-          else
-            {:error, {:workspace_git_config_failed, :local, 128, output}}
-          end
-
-        {output, status} ->
-          {:error, {:workspace_git_config_failed, :local, status, output}}
-      end
+      "git"
+      |> System.cmd(["config", "--local", "--get", key],
+        cd: workspace,
+        env: Enum.into(RuntimePaths.builtin_env(), []),
+        stderr_to_stdout: true
+      )
+      |> handle_git_config_read_result(:local)
     end
   end
 
   defp get_local_git_config(workspace, key, worker_host)
        when is_binary(workspace) and is_binary(key) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
-      script =
-        [
-          remote_hook_env_exports(),
-          "cd #{shell_escape(workspace)}",
-          "git config --local --get #{shell_escape(key)}"
-        ]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-        {:ok, {output, 0}} ->
-          {:ok, output |> IO.iodata_to_binary() |> String.trim()}
-
-        {:ok, {_output, 1}} ->
-          {:ok, :missing}
-
-        {:ok, {output, 128}} ->
-          if not_git_repository_error?({:workspace_git_status_failed, worker_host, 128, output}) do
-            {:ok, :not_git_repo}
-          else
-            {:error, {:workspace_git_config_failed, worker_host, 128, output}}
-          end
-
-        {:ok, {output, status}} ->
-          {:error, {:workspace_git_config_failed, worker_host, status, output}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      workspace
+      |> remote_git_config_get_script(key)
+      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+      |> handle_remote_git_config_result(worker_host, &handle_git_config_read_result/2)
     end
   end
 
   defp put_local_git_config(workspace, key, value, nil)
        when is_binary(workspace) and is_binary(key) and is_binary(value) do
     with :ok <- validate_workspace_path(workspace, nil) do
-      case System.cmd("git", ["config", "--local", key, value],
-             cd: workspace,
-             env: Enum.into(RuntimePaths.builtin_env(), []),
-             stderr_to_stdout: true
-           ) do
-        {_output, 0} ->
-          :ok
-
-        {output, 128} ->
-          if not_git_repository_error?({:workspace_git_status_failed, :local, 128, output}) do
-            {:error, {:workspace_git_not_repo, :local}}
-          else
-            {:error, {:workspace_git_config_failed, :local, 128, output}}
-          end
-
-        {output, status} ->
-          {:error, {:workspace_git_config_failed, :local, status, output}}
-      end
+      "git"
+      |> System.cmd(["config", "--local", key, value],
+        cd: workspace,
+        env: Enum.into(RuntimePaths.builtin_env(), []),
+        stderr_to_stdout: true
+      )
+      |> handle_git_config_write_result(:local)
     end
   end
 
   defp put_local_git_config(workspace, key, value, worker_host)
        when is_binary(workspace) and is_binary(key) and is_binary(value) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
-      script =
-        [
-          remote_hook_env_exports(),
-          "cd #{shell_escape(workspace)}",
-          "git config --local #{shell_escape(key)} #{shell_escape(value)}"
-        ]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-        {:ok, {_output, 0}} ->
-          :ok
-
-        {:ok, {output, 128}} ->
-          if not_git_repository_error?({:workspace_git_status_failed, worker_host, 128, output}) do
-            {:error, {:workspace_git_not_repo, worker_host}}
-          else
-            {:error, {:workspace_git_config_failed, worker_host, 128, output}}
-          end
-
-        {:ok, {output, status}} ->
-          {:error, {:workspace_git_config_failed, worker_host, status, output}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      workspace
+      |> remote_git_config_put_script(key, value)
+      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+      |> handle_remote_git_config_result(worker_host, &handle_git_config_write_result/2)
     end
   end
 
   defp unset_local_git_config(workspace, key, nil)
        when is_binary(workspace) and is_binary(key) do
     with :ok <- validate_workspace_path(workspace, nil) do
-      case System.cmd("git", ["config", "--local", "--unset", key],
-             cd: workspace,
-             env: Enum.into(RuntimePaths.builtin_env(), []),
-             stderr_to_stdout: true
-           ) do
-        {_output, 0} ->
-          :ok
-
-        {_output, 5} ->
-          {:ok, :missing}
-
-        {output, 128} ->
-          if not_git_repository_error?({:workspace_git_status_failed, :local, 128, output}) do
-            {:ok, :not_git_repo}
-          else
-            {:error, {:workspace_git_config_failed, :local, 128, output}}
-          end
-
-        {output, status} ->
-          {:error, {:workspace_git_config_failed, :local, status, output}}
-      end
+      "git"
+      |> System.cmd(["config", "--local", "--unset", key],
+        cd: workspace,
+        env: Enum.into(RuntimePaths.builtin_env(), []),
+        stderr_to_stdout: true
+      )
+      |> handle_git_config_unset_result(:local)
     end
   end
 
   defp unset_local_git_config(workspace, key, worker_host)
        when is_binary(workspace) and is_binary(key) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
-      script =
-        [
-          remote_hook_env_exports(),
-          "cd #{shell_escape(workspace)}",
-          "git config --local --unset #{shell_escape(key)}"
-        ]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-        {:ok, {_output, 0}} ->
-          :ok
-
-        {:ok, {_output, 5}} ->
-          {:ok, :missing}
-
-        {:ok, {output, 128}} ->
-          if not_git_repository_error?({:workspace_git_status_failed, worker_host, 128, output}) do
-            {:ok, :not_git_repo}
-          else
-            {:error, {:workspace_git_config_failed, worker_host, 128, output}}
-          end
-
-        {:ok, {output, status}} ->
-          {:error, {:workspace_git_config_failed, worker_host, status, output}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      workspace
+      |> remote_git_config_unset_script(key)
+      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+      |> handle_remote_git_config_result(worker_host, &handle_git_config_unset_result/2)
     end
   end
 
+  defp remote_git_config_get_script(workspace, key)
+       when is_binary(workspace) and is_binary(key) do
+    remote_git_config_script(workspace, "git config --local --get #{shell_escape(key)}")
+  end
+
+  defp remote_git_config_put_script(workspace, key, value)
+       when is_binary(workspace) and is_binary(key) and is_binary(value) do
+    remote_git_config_script(workspace, "git config --local #{shell_escape(key)} #{shell_escape(value)}")
+  end
+
+  defp remote_git_config_unset_script(workspace, key)
+       when is_binary(workspace) and is_binary(key) do
+    remote_git_config_script(workspace, "git config --local --unset #{shell_escape(key)}")
+  end
+
+  defp remote_git_config_script(workspace, command) when is_binary(workspace) and is_binary(command) do
+    [
+      remote_hook_env_exports(),
+      "cd #{shell_escape(workspace)}",
+      command
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp handle_remote_git_config_result({:ok, command_result}, location, handler)
+       when is_function(handler, 2) do
+    handler.(command_result, location)
+  end
+
+  defp handle_remote_git_config_result({:error, reason}, _location, _handler), do: {:error, reason}
+
+  defp handle_git_config_read_result({output, 0}, _location) do
+    {:ok, output |> IO.iodata_to_binary() |> String.trim()}
+  end
+
+  defp handle_git_config_read_result({_output, 1}, _location), do: {:ok, :missing}
+
+  defp handle_git_config_read_result({output, status}, location) do
+    handle_git_config_result(location, status, output, :read)
+  end
+
+  defp handle_git_config_write_result({_output, 0}, _location), do: :ok
+
+  defp handle_git_config_write_result({output, status}, location) do
+    handle_git_config_result(location, status, output, :write)
+  end
+
+  defp handle_git_config_unset_result({_output, 0}, _location), do: :ok
+  defp handle_git_config_unset_result({_output, 5}, _location), do: {:ok, :missing}
+
+  defp handle_git_config_unset_result({output, status}, location) do
+    handle_git_config_result(location, status, output, :unset)
+  end
+
+  defp handle_git_config_result(location, 128, output, action) do
+    case not_git_repository_output?(output) do
+      true -> git_config_not_repo_result(action, location)
+      false -> {:error, {:workspace_git_config_failed, location, 128, output}}
+    end
+  end
+
+  defp handle_git_config_result(location, status, output, _action) do
+    {:error, {:workspace_git_config_failed, location, status, output}}
+  end
+
+  defp git_config_not_repo_result(:read, _location), do: {:ok, :not_git_repo}
+  defp git_config_not_repo_result(:unset, _location), do: {:ok, :not_git_repo}
+  defp git_config_not_repo_result(:write, location), do: {:error, {:workspace_git_not_repo, location}}
+
   defp not_git_repository_error?({:workspace_git_status_failed, _location, 128, output}) do
+    not_git_repository_output?(output)
+  end
+
+  defp not_git_repository_error?(_reason), do: false
+
+  defp not_git_repository_output?(output) do
     output
     |> IO.iodata_to_binary()
     |> String.contains?(["not a git repository", "inside a git repository"])
   end
-
-  defp not_git_repository_error?(_reason), do: false
 
   defp ensure_expected_branch(workspace, _expected_branch, issue_context, worker_host)
        when is_binary(workspace) do
