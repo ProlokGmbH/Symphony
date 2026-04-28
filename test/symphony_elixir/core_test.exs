@@ -7251,11 +7251,11 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner skips a second review autocommit on retry dispatches within Review (AI)" do
+  test "agent runner skips a second review autocommit on fresh Review (AI) dispatches within the same stay" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-review-dirty-retry-#{System.unique_integer([:positive])}"
+        "symphony-elixir-agent-runner-review-dirty-restart-#{System.unique_integer([:positive])}"
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
@@ -7328,7 +7328,156 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
-        "issue-review-dirty-retry" => [
+        "issue-review-dirty-restart" => [
+          """
+          ## Codex Workpad
+
+          ### Review
+
+          - [x] Review step one
+          - [ ] Review subagent completed without findings
+          """
+        ]
+      })
+
+      state_fetcher = fn [_issue_id] ->
+        current_state = Agent.get(state_agent, & &1)
+
+        {:ok,
+         [
+           %Issue{
+             id: "issue-review-dirty-restart",
+             identifier: "MT-REVIEW-RETRY",
+             title: "Review restart keeps dirty workspace open",
+             description: "Do not create a second review snapshot commit on fresh dispatches",
+             state: current_state
+           }
+         ]}
+      end
+
+      issue = %Issue{
+        id: "issue-review-dirty-restart",
+        identifier: "MT-REVIEW-RETRY",
+        title: "Review restart keeps dirty workspace open",
+        description: "Do not create a second review snapshot commit on fresh dispatches",
+        state: "Review (AI)",
+        url: "https://example.org/issues/MT-REVIEW-RETRY",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-dirty-restart", _state_name}, 100
+      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
+      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
+
+      File.write!(Path.join(workspace, "README.md"), "# dirty review follow-up\n")
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      refute_receive {:memory_tracker_state_update, "issue-review-dirty-restart", _state_name}, 100
+
+      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\nHEAD:Review (AI) Autocommit\nDIRTY:yes\n"
+      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {status_output, 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
+      assert status_output =~ "README.md"
+    after
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner still creates the first review autocommit after a before_run failure" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-before-run-failure-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-REVIEW-HOOK")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+      before_run_counter = Path.join(test_root, "before-run.count")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      File.write!(Path.join(workspace, "README.md"), "# dirty before hook succeeds\n")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      printf 'HEAD:%s\\n' "$(git log -1 --pretty=%s)" >> "$trace_file"
+
+      if git status --porcelain=v1 --untracked-files=all | grep -q .; then
+        printf 'DIRTY:yes\\n' >> "$trace_file"
+      else
+        printf 'DIRTY:no\\n' >> "$trace_file"
+      fi
+
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-hook"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-hook"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_before_run: """
+        count=0
+        if [ -f "#{before_run_counter}" ]; then
+          count=$(cat "#{before_run_counter}")
+        fi
+        count=$((count + 1))
+        printf '%s' "$count" > "#{before_run_counter}"
+        if [ "$count" -eq 1 ]; then
+          echo before-run failed once
+          exit 17
+        fi
+        """,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+      parent = self()
+
+      recipient =
+        spawn(fn ->
+          review_handoff_test_recipient(parent, state_agent)
+        end)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        "issue-review-before-run-failure" => [
           """
           ## Codex Workpad
 
@@ -7346,32 +7495,38 @@ defmodule SymphonyElixir.CoreTest do
         {:ok,
          [
            %Issue{
-             id: "issue-review-dirty-retry",
-             identifier: "MT-REVIEW-RETRY",
-             title: "Review retry keeps dirty workspace open",
-             description: "Do not create a second review snapshot commit on retries",
+             id: "issue-review-before-run-failure",
+             identifier: "MT-REVIEW-HOOK",
+             title: "Review hook failure retry",
+             description: "Create the first review snapshot after a failed before_run hook",
              state: current_state
            }
          ]}
       end
 
       issue = %Issue{
-        id: "issue-review-dirty-retry",
-        identifier: "MT-REVIEW-RETRY",
-        title: "Review retry keeps dirty workspace open",
-        description: "Do not create a second review snapshot commit on retries",
+        id: "issue-review-before-run-failure",
+        identifier: "MT-REVIEW-HOOK",
+        title: "Review hook failure retry",
+        description: "Create the first review snapshot after a failed before_run hook",
         state: "Review (AI)",
-        url: "https://example.org/issues/MT-REVIEW-RETRY",
+        url: "https://example.org/issues/MT-REVIEW-HOOK",
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, attempt: 1, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-dirty-retry", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
-      assert File.read!(trace_file) =~ "HEAD:initial\nDIRTY:yes\n"
+      assert_raise RuntimeError, ~r/review-before-run-failure/, fn ->
+        AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      end
+
       assert {"initial\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
-      assert {status_output, 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
-      assert status_output =~ "README.md"
+      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert_receive {:memory_tracker_state_update, "issue-review-before-run-failure", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
+      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)

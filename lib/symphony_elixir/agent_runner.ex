@@ -596,28 +596,25 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp maybe_prepare_workspace_for_issue_run(%Issue{} = issue, workspace, worker_host, opts)
-       when is_binary(workspace) and is_list(opts) do
-    if review_autocommit_required?(issue, opts) do
+  defp maybe_prepare_workspace_for_issue_run(%Issue{state: state} = issue, workspace, worker_host, _opts)
+       when is_binary(state) and is_binary(workspace) do
+    if review_codex_state?(state) do
       maybe_create_review_autocommit(issue, workspace, worker_host)
     else
-      :ok
+      maybe_clear_review_autocommit_marker(issue, workspace, worker_host)
     end
   end
 
   defp maybe_prepare_workspace_for_issue_run(_issue, _workspace, _worker_host, _opts), do: :ok
 
-  defp review_autocommit_required?(%Issue{state: state}, opts)
-       when is_binary(state) and is_list(opts) do
-    review_codex_state?(state) and is_nil(Keyword.get(opts, :attempt))
-  end
-
-  defp review_autocommit_required?(_issue, _opts), do: false
-
   defp maybe_create_review_autocommit(%Issue{} = issue, workspace, worker_host) do
-    case Workspace.commit_all_changes(workspace, @review_autocommit_message, worker_host) do
+    case Workspace.prepare_review_autocommit(workspace, @review_autocommit_message, worker_host) do
+      {:ok, :already_recorded} ->
+        Logger.info("Skipped review autocommit because this review stay was already prepared #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
       {:ok, :clean} ->
-        Logger.info("Skipped review autocommit for clean workspace #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        Logger.info("Recorded review autocommit marker for clean workspace #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
         :ok
 
       {:ok, :not_git_repo} ->
@@ -631,6 +628,17 @@ defmodule SymphonyElixir.AgentRunner do
       {:error, reason} ->
         Logger.warning("Failed review autocommit before first review turn #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
         {:error, {:review_autocommit_failed, reason}}
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker(%Issue{} = issue, workspace, worker_host) do
+    case Workspace.clear_review_autocommit_marker(workspace, worker_host) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to clear stale review autocommit marker before non-review run #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
+        {:error, {:review_autocommit_marker_clear_failed, reason}}
     end
   end
 
