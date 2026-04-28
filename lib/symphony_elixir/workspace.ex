@@ -861,9 +861,16 @@ defmodule SymphonyElixir.Workspace do
   defp not_git_repository_error?(_reason), do: false
 
   defp not_git_repository_output?(output) do
-    output
-    |> IO.iodata_to_binary()
-    |> String.contains?(["not a git repository", "inside a git repository"])
+    normalized_output =
+      output
+      |> IO.iodata_to_binary()
+      |> String.downcase()
+
+    String.contains?(normalized_output, [
+      "not a git repository",
+      "inside a git repository",
+      "kein git-repository"
+    ])
   end
 
   defp ensure_expected_branch(workspace, _expected_branch, issue_context, worker_host)
