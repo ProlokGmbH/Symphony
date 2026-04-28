@@ -284,6 +284,52 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "review autocommit markers stay isolated per linked worktree" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-review-autocommit-worktree-isolation-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_a = Path.join([test_root, "worktrees", "MT-REVIEW-A"])
+      workspace_b = Path.join([test_root, "worktrees", "MT-REVIEW-B"])
+
+      File.mkdir_p!(Path.dirname(workspace_a))
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "base\n")
+
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "init", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "worktree", "add", "-b", "symphony/MT-REVIEW-A", workspace_a, "HEAD"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "worktree", "add", "-b", "symphony/MT-REVIEW-B", workspace_b, "HEAD"], stderr_to_stdout: true)
+
+      marker_path_a = review_autocommit_marker_path!(workspace_a)
+      marker_path_b = review_autocommit_marker_path!(workspace_b)
+
+      File.write!(Path.join(workspace_a, "review-a.txt"), "dirty\n")
+      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_a, "Review (AI) Autocommit")
+      assert File.exists?(marker_path_a)
+      refute File.exists?(marker_path_b)
+
+      File.write!(Path.join(workspace_b, "review-b.txt"), "dirty\n")
+      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_b, "Review (AI) Autocommit")
+      assert File.exists?(marker_path_a)
+      assert File.exists?(marker_path_b)
+
+      assert :ok = Workspace.clear_review_autocommit_marker(workspace_a)
+      refute File.exists?(marker_path_a)
+      assert File.exists?(marker_path_b)
+      assert {:ok, :already_recorded} = Workspace.prepare_review_autocommit(workspace_b, "Review (AI) Autocommit")
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace replaces stale non-directory paths" do
     workspace_root =
       Path.join(
@@ -2072,5 +2118,19 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   defp project_worktree_script_path(filename) when is_binary(filename) do
     Path.expand("../../.symphony/#{filename}", __DIR__)
+  end
+
+  defp review_autocommit_marker_path!(workspace) do
+    {output, 0} =
+      System.cmd("git", [
+        "-C",
+        workspace,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "symphony.review-ai-autocommit.done"
+      ])
+
+    String.trim(output)
   end
 end

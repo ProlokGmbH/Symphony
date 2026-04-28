@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Workspace do
   alias SymphonyElixir.{Config, HookRunner, PathSafety, RuntimePaths, SSH}
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
-  @review_autocommit_marker_key "symphony.review-ai-autocommit.done"
+  @review_autocommit_marker_filename "symphony.review-ai-autocommit.done"
 
   @type worker_host :: String.t() | nil
 
@@ -368,7 +368,7 @@ defmodule SymphonyElixir.Workspace do
   @spec clear_review_autocommit_marker(Path.t(), worker_host()) ::
           :ok | {:error, term()}
   def clear_review_autocommit_marker(workspace, worker_host \\ nil) when is_binary(workspace) do
-    case unset_local_git_config(workspace, @review_autocommit_marker_key, worker_host) do
+    case delete_review_autocommit_marker(workspace, worker_host) do
       :ok -> :ok
       {:ok, :missing} -> :ok
       {:ok, :not_git_repo} -> :ok
@@ -549,14 +549,17 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp review_autocommit_marker_present?(workspace, worker_host) when is_binary(workspace) do
-    case get_local_git_config(workspace, @review_autocommit_marker_key, worker_host) do
+    case marker_file_exists?(workspace, worker_host) do
       {:ok, :missing} ->
         {:ok, false}
 
       {:ok, :not_git_repo} ->
         {:ok, false}
 
-      {:ok, _value} ->
+      {:ok, false} ->
+        {:ok, false}
+
+      {:ok, true} ->
         {:ok, true}
 
       {:error, reason} ->
@@ -565,7 +568,7 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp put_review_autocommit_marker(workspace, worker_host) when is_binary(workspace) do
-    put_local_git_config(workspace, @review_autocommit_marker_key, "true", worker_host)
+    write_review_autocommit_marker(workspace, worker_host)
   end
 
   defp record_review_autocommit_result({:ok, :clean}, workspace, worker_host) do
@@ -582,91 +585,143 @@ defmodule SymphonyElixir.Workspace do
 
   defp record_review_autocommit_result(result, _workspace, _worker_host), do: result
 
-  defp get_local_git_config(workspace, key, nil)
-       when is_binary(workspace) and is_binary(key) do
+  defp marker_file_exists?(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, marker_path} -> {:ok, File.exists?(marker_path)}
+        other -> other
+      end
+    end
+  end
+
+  defp marker_file_exists?(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, marker_path} ->
+          workspace
+          |> remote_review_autocommit_marker_exists_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_exists_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp write_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, marker_path} ->
+          case File.write(marker_path, "true\n") do
+            :ok -> :ok
+            {:error, reason} -> {:error, {:workspace_review_autocommit_marker_write_failed, :local, reason}}
+          end
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp write_review_autocommit_marker(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, marker_path} ->
+          workspace
+          |> remote_write_review_autocommit_marker_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_write_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp delete_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, marker_path} ->
+          case File.rm(marker_path) do
+            :ok -> :ok
+            {:error, :enoent} -> {:ok, :missing}
+            {:error, reason} -> {:error, {:workspace_review_autocommit_marker_delete_failed, :local, reason}}
+          end
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp delete_review_autocommit_marker(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, marker_path} ->
+          workspace
+          |> remote_delete_review_autocommit_marker_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_delete_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp review_autocommit_marker_path(workspace, nil) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       "git"
-      |> System.cmd(["config", "--local", "--get", key],
+      |> System.cmd(
+        ["rev-parse", "--path-format=absolute", "--git-path", @review_autocommit_marker_filename],
         cd: workspace,
         env: Enum.into(RuntimePaths.builtin_env(), []),
         stderr_to_stdout: true
       )
-      |> handle_git_config_read_result(:local)
+      |> handle_git_path_result(:local)
     end
   end
 
-  defp get_local_git_config(workspace, key, worker_host)
-       when is_binary(workspace) and is_binary(key) and is_binary(worker_host) do
+  defp review_autocommit_marker_path(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
     with :ok <- validate_workspace_path(workspace, worker_host) do
       workspace
-      |> remote_git_config_get_script(key)
+      |> remote_review_autocommit_marker_path_script()
       |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
-      |> handle_remote_git_config_result(worker_host, &handle_git_config_read_result/2)
+      |> handle_remote_marker_result(worker_host, &handle_git_path_result/2)
     end
   end
 
-  defp put_local_git_config(workspace, key, value, nil)
-       when is_binary(workspace) and is_binary(key) and is_binary(value) do
-    with :ok <- validate_workspace_path(workspace, nil) do
-      "git"
-      |> System.cmd(["config", "--local", key, value],
-        cd: workspace,
-        env: Enum.into(RuntimePaths.builtin_env(), []),
-        stderr_to_stdout: true
-      )
-      |> handle_git_config_write_result(:local)
-    end
+  defp remote_review_autocommit_marker_path_script(workspace) when is_binary(workspace) do
+    remote_git_marker_script(
+      workspace,
+      "git rev-parse --path-format=absolute --git-path #{shell_escape(@review_autocommit_marker_filename)}"
+    )
   end
 
-  defp put_local_git_config(workspace, key, value, worker_host)
-       when is_binary(workspace) and is_binary(key) and is_binary(value) and is_binary(worker_host) do
-    with :ok <- validate_workspace_path(workspace, worker_host) do
-      workspace
-      |> remote_git_config_put_script(key, value)
-      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
-      |> handle_remote_git_config_result(worker_host, &handle_git_config_write_result/2)
-    end
+  defp remote_review_autocommit_marker_exists_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(
+      workspace,
+      "if [ -f #{shell_escape(marker_path)} ]; then printf 'present\\n'; else printf 'missing\\n'; fi"
+    )
   end
 
-  defp unset_local_git_config(workspace, key, nil)
-       when is_binary(workspace) and is_binary(key) do
-    with :ok <- validate_workspace_path(workspace, nil) do
-      "git"
-      |> System.cmd(["config", "--local", "--unset", key],
-        cd: workspace,
-        env: Enum.into(RuntimePaths.builtin_env(), []),
-        stderr_to_stdout: true
-      )
-      |> handle_git_config_unset_result(:local)
-    end
+  defp remote_write_review_autocommit_marker_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(workspace, "printf 'true\\n' > #{shell_escape(marker_path)}")
   end
 
-  defp unset_local_git_config(workspace, key, worker_host)
-       when is_binary(workspace) and is_binary(key) and is_binary(worker_host) do
-    with :ok <- validate_workspace_path(workspace, worker_host) do
-      workspace
-      |> remote_git_config_unset_script(key)
-      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
-      |> handle_remote_git_config_result(worker_host, &handle_git_config_unset_result/2)
-    end
+  defp remote_delete_review_autocommit_marker_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(workspace, "rm -f #{shell_escape(marker_path)}")
   end
 
-  defp remote_git_config_get_script(workspace, key)
-       when is_binary(workspace) and is_binary(key) do
-    remote_git_config_script(workspace, "git config --local --get #{shell_escape(key)}")
-  end
-
-  defp remote_git_config_put_script(workspace, key, value)
-       when is_binary(workspace) and is_binary(key) and is_binary(value) do
-    remote_git_config_script(workspace, "git config --local #{shell_escape(key)} #{shell_escape(value)}")
-  end
-
-  defp remote_git_config_unset_script(workspace, key)
-       when is_binary(workspace) and is_binary(key) do
-    remote_git_config_script(workspace, "git config --local --unset #{shell_escape(key)}")
-  end
-
-  defp remote_git_config_script(workspace, command) when is_binary(workspace) and is_binary(command) do
+  defp remote_git_marker_script(workspace, command) when is_binary(workspace) and is_binary(command) do
     [
       remote_hook_env_exports(),
       "cd #{shell_escape(workspace)}",
@@ -676,50 +731,55 @@ defmodule SymphonyElixir.Workspace do
     |> Enum.join("\n")
   end
 
-  defp handle_remote_git_config_result({:ok, command_result}, location, handler)
+  defp handle_remote_marker_result({:ok, command_result}, location, handler)
        when is_function(handler, 2) do
     handler.(command_result, location)
   end
 
-  defp handle_remote_git_config_result({:error, reason}, _location, _handler), do: {:error, reason}
+  defp handle_remote_marker_result({:error, reason}, _location, _handler), do: {:error, reason}
 
-  defp handle_git_config_read_result({output, 0}, _location) do
+  defp handle_git_path_result({output, 0}, _location) do
     {:ok, output |> IO.iodata_to_binary() |> String.trim()}
   end
 
-  defp handle_git_config_read_result({_output, 1}, _location), do: {:ok, :missing}
-
-  defp handle_git_config_read_result({output, status}, location) do
-    handle_git_config_result(location, status, output, :read)
+  defp handle_git_path_result({output, status}, location) do
+    handle_git_path_failure(location, status, output)
   end
 
-  defp handle_git_config_write_result({_output, 0}, _location), do: :ok
-
-  defp handle_git_config_write_result({output, status}, location) do
-    handle_git_config_result(location, status, output, :write)
-  end
-
-  defp handle_git_config_unset_result({_output, 0}, _location), do: :ok
-  defp handle_git_config_unset_result({_output, 5}, _location), do: {:ok, :missing}
-
-  defp handle_git_config_unset_result({output, status}, location) do
-    handle_git_config_result(location, status, output, :unset)
-  end
-
-  defp handle_git_config_result(location, 128, output, action) do
-    case not_git_repository_output?(output) do
-      true -> git_config_not_repo_result(action, location)
-      false -> {:error, {:workspace_git_config_failed, location, 128, output}}
+  defp handle_marker_exists_result({output, 0}, location) do
+    case output |> IO.iodata_to_binary() |> String.trim() do
+      "present" -> {:ok, true}
+      "missing" -> {:ok, :missing}
+      other -> {:error, {:workspace_review_autocommit_marker_read_failed, location, :unexpected_output, other}}
     end
   end
 
-  defp handle_git_config_result(location, status, output, _action) do
-    {:error, {:workspace_git_config_failed, location, status, output}}
+  defp handle_marker_exists_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_read_failed, location, status, output}}
   end
 
-  defp git_config_not_repo_result(:read, _location), do: {:ok, :not_git_repo}
-  defp git_config_not_repo_result(:unset, _location), do: {:ok, :not_git_repo}
-  defp git_config_not_repo_result(:write, location), do: {:error, {:workspace_git_not_repo, location}}
+  defp handle_marker_write_result({_output, 0}, _location), do: :ok
+
+  defp handle_marker_write_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_write_failed, location, status, output}}
+  end
+
+  defp handle_marker_delete_result({_output, 0}, _location), do: :ok
+
+  defp handle_marker_delete_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_delete_failed, location, status, output}}
+  end
+
+  defp handle_git_path_failure(location, 128, output) do
+    case not_git_repository_output?(output) do
+      true -> {:ok, :not_git_repo}
+      false -> {:error, {:workspace_git_path_failed, location, 128, output}}
+    end
+  end
+
+  defp handle_git_path_failure(location, status, output) do
+    {:error, {:workspace_git_path_failed, location, status, output}}
+  end
 
   defp not_git_repository_error?({:workspace_git_status_failed, _location, 128, output}) do
     not_git_repository_output?(output)

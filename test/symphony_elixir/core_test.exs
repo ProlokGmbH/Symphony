@@ -7518,8 +7518,10 @@ defmodule SymphonyElixir.CoreTest do
         AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       end
 
+      marker_path = review_autocommit_marker_path!(workspace)
+
       assert {"initial\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
-      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+      refute File.exists?(marker_path)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-before-run-failure", "Freigabe Review"}
@@ -7527,6 +7529,7 @@ defmodule SymphonyElixir.CoreTest do
       assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
       assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
       assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
+      refute File.exists?(marker_path)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -7648,10 +7651,12 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
+      marker_path = review_autocommit_marker_path!(workspace)
+
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
-      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+      refute File.exists?(marker_path)
 
       File.write!(Path.join(workspace, "README.md"), "# dirty before second review\n")
       Agent.update(state_agent, fn _state -> "Review (AI)" end)
@@ -7667,7 +7672,7 @@ defmodule SymphonyElixir.CoreTest do
                System.cmd("git", ["-C", workspace, "log", "--pretty=%s", "--max-count=3"])
 
       assert log_output =~ "Review (AI) Autocommit\nReview (AI) Autocommit\ninitial\n"
-      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+      refute File.exists?(marker_path)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -7693,8 +7698,9 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
       System.cmd("git", ["-C", workspace, "add", "README.md"])
       System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
-      assert {"", 0} = System.cmd("git", ["-C", workspace, "config", "--local", "symphony.review-ai-autocommit.done", "true"])
-      assert {"true\n", 0} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+      marker_path = review_autocommit_marker_path!(workspace)
+      File.write!(marker_path, "true\n")
+      assert File.exists?(marker_path)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
@@ -7713,7 +7719,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue)
-      assert {"", 1} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "symphony.review-ai-autocommit.done"])
+      refute File.exists?(marker_path)
     after
       File.rm_rf(test_root)
     end
@@ -8879,5 +8885,19 @@ defmodule SymphonyElixir.CoreTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp review_autocommit_marker_path!(workspace) do
+    {output, 0} =
+      System.cmd("git", [
+        "-C",
+        workspace,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "symphony.review-ai-autocommit.done"
+      ])
+
+    String.trim(output)
   end
 end
