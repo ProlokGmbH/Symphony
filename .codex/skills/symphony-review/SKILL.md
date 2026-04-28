@@ -21,7 +21,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 - Führe die dort definierte Review-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Review` jeden Review-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
-- Lasse dabei alle entstehenden Änderungen ungecommittet; automatische Commits bleiben in diesem Status verboten.
+- Lasse dabei alle nach dem Einstieg entstehenden Änderungen ungecommittet; der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt wird vom Workflow vor der Schleife erzeugt, weitere automatische Commits bleiben verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 - Führe keine zusätzlichen Review-Schritte aus, die hier nicht dokumentiert sind. Halte dich strikt an die Checkliste. Arbeite nur die dort vorgegebenen Punkte ab.

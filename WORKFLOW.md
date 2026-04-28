@@ -275,7 +275,7 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den bestehenden, zuvor manuell geprüften Plan ohne weitere automatische Commits umsetzen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit `Review (AI) Autocommit` sichern, anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
@@ -458,10 +458,12 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 ### Ablauf
 
 1. Führe zu Beginn den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
-2. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
-3. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-4. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-5. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
+2. Wenn das Issue in diesem `Review (AI)`-Aufenthalt erstmals bearbeitet wird und der Workspace dabei offene Änderungen enthält, committe sie einmalig mit der Commit-Nachricht `Review (AI) Autocommit`, bevor der Review-/Fix-Zyklus beginnt.
+3. Wiederholte Fortsetzungsläufe oder Retries innerhalb desselben Aufenthalts in `Review (AI)` dürfen keinen weiteren `Review (AI) Autocommit` erzeugen, auch dann nicht, wenn inzwischen neue offene Änderungen aus dem Review vorliegen.
+4. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
+5. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
+6. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+7. Führe nach dem vorgeschalteten `symphony-pull` und dem gegebenenfalls einmaligen Einstiegssnapshot keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
@@ -682,7 +684,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Automatische Commits außerhalb des jeweils vorgeschalteten `symphony-pull` sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Verwende dafür nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
+- Automatische Commits außerhalb des jeweils vorgeschalteten `symphony-pull` sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.

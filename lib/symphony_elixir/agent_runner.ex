@@ -10,6 +10,7 @@ defmodule SymphonyElixir.AgentRunner do
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
   @review_codex_state_name "review (ai)"
+  @review_autocommit_message "Review (AI) Autocommit"
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
@@ -58,7 +59,7 @@ defmodule SymphonyElixir.AgentRunner do
 
       :manual_noop ->
         Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
-        :ok
+        maybe_clear_review_autocommit_marker_for_existing_workspace(issue, worker_host)
 
       :proceed ->
         case Workspace.create_for_issue(issue, worker_host) do
@@ -67,7 +68,8 @@ defmodule SymphonyElixir.AgentRunner do
 
             try do
               with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
-                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host) do
+                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host),
+                   :ok <- maybe_prepare_workspace_for_issue_run(issue, workspace, worker_host, opts) do
                 run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
               end
             after
@@ -118,7 +120,10 @@ defmodule SymphonyElixir.AgentRunner do
     case Workspace.create_for_issue(issue, worker_host) do
       {:ok, workspace} ->
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
-        maybe_sync_issue_branch_name(issue, workspace, worker_host)
+
+        with :ok <- maybe_clear_review_autocommit_marker(issue, workspace, worker_host) do
+          maybe_sync_issue_branch_name(issue, workspace, worker_host)
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -185,22 +190,26 @@ defmodule SymphonyElixir.AgentRunner do
     workspace = turn_context.workspace
     worker_host = turn_context.worker_host
 
-    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
-      run_context = %{
-        app_session: session,
-        workspace: workspace,
-        codex_update_recipient: turn_context.codex_update_recipient,
-        opts: turn_context.opts,
-        issue_state_fetcher: turn_context.issue_state_fetcher,
-        worker_host: worker_host,
-        max_turns: turn_context.max_turns
-      }
+    case AppServer.start_session(workspace, worker_host: worker_host) do
+      {:ok, session} ->
+        run_context = %{
+          app_session: session,
+          workspace: workspace,
+          codex_update_recipient: turn_context.codex_update_recipient,
+          opts: turn_context.opts,
+          issue_state_fetcher: turn_context.issue_state_fetcher,
+          worker_host: worker_host,
+          max_turns: turn_context.max_turns
+        }
 
-      try do
-        do_run_codex_turns(run_context, issue, 1, :initial)
-      after
-        AppServer.stop_session(session)
-      end
+        try do
+          do_run_codex_turns(run_context, issue, 1, :initial)
+        after
+          AppServer.stop_session(session)
+        end
+
+      {:error, reason} ->
+        handle_run_error(reason, issue, turn_context)
     end
   end
 
@@ -250,7 +259,11 @@ defmodule SymphonyElixir.AgentRunner do
     Logger.warning("Codex turn cancelled for #{issue_context(issue)} workspace=#{turn_context.workspace} turn=#{turn_number}/#{turn_context.max_turns}: #{inspect(reason)}")
 
     issue
-    |> continue_after_cancelled_turn?(turn_context.issue_state_fetcher)
+    |> continue_after_cancelled_turn?(
+      turn_context.issue_state_fetcher,
+      turn_context.workspace,
+      turn_context.worker_host
+    )
     |> continue_turn(
       turn_context,
       turn_number,
@@ -260,8 +273,8 @@ defmodule SymphonyElixir.AgentRunner do
     )
   end
 
-  defp handle_turn_result({:error, reason}, _turn_context, _issue, _turn_number) do
-    {:error, reason}
+  defp handle_turn_result({:error, reason}, turn_context, issue, _turn_number) do
+    handle_run_error(reason, issue, turn_context)
   end
 
   defp continue_turn(
@@ -377,11 +390,24 @@ defmodule SymphonyElixir.AgentRunner do
        ),
        do: {:done, started_issue}
 
-  defp continue_after_cancelled_turn?(%Issue{id: issue_id} = started_issue, issue_state_fetcher)
+  defp continue_after_cancelled_turn?(
+         %Issue{id: issue_id} = started_issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       )
        when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
-        continuation_status(refreshed_issue, :normal)
+        with :ok <-
+               maybe_clear_review_autocommit_marker_after_review_departure(
+                 started_issue,
+                 refreshed_issue,
+                 workspace,
+                 worker_host
+               ) do
+          continuation_status(refreshed_issue, :normal)
+        end
 
       {:ok, []} ->
         {:done, started_issue}
@@ -391,7 +417,13 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp continue_after_cancelled_turn?(started_issue, _issue_state_fetcher), do: {:done, started_issue}
+  defp continue_after_cancelled_turn?(
+         started_issue,
+         _issue_state_fetcher,
+         _workspace,
+         _worker_host
+       ),
+       do: {:done, started_issue}
 
   defp resolve_issue_continuation(
          %Issue{} = started_issue,
@@ -432,39 +464,51 @@ defmodule SymphonyElixir.AgentRunner do
          worker_host
        )
        when is_binary(issue_id) do
-    if state_changed_during_turn?(started_issue, issue) do
-      {:ok, issue, :normal}
-    else
-      case codex_issue_finalize_mode(started_issue.state) do
-        {:transition, error_event, log_label} ->
-          transition_issue_state(
-            issue,
-            issue_state_fetcher,
-            resolve_next_handoff_state(issue),
-            error_event,
-            log_label,
-            :stop
-          )
+    result =
+      if state_changed_during_turn?(started_issue, issue) do
+        {:ok, issue, :normal}
+      else
+        case codex_issue_finalize_mode(started_issue.state) do
+          {:transition, error_event, log_label} ->
+            transition_issue_state(
+              issue,
+              issue_state_fetcher,
+              resolve_next_handoff_state(issue),
+              error_event,
+              log_label,
+              :stop
+            )
 
-        :review ->
-          maybe_finalize_review_codex_issue(
-            issue,
-            issue_state_fetcher,
-            workspace,
-            worker_host
-          )
+          :review ->
+            maybe_finalize_review_codex_issue(
+              issue,
+              issue_state_fetcher,
+              workspace,
+              worker_host
+            )
 
-        :test ->
-          maybe_finalize_test_codex_issue(
-            issue,
-            issue_state_fetcher,
-            workspace,
-            worker_host
-          )
+          :test ->
+            maybe_finalize_test_codex_issue(
+              issue,
+              issue_state_fetcher,
+              workspace,
+              worker_host
+            )
 
-        :normal ->
-          {:ok, issue, :normal}
+          :normal ->
+            {:ok, issue, :normal}
+        end
       end
+
+    with {:ok, %Issue{} = current_issue, continuation_mode} <- result,
+         :ok <-
+           maybe_clear_review_autocommit_marker_after_review_departure(
+             started_issue,
+             current_issue,
+             workspace,
+             worker_host
+           ) do
+      {:ok, current_issue, continuation_mode}
     end
   end
 
@@ -500,13 +544,41 @@ defmodule SymphonyElixir.AgentRunner do
        when is_binary(issue_id) and is_binary(fallback_state) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
-        {:ok, refreshed_issue}
+        {:ok, coerce_stale_issue_state(refreshed_issue, issue.state, fallback_state)}
 
       {:ok, []} ->
         {:ok, %{issue | state: fallback_state}}
 
       {:error, reason} ->
         {:error, {:issue_state_refresh_failed, reason}}
+    end
+  end
+
+  defp coerce_stale_issue_state(%Issue{} = refreshed_issue, previous_state, fallback_state)
+       when is_binary(previous_state) and is_binary(fallback_state) do
+    refreshed_state = normalize_issue_state(refreshed_issue.state)
+    previous_state = normalize_issue_state(previous_state)
+    normalized_fallback_state = normalize_issue_state(fallback_state)
+
+    if refreshed_state == previous_state and normalized_fallback_state != previous_state do
+      %{refreshed_issue | state: fallback_state}
+    else
+      refreshed_issue
+    end
+  end
+
+  defp handle_run_error(reason, %Issue{} = issue, turn_context) when is_map(turn_context) do
+    case maybe_clear_review_autocommit_marker_after_review_error(
+           issue,
+           turn_context.issue_state_fetcher,
+           turn_context.workspace,
+           turn_context.worker_host
+         ) do
+      :ok ->
+        {:error, reason}
+
+      {:error, cleanup_reason} ->
+        {:error, {:review_error_cleanup_failed, reason, cleanup_reason}}
     end
   end
 
@@ -591,6 +663,104 @@ defmodule SymphonyElixir.AgentRunner do
         Logger.warning("Failed to sync Linear branch name for #{issue_context(issue)}: #{inspect(reason)}")
 
         :ok
+    end
+  end
+
+  defp maybe_prepare_workspace_for_issue_run(%Issue{state: state} = issue, workspace, worker_host, _opts)
+       when is_binary(state) and is_binary(workspace) do
+    if review_codex_state?(state) do
+      maybe_create_review_autocommit(issue, workspace, worker_host)
+    else
+      maybe_clear_review_autocommit_marker(issue, workspace, worker_host)
+    end
+  end
+
+  defp maybe_prepare_workspace_for_issue_run(_issue, _workspace, _worker_host, _opts), do: :ok
+
+  defp maybe_create_review_autocommit(%Issue{} = issue, workspace, worker_host) do
+    case Workspace.prepare_review_autocommit(workspace, @review_autocommit_message, worker_host) do
+      {:ok, :already_recorded} ->
+        Logger.info("Skipped review autocommit because this review stay was already prepared #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:ok, :clean} ->
+        Logger.info("Recorded review autocommit marker for clean workspace #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:ok, :not_git_repo} ->
+        Logger.info("Skipped review autocommit because the workspace is not a git repository #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:ok, :committed} ->
+        Logger.info("Created review autocommit before first review turn #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed review autocommit before first review turn #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
+        {:error, {:review_autocommit_failed, reason}}
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker(%Issue{} = issue, workspace, worker_host) do
+    case Workspace.clear_review_autocommit_marker(workspace, worker_host) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to clear stale review autocommit marker before non-review run #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}"
+        )
+
+        {:error, {:review_autocommit_marker_clear_failed, reason}}
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker_for_existing_workspace(%Issue{} = issue, worker_host) do
+    case Workspace.clear_review_autocommit_marker_for_existing_issue_workspace(issue, worker_host) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to clear stale review autocommit marker for manual issue #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)} reason=#{inspect(reason)}")
+
+        {:error, {:review_autocommit_marker_clear_failed, reason}}
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker_after_review_error(
+         %Issue{} = started_issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       ) do
+    if review_codex_state?(started_issue.state) do
+      case refetch_issue(started_issue, issue_state_fetcher, started_issue.state) do
+        {:ok, %Issue{} = refreshed_issue} ->
+          maybe_clear_review_autocommit_marker_after_review_departure(
+            started_issue,
+            refreshed_issue,
+            workspace,
+            worker_host
+          )
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp maybe_clear_review_autocommit_marker_after_review_departure(
+         %Issue{} = started_issue,
+         %Issue{} = current_issue,
+         workspace,
+         worker_host
+       ) do
+    if review_codex_state?(started_issue.state) and not review_codex_state?(current_issue.state) do
+      maybe_clear_review_autocommit_marker(current_issue, workspace, worker_host)
+    else
+      :ok
     end
   end
 

@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Workspace do
   alias SymphonyElixir.{Config, HookRunner, PathSafety, RuntimePaths, SSH}
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
+  @review_autocommit_marker_filename "symphony.review-ai-autocommit.done"
 
   @type worker_host :: String.t() | nil
 
@@ -333,6 +334,69 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
+  @spec commit_all_changes(Path.t(), String.t(), worker_host()) ::
+          {:ok, :clean | :committed | :not_git_repo} | {:error, term()}
+  def commit_all_changes(workspace, message, worker_host \\ nil)
+      when is_binary(workspace) and is_binary(message) do
+    trimmed_message = String.trim(message)
+
+    if trimmed_message == "" do
+      {:error, {:workspace_git_commit_message_missing, worker_host || :local}}
+    else
+      commit_all_changes_with_message(workspace, trimmed_message, worker_host)
+    end
+  end
+
+  @spec prepare_review_autocommit(Path.t(), String.t(), worker_host()) ::
+          {:ok, :already_recorded | :clean | :committed | :not_git_repo} | {:error, term()}
+  def prepare_review_autocommit(workspace, message, worker_host \\ nil)
+      when is_binary(workspace) and is_binary(message) do
+    case review_autocommit_marker_present?(workspace, worker_host) do
+      {:ok, true} ->
+        {:ok, :already_recorded}
+
+      {:ok, false} ->
+        workspace
+        |> commit_all_changes(message, worker_host)
+        |> record_review_autocommit_result(workspace, worker_host)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec clear_review_autocommit_marker(Path.t(), worker_host()) ::
+          :ok | {:error, term()}
+  def clear_review_autocommit_marker(workspace, worker_host \\ nil) when is_binary(workspace) do
+    case delete_review_autocommit_marker(workspace, worker_host) do
+      :ok -> :ok
+      {:ok, :missing} -> :ok
+      {:ok, :not_git_repo} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec clear_review_autocommit_marker_for_existing_issue_workspace(
+          map() | String.t() | nil,
+          worker_host()
+        ) :: :ok | {:error, term()}
+  def clear_review_autocommit_marker_for_existing_issue_workspace(
+        issue_or_identifier,
+        worker_host \\ nil
+      ) do
+    issue_context = issue_context(issue_or_identifier)
+    safe_id = safe_identifier(issue_context.issue_identifier)
+
+    with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
+         :ok <- validate_workspace_path(workspace, worker_host) do
+      if workspace_exists?(workspace, worker_host) do
+        clear_review_autocommit_marker(workspace, worker_host)
+      else
+        :ok
+      end
+    end
+  end
+
   defp local_git_status_snapshot(workspace) when is_binary(workspace) do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
@@ -426,6 +490,380 @@ defmodule SymphonyElixir.Workspace do
       "" -> {:error, {:workspace_git_branch_missing, location}}
       branch_name -> {:ok, branch_name}
     end
+  end
+
+  defp commit_all_changes_with_message(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) do
+    case git_status_snapshot(workspace, worker_host) do
+      {:ok, ""} ->
+        {:ok, :clean}
+
+      {:ok, _status} ->
+        commit_workspace_changes(workspace, message, worker_host)
+
+      {:error, reason} ->
+        normalize_commit_all_changes_error(reason)
+    end
+  end
+
+  defp commit_workspace_changes(workspace, message, nil)
+       when is_binary(workspace) and is_binary(message) do
+    local_commit_all_changes(workspace, message)
+  end
+
+  defp commit_workspace_changes(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) and is_binary(worker_host) do
+    remote_commit_all_changes(workspace, message, worker_host)
+  end
+
+  defp normalize_commit_all_changes_error(reason) do
+    if not_git_repository_error?(reason) do
+      {:ok, :not_git_repo}
+    else
+      {:error, reason}
+    end
+  end
+
+  defp local_commit_all_changes(workspace, message)
+       when is_binary(workspace) and is_binary(message) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case System.cmd(
+             "sh",
+             ["-lc", ~s(git add -A && git commit -m "$SYMPHONY_GIT_COMMIT_MESSAGE")],
+             cd: workspace,
+             env: [{"SYMPHONY_GIT_COMMIT_MESSAGE", message} | Enum.into(RuntimePaths.builtin_env(), [])],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} ->
+          {:ok, :committed}
+
+        {output, status} ->
+          {:error, {:workspace_git_commit_failed, :local, status, output}}
+      end
+    end
+  end
+
+  defp remote_commit_all_changes(workspace, message, worker_host)
+       when is_binary(workspace) and is_binary(message) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      script =
+        [
+          remote_hook_env_exports(),
+          "cd #{shell_escape(workspace)}",
+          "git add -A",
+          "git commit -m #{shell_escape(message)}"
+        ]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+
+      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+        {:ok, {_output, 0}} ->
+          {:ok, :committed}
+
+        {:ok, {output, status}} ->
+          {:error, {:workspace_git_commit_failed, worker_host, status, output}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp review_autocommit_marker_present?(workspace, worker_host) when is_binary(workspace) do
+    case marker_file_exists?(workspace, worker_host) do
+      {:ok, :missing} ->
+        {:ok, false}
+
+      {:ok, :not_git_repo} ->
+        {:ok, false}
+
+      {:ok, false} ->
+        {:ok, false}
+
+      {:ok, true} ->
+        {:ok, true}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp put_review_autocommit_marker(workspace, worker_host) when is_binary(workspace) do
+    write_review_autocommit_marker(workspace, worker_host)
+  end
+
+  defp record_review_autocommit_result({:ok, :clean}, workspace, worker_host) do
+    with :ok <- put_review_autocommit_marker(workspace, worker_host) do
+      {:ok, :clean}
+    end
+  end
+
+  defp record_review_autocommit_result({:ok, :committed}, workspace, worker_host) do
+    with :ok <- put_review_autocommit_marker(workspace, worker_host) do
+      {:ok, :committed}
+    end
+  end
+
+  defp record_review_autocommit_result(result, _workspace, _worker_host), do: result
+
+  defp marker_file_exists?(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} -> {:ok, :not_git_repo}
+        {:ok, marker_path} -> {:ok, File.exists?(marker_path)}
+        other -> other
+      end
+    end
+  end
+
+  defp marker_file_exists?(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
+        {:ok, marker_path} ->
+          workspace
+          |> remote_review_autocommit_marker_exists_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_exists_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp write_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
+        {:ok, marker_path} ->
+          write_review_autocommit_marker_at_path(marker_path, :local)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp write_review_autocommit_marker(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
+        {:ok, marker_path} ->
+          workspace
+          |> remote_write_review_autocommit_marker_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_write_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp delete_review_autocommit_marker(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      case review_autocommit_marker_path(workspace, nil) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
+        {:ok, marker_path} ->
+          delete_review_autocommit_marker_at_path(marker_path, :local)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp delete_review_autocommit_marker(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      case review_autocommit_marker_path(workspace, worker_host) do
+        {:ok, :not_git_repo} ->
+          {:ok, :not_git_repo}
+
+        {:ok, marker_path} ->
+          workspace
+          |> remote_delete_review_autocommit_marker_script(marker_path)
+          |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+          |> handle_remote_marker_result(worker_host, &handle_marker_delete_result/2)
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp review_autocommit_marker_path(workspace, nil) when is_binary(workspace) do
+    with :ok <- validate_workspace_path(workspace, nil) do
+      "git"
+      |> System.cmd(
+        ["rev-parse", "--path-format=absolute", "--git-path", @review_autocommit_marker_filename],
+        cd: workspace,
+        env: Enum.into(RuntimePaths.builtin_env(), []),
+        stderr_to_stdout: true
+      )
+      |> handle_git_path_result(:local)
+    end
+  end
+
+  defp review_autocommit_marker_path(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      workspace
+      |> remote_review_autocommit_marker_path_script()
+      |> run_remote_command(worker_host, Config.settings!().hooks.timeout_ms)
+      |> handle_remote_marker_result(worker_host, &handle_git_path_result/2)
+    end
+  end
+
+  defp remote_review_autocommit_marker_path_script(workspace) when is_binary(workspace) do
+    remote_git_marker_script(
+      workspace,
+      "git rev-parse --path-format=absolute --git-path #{shell_escape(@review_autocommit_marker_filename)}"
+    )
+  end
+
+  defp remote_review_autocommit_marker_exists_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(
+      workspace,
+      "if [ -f #{shell_escape(marker_path)} ]; then printf 'present\\n'; else printf 'missing\\n'; fi"
+    )
+  end
+
+  defp remote_write_review_autocommit_marker_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(workspace, "printf 'true\\n' > #{shell_escape(marker_path)}")
+  end
+
+  defp remote_delete_review_autocommit_marker_script(workspace, marker_path)
+       when is_binary(workspace) and is_binary(marker_path) do
+    remote_git_marker_script(workspace, "rm -f #{shell_escape(marker_path)}")
+  end
+
+  defp remote_git_marker_script(workspace, command) when is_binary(workspace) and is_binary(command) do
+    [
+      remote_hook_env_exports(),
+      "cd #{shell_escape(workspace)}",
+      command
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp handle_remote_marker_result({:ok, command_result}, location, handler)
+       when is_function(handler, 2) do
+    handler.(command_result, location)
+  end
+
+  defp handle_remote_marker_result({:error, reason}, _location, _handler), do: {:error, reason}
+
+  defp handle_git_path_result({output, 0}, _location) do
+    {:ok, output |> IO.iodata_to_binary() |> String.trim()}
+  end
+
+  defp handle_git_path_result({output, status}, location) do
+    handle_git_path_failure(location, status, output)
+  end
+
+  defp handle_marker_exists_result({output, 0}, location) do
+    case output |> IO.iodata_to_binary() |> String.trim() do
+      "present" -> {:ok, true}
+      "missing" -> {:ok, :missing}
+      other -> {:error, {:workspace_review_autocommit_marker_read_failed, location, :unexpected_output, other}}
+    end
+  end
+
+  defp handle_marker_exists_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_read_failed, location, status, output}}
+  end
+
+  defp handle_marker_write_result({_output, 0}, _location), do: :ok
+
+  defp handle_marker_write_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_write_failed, location, status, output}}
+  end
+
+  defp handle_marker_delete_result({_output, 0}, _location), do: :ok
+
+  defp handle_marker_delete_result({output, status}, location) do
+    {:error, {:workspace_review_autocommit_marker_delete_failed, location, status, output}}
+  end
+
+  defp write_review_autocommit_marker_at_path(marker_path, location)
+       when is_binary(marker_path) do
+    case File.write(marker_path, "true\n") do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_review_autocommit_marker_write_failed, location, reason}}
+    end
+  end
+
+  defp delete_review_autocommit_marker_at_path(marker_path, location)
+       when is_binary(marker_path) do
+    case File.rm(marker_path) do
+      :ok -> :ok
+      {:error, :enoent} -> {:ok, :missing}
+      {:error, reason} -> {:error, {:workspace_review_autocommit_marker_delete_failed, location, reason}}
+    end
+  end
+
+  defp workspace_exists?(workspace, nil) when is_binary(workspace) do
+    File.dir?(workspace)
+  end
+
+  defp workspace_exists?(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    script =
+      [
+        remote_hook_env_exports(),
+        "if [ -d #{shell_escape(workspace)} ]; then printf 'present\\n'; else printf 'missing\\n'; fi"
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {output, 0}} ->
+        output
+        |> IO.iodata_to_binary()
+        |> String.trim()
+        |> Kernel.==("present")
+
+      _ ->
+        false
+    end
+  end
+
+  defp handle_git_path_failure(location, 128, output) do
+    case not_git_repository_output?(output) do
+      true -> {:ok, :not_git_repo}
+      false -> {:error, {:workspace_git_path_failed, location, 128, output}}
+    end
+  end
+
+  defp handle_git_path_failure(location, status, output) do
+    {:error, {:workspace_git_path_failed, location, status, output}}
+  end
+
+  defp not_git_repository_error?({:workspace_git_status_failed, _location, 128, output}) do
+    not_git_repository_output?(output)
+  end
+
+  defp not_git_repository_error?(_reason), do: false
+
+  defp not_git_repository_output?(output) do
+    output
+    |> IO.iodata_to_binary()
+    |> String.contains?(["not a git repository", "inside a git repository"])
   end
 
   defp ensure_expected_branch(workspace, _expected_branch, issue_context, worker_host)
