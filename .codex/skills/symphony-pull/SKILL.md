@@ -61,8 +61,9 @@ oder Update-Branch-Schritt verlangt.
    - Halte Annahmen oder Follow-ups fest.
 11. Ergänze eine kurze `pull skill evidence`-Notiz im aktiven Workpad:
    - Rebase-Quelle(n)
-   - Stash: `not needed`, `restored` oder `restore conflicts resolved`
-   - Ergebnis: `clean` oder `conflicts resolved`
+   - Stash: `not needed`, `restored`, `restore conflicts resolved` oder
+     `restore pending/blocker`
+   - Ergebnis: `clean`, `conflicts resolved` oder `blocked`
 
 ## Hinweise zur Konfliktlösung (Best Practices)
 
@@ -120,8 +121,19 @@ oder Update-Branch-Schritt verlangt.
 - Wenn die korrekte Konfliktlösung trotz Code, Tests und lokaler Dokumentation
   nicht sicher bestimmbar ist, dokumentiere den konkreten Blocker im Workpad
   des aufrufenden Workflows, brich einen laufenden Rebase mit `git rebase --abort`
-  ab, verschiebe das Issue in einen nicht-aktiven manuellen Status und stoppe
-  statt einen Klärungsdialog zu beginnen.
+  ab und stelle einen zu Beginn erzeugten Stash vor dem Handoff wieder her:
+  - Wenn ein `<stash-ref>` existiert, wende ihn mit
+    `git stash apply --index <stash-ref>` erneut an.
+  - Wenn das Anwenden sauber gelingt, lösche den Stash mit
+    `git stash drop <stash-ref>` und dokumentiere `Stash: restored`.
+  - Wenn das Anwenden Konflikte erzeugt und du sie nicht sicher autonom lösen
+    kannst, lasse den Stash erhalten, dokumentiere die betroffenen Dateien, den
+    exakten `<stash-ref>` und die nötige Wiederherstellungsaktion im Workpad und
+    markiere die Evidence als `Stash: restore pending/blocker`.
+  - Stoppe niemals mit einem scheinbar sauberen Workspace, wenn die eigentlichen
+    Arbeitsänderungen nur noch in einem nicht dokumentierten Stash liegen.
+  Verschiebe das Issue danach in einen nicht-aktiven manuellen Status und
+  stoppe statt einen Klärungsdialog zu beginnen.
 - Wenn der aufrufende Workflow keinen spezielleren Rücksprung für diesen Fall
   definiert, verwende dafür `BLOCKER`, damit der Lauf nicht im aktiven
   Retry-Zustand hängen bleibt.
