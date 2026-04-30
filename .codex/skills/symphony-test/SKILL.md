@@ -20,7 +20,7 @@ Symphony-Issue-Workflows den Status `Test (AI)` erreicht.
 - Committe bestehende oder neu entstehende Änderungen in diesem Status bei Bedarf mit `Test (AI) Autocommit`.
 - Verlasse dich darauf, dass der aufrufende Workflow den vorgeschalteten
   `symphony-pull` bereits ausgeführt hat, bevor dieser Skill beginnt.
-- Halte eine kurze `pull skill evidence`-Notiz mit Merge-Quelle(n) und Ergebnis
+- Halte eine kurze `pull skill evidence`-Notiz mit Rebase-Quelle(n) und Ergebnis
   (`clean` oder `conflicts resolved`) im Workpad fest, falls der aufrufende
   Schritt sie dort noch nicht hinterlegt hat.
 - Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
@@ -61,7 +61,7 @@ Symphony-Issue-Workflows den Status `Test (AI)` erreicht.
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
    - starte die Checkliste wieder beim ersten in
      `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` definierten Schritt.
-4. Wenn während der Schleife lokale Fixes entstanden sind, committe sie bei Bedarf in diesem Status mit `Test (AI) Autocommit`, bevor der nächste Pull- oder Merge-Schritt sie aufnimmt.
+4. Wenn während der Schleife lokale Fixes entstanden sind, committe sie bei Bedarf in diesem Status mit `Test (AI) Autocommit`, bevor der nächste Pull-/Rebase- oder Merge-Schritt sie aufnimmt.
 5. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
 6. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und stoppe ohne Statuswechsel.
 

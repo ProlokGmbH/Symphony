@@ -35,12 +35,12 @@ description:
    dann mit dem Skill `symphony-push`, bevor du fortfährst.
 4. Prüfe Mergebarkeit und Konflikte gegenüber main.
 5. Falls Konflikte bestehen, nutze den Skill `symphony-pull`, um
-   `origin/main` zu holen/zu mergen und Konflikte zu lösen. Wenn dieser Pull
-   oder seine Konfliktlösung Dateien ändert, committe sie mit
+   `origin/main` zu holen und darauf zu rebasen. Wenn dieser Pull/Rebase oder
+   seine Konfliktlösung Dateien ändert, committe offene Änderungen mit
    `Merge (AI) Autocommit`, verschiebe das Issue zurück nach `Test (AI)` und
-   stoppe, damit der Testzyklus auf dem gemergten Code erneut läuft. Nur wenn
-   kein erneuter Lauf nötig ist, veröffentliche den aktualisierten Branch mit
-   `symphony-push`.
+   stoppe, damit der Testzyklus auf dem aktualisierten Code erneut läuft. Nur
+   wenn kein erneuter Lauf nötig ist, veröffentliche den aktualisierten Branch
+   mit `symphony-push`.
 6. Stelle sicher, dass Codex-Review-Kommentare (falls vorhanden) bestätigt sind
    und erforderliche Fixes vor dem Merge erledigt wurden.
 7. Beobachte die Checks bis zum Abschluss.
@@ -79,7 +79,7 @@ merge_subject="$issue_identifier: $issue_title"
 mergeable=$(gh pr view --json mergeable -q .mergeable)
 
 if [ "$mergeable" = "CONFLICTING" ]; then
-  # Den Skill `symphony-pull` für Fetch + Merge + Konfliktlösung ausführen.
+  # Den Skill `symphony-pull` für Fetch + Rebase + Konfliktlösung ausführen.
   # Danach den Skill `symphony-push` zum Veröffentlichen des aktualisierten Branches ausführen.
 fi
 
@@ -135,7 +135,7 @@ Exit-Codes:
   fortfahren.
 - Falls CI einen Auto-Fix-Commit pusht (von GitHub Actions), löst das keinen
   neuen CI-Lauf aus. Erkenne den aktualisierten PR-Head, ziehe ihn lokal,
-  merge bei Bedarf `origin/main`, ergänze einen echten Autoren-Commit und
+  rebase bei Bedarf auf `origin/main`, ergänze einen echten Autoren-Commit und
   `force-push`, um CI erneut auszulösen; starte dann die Check-Schleife neu.
 - Wenn Merge oder CI an veralteten generierten Artefakten oder einem
   veralteten Branch scheitern, hole aktuelles `origin/main`, synchronisiere

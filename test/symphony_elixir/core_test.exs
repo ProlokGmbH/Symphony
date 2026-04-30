@@ -188,7 +188,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "falls vor dem ersten Workpad-Bootstrap noch kein Workpad existiert"
     assert prompt =~ "Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt"
     assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
-    assert prompt =~ "Wenn der Pull einen Konflikt nicht autonom auflösen kann"
+    assert prompt =~ "Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann"
     assert prompt =~ "verschiebe nach `BLOCKER`"
     assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
     assert prompt =~ "Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`"
@@ -239,6 +239,23 @@ defmodule SymphonyElixir.CoreTest do
     assert skill =~ "wie `links` in die erste Anfrage aufzunehmen."
     refute skill =~ "query IssueByIdentifier($identifier: String!)"
     refute skill =~ "links {\n"
+  end
+
+  test "repo-local symphony-pull skill rebases main and keeps branch pulls fast-forward only" do
+    skill_path = Path.expand("../../.codex/skills/symphony-pull/SKILL.md", __DIR__)
+    skill = File.read!(skill_path)
+
+    assert skill =~ "git pull --ff-only origin $(git branch --show-current)"
+    assert skill =~ "git -c merge.conflictStyle=zdiff3 rebase origin/main"
+    assert skill =~ "git rebase --continue"
+    assert skill =~ "git stash push --include-untracked"
+    assert skill =~ "git stash apply --index <stash-ref>"
+    assert skill =~ "git stash drop <stash-ref>"
+    assert skill =~ "Rebase-Quelle(n)"
+    refute skill =~ "git -c " <> "merge.conflictstyle=zdiff3 merge " <> "origin/main"
+    refute skill =~ "git " <> "merge --continue"
+    refute skill =~ "Autocommit vor " <> "Pull"
+    refute skill =~ "Autocommit vor " <> "Rebase"
   end
 
   test "workflow derives ordered states from the current WORKFLOW.md status overview" do
