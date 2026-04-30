@@ -25,7 +25,7 @@ description:
 ## Verwandte Skills
 
 - `symphony-pull`: nutze diesen Skill, wenn ein Push abgelehnt wird oder die
-  Synchronisierung nicht sauber ist (non-fast-forward, Merge-Konfliktrisiko
+  Synchronisierung nicht sauber ist (non-fast-forward, Rebase-Konfliktrisiko
   oder veralteter Branch).
 - `symphony-linear`: nutze diesen Skill, um eine neu erzeugte GitHub-PR mit
   dem aktiven Linear-Issue zu verknüpfen, wenn der Branch dort noch keine PR
@@ -56,8 +56,8 @@ description:
    dabei die bereits konfigurierte Remote-URL.
 4. Falls der Push nicht sauber läuft oder abgelehnt wird:
    - Wenn der Fehler ein non-fast-forward- oder Synchronisationsproblem ist,
-     führe den Skill `symphony-pull` aus, merge `origin/main`, löse Konflikte
-     und führe die Validierung erneut aus.
+     führe den Skill `symphony-pull` aus, rebase auf `origin/main`, löse
+     Konflikte und führe die Validierung erneut aus.
    - Pushe erneut; nutze `--force-with-lease` nur, wenn Historie umgeschrieben
      wurde.
    - Falls der Fehler auf Auth, Berechtigungen oder Workflow-Restriktionen des
