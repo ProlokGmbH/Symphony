@@ -22,6 +22,7 @@ polling:
 workspace:
   root: $SYMPHONY_PROJECT_WORKTREES_ROOT
 hooks:
+  timeout_ms: 180000
   after_create: |
     set -eu
     workspace="$PWD"
