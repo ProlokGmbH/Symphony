@@ -276,7 +276,7 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den bestehenden, zuvor manuell geprüften Plan ohne weitere automatische Commits umsetzen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit `Review (AI) Autocommit` sichern, anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern, anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
@@ -459,8 +459,8 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 ### Ablauf
 
 1. Führe zu Beginn den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
-2. Wenn das Issue in diesem `Review (AI)`-Aufenthalt erstmals bearbeitet wird und der Workspace dabei offene Änderungen enthält, committe sie einmalig mit der Commit-Nachricht `Review (AI) Autocommit`, bevor der Review-/Fix-Zyklus beginnt.
-3. Wiederholte Fortsetzungsläufe oder Retries innerhalb desselben Aufenthalts in `Review (AI)` dürfen keinen weiteren `Review (AI) Autocommit` erzeugen, auch dann nicht, wenn inzwischen neue offene Änderungen aus dem Review vorliegen.
+2. Wenn das Issue in diesem `Review (AI)`-Aufenthalt erstmals bearbeitet wird und der Workspace dabei offene Änderungen enthält, committe sie einmalig mit der Commit-Nachricht im Format `<Issue-Key> Review (AI) Autocommit` plus kurzem Body, bevor der Review-/Fix-Zyklus beginnt.
+3. Wiederholte Fortsetzungsläufe oder Retries innerhalb desselben Aufenthalts in `Review (AI)` dürfen keinen weiteren `<Issue-Key> Review (AI) Autocommit` erzeugen, auch dann nicht, wenn inzwischen neue offene Änderungen aus dem Review vorliegen.
 4. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
 5. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
 6. Wenn ein Review-Subagent `Findings:` liefert, die behandelt werden sollen, muss der Hauptagent diese Findings vor den Fixes als separaten Linear-Issue-Kommentar veröffentlichen. Dieser Kommentar ist kein Workpad-Fortschrittskommentar und darf den einen persistierenden Workpad-Kommentar nicht ersetzen.
@@ -515,12 +515,12 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 
 ### Ablauf
 
-1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht `Test (AI) Autocommit`.
+1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Test (AI) Autocommit` plus kurzem Body.
 2. Führe anschließend den Skill `symphony-pull` aus.
 3. Öffne den globalen Skill `symphony-test` und führe den dort definierten Ablauf aus.
 4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
 5. Nutze das Workpad in diesem Status für `### Test`, `### Verlauf`, Pull-Nachweise und die bereits aus früheren Phasen übernommene `### Validierung`. Die dort festgehaltenen ticketseitigen Validierungsvorgaben bleiben bindend. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-6. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `Test (AI) Autocommit` committet werden.
+6. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body committet werden.
 
 ### Abschluss und nächster Status
 
@@ -595,10 +595,10 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 ### Ablauf
 
 1. Öffne den globalen Skill `symphony-land` und befolge den dort definierten Ablauf.
-2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht `Merge (AI) Autocommit`.
+2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
 3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-5. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit der Commit-Nachricht `Merge (AI) Autocommit`, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
+5. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
@@ -688,7 +688,8 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
 - Die im `Review (AI)`-Ablauf vorgeschriebenen separaten Linear-Issue-Kommentare zu Review-Subagent-Findings und daraus folgenden Fix-Einordnungen sind zulässige Nachvollziehbarkeitskommentare neben dem Workpad; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
-- Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
+- Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `<Issue-Key> Test (AI) Autocommit` oder `<Issue-Key> Merge (AI) Autocommit`.
+- Automatische Commit-Nachrichten verwenden als Betreff `<Issue-Key> <Status> Autocommit` und zusätzlich einen kurzen Body. Der Body hält fest, dass der Commit im genannten Schritt erstellt wurde, den bis dahin offenen Arbeitsstand sichert und kein Nachweis für den Abschluss dieses Schritts ist.
 - Der vorgeschaltete `symphony-pull` darf uncommittete Änderungen nur staschen und wiederherstellen, nicht committen.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.

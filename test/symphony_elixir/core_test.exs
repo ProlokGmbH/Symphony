@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.AutocommitMessage
   alias SymphonyElixir.Codex.ScriptSupport
 
   test "config defaults and validation checks" do
@@ -5145,12 +5146,12 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "globalen Skill `symphony-workpad`"
     assert prompt =~ "globalen Skill `symphony-land`"
     assert prompt =~ "Freigabe Review"
-    assert prompt =~ "`Review (AI) Autocommit`"
+    assert prompt =~ "`<Issue-Key> Review (AI) Autocommit`"
     assert prompt =~ "Review-Subagent `Findings:` liefert"
     assert prompt =~ "welches Finding welche Änderung ausgelöst hat"
     assert prompt =~ "`gh pr merge`"
-    assert prompt =~ "`Test (AI) Autocommit`"
-    assert prompt =~ "`Merge (AI) Autocommit`"
+    assert prompt =~ "`<Issue-Key> Test (AI) Autocommit`"
+    assert prompt =~ "`<Issue-Key> Merge (AI) Autocommit`"
     assert prompt =~ "Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung."
 
     assert prompt =~
@@ -7494,11 +7495,17 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
+      expected_subject = review_autocommit_subject(issue.identifier)
+
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-dirty-preflight", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
-      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\n"
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
+      assert {commit_body, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%b"])
+      assert commit_body =~ "sichert den bis dahin offenen Arbeitsstand für MT-REVIEW-PREFLIGHT"
+      assert commit_body =~ "kein Nachweis, dass Review (AI) bereits abgeschlossen ist"
       assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -7621,10 +7628,13 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
+      expected_subject = review_autocommit_subject(issue.identifier)
+
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       refute_receive {:memory_tracker_state_update, "issue-review-dirty-restart", _state_name}, 100
-      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\n"
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
       assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
 
       File.write!(Path.join(workspace, "README.md"), "# dirty review follow-up\n")
@@ -7632,8 +7642,9 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       refute_receive {:memory_tracker_state_update, "issue-review-dirty-restart", _state_name}, 100
 
-      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\nHEAD:Review (AI) Autocommit\nDIRTY:yes\n"
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\nHEAD:#{expected_subject}\nDIRTY:yes\n"
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
       assert {status_output, 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
       assert status_output =~ "README.md"
     after
@@ -7779,11 +7790,14 @@ defmodule SymphonyElixir.CoreTest do
       assert {"initial\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
       refute File.exists?(marker_path)
 
+      expected_subject = review_autocommit_subject(issue.identifier)
+
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-before-run-failure", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
-      assert File.read!(trace_file) =~ "HEAD:Review (AI) Autocommit\nDIRTY:no\n"
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\n"
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
       assert {"", 0} = System.cmd("git", ["-C", workspace, "status", "--short"])
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -7834,6 +7848,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       marker_path = review_autocommit_marker_path!(workspace)
+      expected_subject = review_autocommit_subject(issue.identifier)
 
       assert_raise RuntimeError, ~r/review-startup-failure-marker/, fn ->
         AgentRunner.run(
@@ -7846,7 +7861,8 @@ defmodule SymphonyElixir.CoreTest do
       end
 
       refute File.exists?(marker_path)
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
 
       File.write!(Path.join(workspace, "README.md"), "# dirty before second review\n")
 
@@ -7927,7 +7943,7 @@ defmodule SymphonyElixir.CoreTest do
       assert {log_output, 0} =
                System.cmd("git", ["-C", workspace, "log", "--pretty=%s", "--max-count=3"])
 
-      assert log_output =~ "Review (AI) Autocommit\nReview (AI) Autocommit\ninitial\n"
+      assert log_output =~ "#{expected_subject}\n#{expected_subject}\ninitial\n"
       refute File.exists?(marker_path)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -8000,6 +8016,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       marker_path = review_autocommit_marker_path!(workspace)
+      expected_subject = review_autocommit_subject(issue.identifier)
 
       assert_raise RuntimeError, ~r/review-turn-failure-marker/, fn ->
         AgentRunner.run(
@@ -8012,7 +8029,8 @@ defmodule SymphonyElixir.CoreTest do
       end
 
       refute File.exists?(marker_path)
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
     after
       File.rm_rf(test_root)
     end
@@ -8133,6 +8151,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       marker_path = review_autocommit_marker_path!(workspace)
+      expected_subject = review_autocommit_subject(issue.identifier)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
@@ -8147,12 +8166,12 @@ defmodule SymphonyElixir.CoreTest do
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
 
       assert File.read!(trace_file) =~
-               "HEAD:Review (AI) Autocommit\nDIRTY:no\nHEAD:Review (AI) Autocommit\nDIRTY:no\n"
+               "HEAD:#{expected_subject}\nDIRTY:no\nHEAD:#{expected_subject}\nDIRTY:no\n"
 
       assert {log_output, 0} =
                System.cmd("git", ["-C", workspace, "log", "--pretty=%s", "--max-count=3"])
 
-      assert log_output =~ "Review (AI) Autocommit\nReview (AI) Autocommit\ninitial\n"
+      assert log_output =~ "#{expected_subject}\n#{expected_subject}\ninitial\n"
       refute File.exists?(marker_path)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -8270,6 +8289,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       marker_path = review_autocommit_marker_path!(workspace)
+      expected_subject = review_autocommit_subject(issue.identifier)
 
       assert :ok =
                AgentRunner.run(
@@ -8281,7 +8301,8 @@ defmodule SymphonyElixir.CoreTest do
                )
 
       refute File.exists?(marker_path)
-      assert {"Review (AI) Autocommit\n", 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+      assert subject_output == "#{expected_subject}\n"
     after
       File.rm_rf(test_root)
     end
@@ -9509,5 +9530,12 @@ defmodule SymphonyElixir.CoreTest do
       ])
 
     String.trim(output)
+  end
+
+  defp review_autocommit_subject(identifier) do
+    identifier
+    |> AutocommitMessage.build("Review (AI)")
+    |> String.split("\n", parts: 2)
+    |> hd()
   end
 end

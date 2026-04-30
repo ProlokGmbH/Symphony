@@ -27,7 +27,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
   den Änderungen einen weiteren Linear-Issue-Kommentar, der die Findings
   einordnet, den Zweck der Änderungen beschreibt und die Finding-zu-Änderung-
   Zuordnung nachvollziehbar macht.
-- Lasse dabei alle nach dem Einstieg entstehenden Änderungen ungecommittet; der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt wird vom Workflow vor der Schleife erzeugt, weitere automatische Commits bleiben verboten.
+- Lasse dabei alle nach dem Einstieg entstehenden Änderungen ungecommittet; der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` mit kurzem Body beim ersten Eintritt wird vom Workflow vor der Schleife erzeugt, weitere automatische Commits bleiben verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
 - Führe keine zusätzlichen Review-Schritte aus, die hier nicht dokumentiert sind. Halte dich strikt an die Checkliste. Arbeite nur die dort vorgegebenen Punkte ab.

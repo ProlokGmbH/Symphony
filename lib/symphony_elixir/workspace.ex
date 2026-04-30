@@ -526,21 +526,64 @@ defmodule SymphonyElixir.Workspace do
 
   defp local_commit_all_changes(workspace, message)
        when is_binary(workspace) and is_binary(message) do
-    with :ok <- validate_workspace_path(workspace, nil) do
-      case System.cmd(
-             "sh",
-             ["-lc", ~s(git add -A && git commit -m "$SYMPHONY_GIT_COMMIT_MESSAGE")],
-             cd: workspace,
-             env: [{"SYMPHONY_GIT_COMMIT_MESSAGE", message} | Enum.into(RuntimePaths.builtin_env(), [])],
-             stderr_to_stdout: true
-           ) do
-        {_output, 0} ->
-          {:ok, :committed}
-
-        {output, status} ->
-          {:error, {:workspace_git_commit_failed, :local, status, output}}
-      end
+    with :ok <- validate_workspace_path(workspace, nil),
+         :ok <- local_git_add_all(workspace) do
+      local_git_commit_with_message(workspace, message)
     end
+  end
+
+  defp local_git_add_all(workspace) when is_binary(workspace) do
+    case System.cmd("git", ["add", "-A"],
+           cd: workspace,
+           env: Enum.into(RuntimePaths.builtin_env(), []),
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        :ok
+
+      {output, status} ->
+        {:error, {:workspace_git_commit_failed, :local, status, output}}
+    end
+  end
+
+  defp local_git_commit_with_message(workspace, message)
+       when is_binary(workspace) and is_binary(message) do
+    case System.cmd(
+           "git",
+           ["commit" | commit_message_args(message)],
+           cd: workspace,
+           env: Enum.into(RuntimePaths.builtin_env(), []),
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        {:ok, :committed}
+
+      {output, status} ->
+        {:error, {:workspace_git_commit_failed, :local, status, output}}
+    end
+  end
+
+  defp commit_message_args(message) when is_binary(message) do
+    [subject | body_lines] =
+      message
+      |> String.replace("\r\n", "\n")
+      |> String.replace("\r", "\n")
+      |> String.split("\n")
+
+    subject_args = ["-m", String.trim(subject)]
+    body = body_lines |> Enum.join("\n") |> String.trim()
+
+    if body == "" do
+      subject_args
+    else
+      subject_args ++ ["-m", body]
+    end
+  end
+
+  defp remote_commit_message_args(message) when is_binary(message) do
+    message
+    |> commit_message_args()
+    |> Enum.map_join(" ", &shell_escape/1)
   end
 
   defp remote_commit_all_changes(workspace, message, worker_host)
@@ -550,8 +593,7 @@ defmodule SymphonyElixir.Workspace do
         [
           remote_hook_env_exports(),
           "cd #{shell_escape(workspace)}",
-          "git add -A",
-          "git commit -m #{shell_escape(message)}"
+          "git add -A && git commit #{remote_commit_message_args(message)}"
         ]
         |> Enum.reject(&(&1 == ""))
         |> Enum.join("\n")

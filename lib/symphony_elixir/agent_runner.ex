@@ -4,13 +4,22 @@ defmodule SymphonyElixir.AgentRunner do
   """
 
   require Logger
-  alias SymphonyElixir.Codex.AppServer
-  alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workflow, Workpad, Workspace}
+
+  alias SymphonyElixir.{
+    AutocommitMessage,
+    Codex.AppServer,
+    Config,
+    Linear.Issue,
+    PromptBuilder,
+    Tracker,
+    Workflow,
+    Workpad,
+    Workspace
+  }
 
   @type worker_host :: String.t() | nil
   @prereview_codex_state_name "prereview (ai)"
   @review_codex_state_name "review (ai)"
-  @review_autocommit_message "Review (AI) Autocommit"
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
@@ -678,7 +687,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_prepare_workspace_for_issue_run(_issue, _workspace, _worker_host, _opts), do: :ok
 
   defp maybe_create_review_autocommit(%Issue{} = issue, workspace, worker_host) do
-    case Workspace.prepare_review_autocommit(workspace, @review_autocommit_message, worker_host) do
+    case Workspace.prepare_review_autocommit(workspace, AutocommitMessage.build(issue, "Review (AI)"), worker_host) do
       {:ok, :already_recorded} ->
         Logger.info("Skipped review autocommit because this review stay was already prepared #{issue_context(issue)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
         :ok
