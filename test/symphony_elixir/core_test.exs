@@ -131,6 +131,7 @@ defmodule SymphonyElixir.CoreTest do
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
+    assert Map.get(hooks, "timeout_ms") == 180_000
     assert Map.get(hooks, "after_create") =~ "set -eu"
     assert Map.get(hooks, "after_create") =~ "branch=\"symphony/$issue_key\""
     assert Map.get(hooks, "after_create") =~ "source_repo=\"$SYMPHONY_PROJECT_ROOT\""
