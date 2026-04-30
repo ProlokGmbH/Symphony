@@ -2,9 +2,10 @@
 name: symphony-pull
 description:
   Ziehe innerhalb eines laufenden Symphony-Issue-Workflows das neueste
-  `origin/main` in den aktiven Workflow-Branch und loese Merge-Konflikte
-  (aka update-branch). Nutze den Skill nur fuer die vom Workflow geforderte
-  merge-basierte Synchronisierung, nicht fuer generische Git-Arbeit.
+  `origin/main` per Rebase in den aktiven Workflow-Branch und löse
+  Rebase-Konflikte (aka update-branch). Nutze den Skill nur für die vom
+  Workflow geforderte rebase-basierte Synchronisierung, nicht für generische
+  Git-Arbeit.
 ---
 
 # Pull
@@ -15,12 +16,11 @@ oder Update-Branch-Schritt verlangt.
 ## Ablauf
 
 1. Prüfe `git status`:
-   - Wenn uncommittete Änderungen vorliegen und der aufrufende Workflow für
-     diesen Fall eine bestimmte Commit-Message vorgibt, nutze genau diese
-     Commit-Message.
-   - Wenn uncommittete Änderungen vorliegen und keine Commit-Message
-     vorgegeben ist, committe die Änderungen vor dem Merge mit
-     `Autocommit vor Pull`.
+   - Wenn uncommittete Änderungen vorliegen, sichere sie vor Pull/Rebase mit
+     `git stash push --include-untracked -m "symphony-pull: pre-rebase"`.
+   - Merke dir den erzeugten Stash-Ref, zum Beispiel `stash@{0}` aus
+     `git stash list --format=%gd -n 1`.
+   - Verwende dafür keinen temporären Commit.
    - Ein expliziter Aufruf dieses Skills ist auch in Schritten zulässig, die
      sonst keine automatischen Commits erlauben.
 2. Stelle sicher, dass `rerere` lokal aktiviert ist:
@@ -28,40 +28,52 @@ oder Update-Branch-Schritt verlangt.
    - `git config rerere.autoupdate true`
 3. Prüfe Remotes und Branches:
    - Stelle sicher, dass der Remote `origin` existiert.
-   - Stelle sicher, dass der aktuelle Branch den Merge erhalten soll.
+   - Stelle sicher, dass der aktuelle Branch per Rebase aktualisiert werden soll.
 4. Hole die neuesten Refs:
    - `git fetch origin`
 5. Synchronisiere zuerst den Remote-Feature-Branch:
    - Wenn `refs/remotes/origin/$(git branch --show-current)` existiert, ziehe
      ihn mit `git pull --ff-only origin $(git branch --show-current)`.
    - Wenn kein gleichnamiger Remote-Branch existiert, dokumentiere das knapp in
-     den Notizen und fahre ohne Rueckfrage mit dem Merge von `origin/main`
+     den Notizen und fahre ohne Rückfrage mit dem Rebase auf `origin/main`
      fort.
    - Das zieht remote entstandene Branch-Updates (zum Beispiel einen
-     GitHub-Auto-Commit), bevor `origin/main` gemergt wird.
-6. Merge in dieser Reihenfolge:
-   - Bevorzuge `git -c merge.conflictstyle=zdiff3 merge origin/main`, damit der
+     GitHub-Auto-Commit), bevor der Branch auf `origin/main` rebased wird.
+6. Rebase in dieser Reihenfolge:
+   - Bevorzuge `git -c merge.conflictStyle=zdiff3 rebase origin/main`, damit der
      Konfliktkontext klarer ist.
 7. Falls Konflikte auftreten, löse sie (siehe Hinweise unten) und dann:
    - `git add <files>`
-   - `git commit` (oder `git merge --continue`, falls der Merge pausiert ist)
-8. Verifiziere mit den Projekt-Checks (folge der Repo-Policy in `AGENTS.md`).
-9. Fasse den Merge zusammen:
+   - `git rebase --continue`
+8. Wenn du zu Beginn Änderungen gestasht hast, stelle sie nach abgeschlossenem
+   Pull/Rebase wieder her:
+   - Nutze `git stash apply --index <stash-ref>`.
+   - Nutze nicht `git stash pop`, damit der Stash bei Konflikten erhalten
+     bleibt.
+   - Wenn das Anwenden Konflikte erzeugt, versuche sie selbstständig anhand der
+     Hinweise unten zu lösen; stage gelöste Dateien, lasse die Änderungen aber
+     ungecommittet.
+   - Lösche den Stash erst nach erfolgreicher Wiederherstellung mit
+     `git stash drop <stash-ref>`.
+9. Verifiziere mit den Projekt-Checks (folge der Repo-Policy in `AGENTS.md`).
+10. Fasse den Rebase zusammen:
    - Nenne die schwierigsten Konflikte/Dateien und wie sie gelöst wurden.
    - Halte Annahmen oder Follow-ups fest.
-10. Ergänze eine kurze `pull skill evidence`-Notiz im aktiven Workpad:
-   - Merge-Quelle(n)
-   - Ergebnis: `clean` oder `conflicts resolved`
+11. Ergänze eine kurze `pull skill evidence`-Notiz im aktiven Workpad:
+   - Rebase-Quelle(n)
+   - Stash: `not needed`, `restored`, `restore conflicts resolved` oder
+     `restore pending/blocker`
+   - Ergebnis: `clean`, `conflicts resolved` oder `blocked`
 
 ## Hinweise zur Konfliktlösung (Best Practices)
 
 - Prüfe den Kontext vor dem Editieren:
   - Nutze `git status`, um konfliktbehaftete Dateien aufzulisten.
-  - Nutze `git diff` oder `git diff --merge`, um Konflikt-Hunks zu sehen.
+  - Nutze `git diff`, um Konflikt-Hunks zu sehen.
   - Nutze `git diff :1:path/to/file :2:path/to/file` und
     `git diff :1:path/to/file :3:path/to/file`, um base vs ours/theirs auf
     Dateiebene zu vergleichen.
-  - Mit `merge.conflictstyle=zdiff3` enthalten Konfliktmarker:
+  - Mit `merge.conflictStyle=zdiff3` enthalten Konfliktmarker:
     - `<<<<<<<` ours, `|||||||` base, `=======` split, `>>>>>>>` theirs.
     - Gleiche Zeilen am Anfang/Ende werden aus dem Konfliktbereich gekürzt;
       fokussiere dich daher auf den abweichenden Kern.
@@ -94,22 +106,34 @@ oder Update-Branch-Schritt verlangt.
   - Führe den CLI-/Tooling-Befehl aus, der die generierte Datei erzeugt hat,
     um sie sauber neu zu erstellen, und stage dann die regenerierte Ausgabe.
 - Bei Import-Konflikten mit unklarer Absicht zunächst beide Seiten akzeptieren:
-  - Behalte alle möglichen Imports vorübergehend, schließe den Merge ab und
+  - Behalte alle möglichen Imports vorübergehend, schließe den Rebase ab und
     führe dann Lint-/Type-Checks aus, um ungenutzte oder falsche Imports sicher
     zu entfernen.
 - Stelle nach der Lösung sicher, dass keine Konfliktmarker übrig sind:
   - `git diff --check`
-- Wenn du unsicher bist, notiere die Annahmen und triff eine bestmoegliche,
+- Wenn du unsicher bist, notiere die Annahmen und triff eine bestmögliche,
   reviewbare Entscheidung anhand von Code, Tests und benachbarter
   Dokumentation.
 
-## Eskalation in unbeaufsichtigten Laeufen
+## Eskalation in unbeaufsichtigten Läufen
 
-- Starte keine menschlichen Rueckfragen aus diesem Skill heraus.
-- Wenn die korrekte Konfliktloesung trotz Code, Tests und lokaler Dokumentation
+- Starte keine menschlichen Rückfragen aus diesem Skill heraus.
+- Wenn die korrekte Konfliktlösung trotz Code, Tests und lokaler Dokumentation
   nicht sicher bestimmbar ist, dokumentiere den konkreten Blocker im Workpad
-  des aufrufenden Workflows, verschiebe das Issue in einen nicht-aktiven
-  manuellen Status und stoppe statt einen Klaerungsdialog zu beginnen.
-- Wenn der aufrufende Workflow keinen spezielleren Ruecksprung fuer diesen Fall
-  definiert, verwende dafuer `BLOCKER`, damit der Lauf nicht im aktiven
-  Retry-Zustand haengen bleibt.
+  des aufrufenden Workflows, brich einen laufenden Rebase mit `git rebase --abort`
+  ab und stelle einen zu Beginn erzeugten Stash vor dem Handoff wieder her:
+  - Wenn ein `<stash-ref>` existiert, wende ihn mit
+    `git stash apply --index <stash-ref>` erneut an.
+  - Wenn das Anwenden sauber gelingt, lösche den Stash mit
+    `git stash drop <stash-ref>` und dokumentiere `Stash: restored`.
+  - Wenn das Anwenden Konflikte erzeugt und du sie nicht sicher autonom lösen
+    kannst, lasse den Stash erhalten, dokumentiere die betroffenen Dateien, den
+    exakten `<stash-ref>` und die nötige Wiederherstellungsaktion im Workpad und
+    markiere die Evidence als `Stash: restore pending/blocker`.
+  - Stoppe niemals mit einem scheinbar sauberen Workspace, wenn die eigentlichen
+    Arbeitsänderungen nur noch in einem nicht dokumentierten Stash liegen.
+  Verschiebe das Issue danach in einen nicht-aktiven manuellen Status und
+  stoppe statt einen Klärungsdialog zu beginnen.
+- Wenn der aufrufende Workflow keinen spezielleren Rücksprung für diesen Fall
+  definiert, verwende dafür `BLOCKER`, damit der Lauf nicht im aktiven
+  Retry-Zustand hängen bleibt.
