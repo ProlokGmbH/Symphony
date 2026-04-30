@@ -875,7 +875,7 @@ defmodule SymphonyElixir.AppServerTest do
             ;;
           4)
             printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-90a\"}}}'
-            printf '%s\\n' '{\"id\":102,\"method\":\"item/tool/call\",\"params\":{\"name\":\"linear_graphql\",\"callId\":\"call-90a\",\"threadId\":\"thread-90a\",\"turnId\":\"turn-90a\",\"arguments\":{\"query\":\"query Viewer { viewer { id } }\",\"variables\":{\"includeTeams\":false}}}}'
+            printf '%s\\n' '{\"id\":102,\"method\":\"item/tool/call\",\"params\":{\"name\":\"symphony_linear.linear_graphql\",\"callId\":\"call-90a\",\"threadId\":\"thread-90a\",\"turnId\":\"turn-90a\",\"arguments\":{\"query\":\"query Viewer { viewer { id } }\",\"variables\":{\"includeTeams\":false}}}}'
             ;;
           5)
             printf '%s\\n' '{\"method\":\"turn/completed\"}'
@@ -937,7 +937,7 @@ defmodule SymphonyElixir.AppServerTest do
       assert_received {:app_server_message,
                        %{
                          event: :tool_call_completed,
-                         payload: %{"params" => %{"name" => "linear_graphql"}},
+                         payload: %{"params" => %{"name" => "symphony_linear.linear_graphql"}},
                          tool_result: %{
                            "success" => true,
                            "output" => ~s({"data":{"viewer":{"id":"usr_123"}}})

@@ -128,7 +128,7 @@ defmodule SymphonyElixir.Codex.MCPServer do
 
   defp handle_tool_call(id, %{"name" => name, "arguments" => arguments}, opts)
        when is_binary(name) do
-    if name == LinearGraphqlTool.tool_name() do
+    if LinearGraphqlTool.canonical_tool_name(name) == LinearGraphqlTool.tool_name() do
       linear_client = Keyword.get(opts, :linear_client)
       tool_opts = if linear_client, do: [linear_client: linear_client], else: []
       jsonrpc_result(id, LinearGraphqlTool.mcp_call(arguments, tool_opts))

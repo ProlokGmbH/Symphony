@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
-    case tool do
+    case LinearGraphqlTool.canonical_tool_name(tool) || tool do
       "linear_graphql" ->
         LinearGraphqlTool.execute(arguments, opts)
 

@@ -4,7 +4,8 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH, Workflow}
+  alias SymphonyElixir.Codex.{DynamicTool, LinearGraphqlTool}
+  alias SymphonyElixir.{Config, PathSafety, SSH, Workflow}
 
   @initialize_id 1
   @thread_start_id 2
@@ -1250,7 +1251,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       name when is_binary(name) ->
         case String.trim(name) do
           "" -> nil
-          trimmed -> trimmed
+          trimmed -> LinearGraphqlTool.canonical_tool_name(trimmed) || trimmed
         end
 
       _ ->
