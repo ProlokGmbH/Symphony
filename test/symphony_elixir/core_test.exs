@@ -195,7 +195,35 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`"
     assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`"
     assert prompt =~ "den globalen Skill `symphony-review` explizit öffnen"
+    assert prompt =~ "Review-Subagent `Findings:` liefert"
+    assert prompt =~ "als separaten Linear-Issue-Kommentar veröffentlichen"
+    assert prompt =~ "welches Finding welche Änderung ausgelöst hat"
+
+    assert prompt =~
+             "Davon ausgenommen sind ausdrücklich die im `Review (AI)`-Ablauf geforderten separaten Linear-Issue-Kommentare"
+
+    assert prompt =~
+             "zulässige Nachvollziehbarkeitskommentare neben dem Workpad"
+
     assert prompt =~ "den globalen Skill `symphony-workpad`"
+  end
+
+  test "review skills require Linear comments for subagent findings and resulting fixes" do
+    global_review_skill = File.read!(Path.expand("../../.codex/skills/symphony-review/SKILL.md", __DIR__))
+    local_review_skill = File.read!(Path.expand("../../.codex/skills/sym-review/SKILL.md", __DIR__))
+    workpad_skill = File.read!(Path.expand("../../.codex/skills/symphony-workpad/SKILL.md", __DIR__))
+
+    for skill <- [global_review_skill, local_review_skill] do
+      assert skill =~ "Findings:"
+      assert skill =~ "separaten Linear-Issue-Kommentar"
+      assert skill =~ "vor den Fixes"
+      assert skill =~ ~r/nach\s+den Änderungen/
+      assert skill =~ "Finding-zu-Änderung"
+    end
+
+    assert workpad_skill =~ "Review-Subagent-Findings"
+    assert workpad_skill =~ "Zulässige Ausnahmen"
+    assert workpad_skill =~ "ersetzen das Workpad nicht"
   end
 
   test "repo-local symphony-linear skill documents schema-valid issue lookup patterns and fallback" do
@@ -5101,6 +5129,8 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "globalen Skill `symphony-land`"
     assert prompt =~ "Freigabe Review"
     assert prompt =~ "`Review (AI) Autocommit`"
+    assert prompt =~ "Review-Subagent `Findings:` liefert"
+    assert prompt =~ "welches Finding welche Änderung ausgelöst hat"
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`Test (AI) Autocommit`"
     assert prompt =~ "`Merge (AI) Autocommit`"

@@ -21,6 +21,12 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 - Führe die dort definierte Review-Checkliste in der vorgegebenen Reihenfolge aus.
 - Halte unter `### Review` jeden Review-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
 - Setze erforderliche Fixes sofort im selben Workspace um.
+- Wenn ein Review-Subagent `Findings:` liefert, die behandelt werden sollen,
+  veröffentliche diese Findings vor den Fixes als separaten Linear-Issue-Kommentar.
+- Wenn du aufgrund solcher Findings Änderungen vornimmst, veröffentliche nach
+  den Änderungen einen weiteren Linear-Issue-Kommentar, der die Findings
+  einordnet, den Zweck der Änderungen beschreibt und die Finding-zu-Änderung-
+  Zuordnung nachvollziehbar macht.
 - Lasse dabei alle nach dem Einstieg entstehenden Änderungen ungecommittet; der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt wird vom Workflow vor der Schleife erzeugt, weitere automatische Commits bleiben verboten.
 - Starte die Checkliste nach jedem Fix wieder von vorn.
 - Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
@@ -60,7 +66,12 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
    definierten Schritt.
 2. Aktualisiere nach jedem Schritt zuerst den zugehörigen Checklistenpunkt unter `### Review` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
 3. Wenn ein Schritt fehlschlägt oder konkrete Änderungen verlangt:
+   - falls ein Review-Subagent behandlungsbedürftige `Findings:` geliefert hat,
+     poste diese Findings zuerst als separaten Linear-Issue-Kommentar,
    - setze den Fix sofort um,
+   - wenn der Fix aus Review-Subagent-Findings folgt, poste danach einen
+     separaten Linear-Issue-Kommentar mit Einordnung, Änderungszweck und
+     Finding-zu-Änderung-Zuordnung,
    - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
    - starte die Checkliste wieder beim ersten in
      `<aktives-repo-root>/.codex/skills/sym-review/SKILL.md` definierten Schritt.

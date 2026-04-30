@@ -179,7 +179,7 @@ Zusätzliche Review-Hinweise:
 - Verwende für neue Zeitstempel im Abschnitt `Verlauf` immer lokale Systemzeit; schreibe dort keine UTC- oder `Z`-Zeitstempel.
 - Halte die Ticket-Metadaten aktuell (Status, Checkliste, Validierung, Links).
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
-- Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare.
+- Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare. Davon ausgenommen sind ausdrücklich die im `Review (AI)`-Ablauf geforderten separaten Linear-Issue-Kommentare für Review-Subagent-Findings und daraus folgende Fix-Einordnungen.
 - Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
 - Arbeite autonom von Anfang bis Ende, solange du nicht durch fehlende Anforderungen, Secrets oder Berechtigungen blockiert bist.
 
@@ -463,8 +463,10 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 3. Wiederholte Fortsetzungsläufe oder Retries innerhalb desselben Aufenthalts in `Review (AI)` dürfen keinen weiteren `Review (AI) Autocommit` erzeugen, auch dann nicht, wenn inzwischen neue offene Änderungen aus dem Review vorliegen.
 4. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
 5. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-6. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-7. Führe nach dem vorgeschalteten `symphony-pull` und dem gegebenenfalls einmaligen Einstiegssnapshot keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
+6. Wenn ein Review-Subagent `Findings:` liefert, die behandelt werden sollen, muss der Hauptagent diese Findings vor den Fixes als separaten Linear-Issue-Kommentar veröffentlichen. Dieser Kommentar ist kein Workpad-Fortschrittskommentar und darf den einen persistierenden Workpad-Kommentar nicht ersetzen.
+7. Wenn aufgrund dieser Findings Änderungen entstehen, muss der Hauptagent nach den Änderungen einen weiteren separaten Linear-Issue-Kommentar veröffentlichen, der die Findings einordnet, den Zweck der Änderungen beschreibt und nachvollziehbar festhält, welches Finding welche Änderung ausgelöst hat.
+8. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+9. Führe nach dem vorgeschalteten `symphony-pull` und dem gegebenenfalls einmaligen Einstiegssnapshot keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
@@ -684,6 +686,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
+- Die im `Review (AI)`-Ablauf vorgeschriebenen separaten Linear-Issue-Kommentare zu Review-Subagent-Findings und daraus folgenden Fix-Einordnungen sind zulässige Nachvollziehbarkeitskommentare neben dem Workpad; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits außerhalb des jeweils vorgeschalteten `symphony-pull` sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `Test (AI) Autocommit` oder `Merge (AI) Autocommit`.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.

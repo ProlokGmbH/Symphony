@@ -112,7 +112,10 @@ Verwende fuer den persistierenden Kommentar exakt diese Struktur:
   Stand und Validierungszusammenfassung. Wenn die aktuelle Workflow-Phase einen
   ungecommitten Stand verlangt, muss das dort explizit stehen.
 - Poste keine separaten Abschluss- oder Zusammenfassungs-Kommentare ausserhalb
-  dieses Workpads.
+  dieses Workpads. Zulässige Ausnahmen sind die vom `Review (AI)`-Ablauf
+  ausdrücklich verlangten Linear-Issue-Kommentare zu Review-Subagent-Findings
+  und daraus folgenden Fix-Einordnungen; diese Kommentare dienen der
+  Nachvollziehbarkeit und ersetzen das Workpad nicht.
 
 ## Ticket-Interaktionen
 
