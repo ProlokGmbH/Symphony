@@ -66,6 +66,24 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["contentItems"] == [%{"type" => "inputText", "text" => response["output"]}]
   end
 
+  test "linear_graphql accepts the symphony_linear MCP server-qualified name" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "symphony_linear.linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn query, variables, opts ->
+          send(test_pid, {:linear_client_called, query, variables, opts})
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_alias"}}}}
+        end
+      )
+
+    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{}, []}
+    assert response["success"] == true
+    assert Jason.decode!(response["output"]) == %{"data" => %{"viewer" => %{"id" => "usr_alias"}}}
+  end
+
   test "linear_graphql accepts a raw GraphQL query string" do
     test_pid = self()
 
@@ -311,6 +329,10 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
   test "linear_graphql direct entry points support their default option arities" do
     assert LinearGraphqlTool.tool_name() == "linear_graphql"
+    assert LinearGraphqlTool.canonical_tool_name(" linear_graphql ") == "linear_graphql"
+    assert LinearGraphqlTool.canonical_tool_name("symphony_linear.linear_graphql") == "linear_graphql"
+    assert LinearGraphqlTool.canonical_tool_name("not_linear_graphql") == nil
+    assert LinearGraphqlTool.canonical_tool_name(nil) == nil
     assert LinearGraphqlTool.mcp_tool()["name"] == "linear_graphql"
 
     assert LinearGraphqlTool.execute("   ") == %{

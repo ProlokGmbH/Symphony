@@ -175,6 +175,30 @@ defmodule SymphonyElixir.Codex.MCPServerTest do
            }
   end
 
+  test "tools/call accepts the symphony_linear MCP server-qualified name" do
+    response =
+      MCPServer.handle_request(
+        %{
+          "jsonrpc" => "2.0",
+          "id" => 31,
+          "method" => "tools/call",
+          "params" => %{
+            "name" => "symphony_linear.linear_graphql",
+            "arguments" => %{"query" => "query Viewer { viewer { id } }"}
+          }
+        },
+        linear_client: fn query, variables, opts ->
+          assert query == "query Viewer { viewer { id } }"
+          assert variables == %{}
+          assert opts == []
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_alias"}}}}
+        end
+      )
+
+    assert get_in(response, ["result", "isError"]) == false
+    assert get_in(response, ["result", "content", Access.at(0), "text"]) =~ "usr_alias"
+  end
+
   test "tools/call returns isError for invalid tool input" do
     response =
       MCPServer.handle_request(%{

@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Codex.LinearGraphqlTool do
   alias SymphonyElixir.Linear.Client
 
   @tool_name "linear_graphql"
+  @tool_aliases ["symphony_linear.linear_graphql"]
   @tool_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
   """
@@ -28,6 +29,17 @@ defmodule SymphonyElixir.Codex.LinearGraphqlTool do
 
   @spec tool_name() :: String.t()
   def tool_name, do: @tool_name
+
+  @spec canonical_tool_name(String.t() | nil) :: String.t() | nil
+  def canonical_tool_name(name) when is_binary(name) do
+    case String.trim(name) do
+      @tool_name -> @tool_name
+      alias_name when alias_name in @tool_aliases -> @tool_name
+      _other -> nil
+    end
+  end
+
+  def canonical_tool_name(_name), do: nil
 
   @spec tool_spec() :: map()
   def tool_spec do
