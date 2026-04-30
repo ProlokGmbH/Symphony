@@ -30,14 +30,14 @@ description:
 2. Bestätige vor jedem Push, dass das vollständige lokale Qualitäts-Gate grün
    ist.
 3. Falls der Working Tree uncommittete Änderungen enthält, committe sie in
-   diesem Status sofort mit `git commit -am "Merge (AI) Autocommit"` oder
-   `git add -A && git commit -m "Merge (AI) Autocommit"` und veröffentliche sie
-   dann mit dem Skill `symphony-push`, bevor du fortfährst.
+   diesem Status sofort mit dem Betreff `<Issue-Key> Merge (AI) Autocommit`
+   und kurzem Body; veröffentliche sie dann mit dem Skill `symphony-push`,
+   bevor du fortfährst.
 4. Prüfe Mergebarkeit und Konflikte gegenüber main.
 5. Falls Konflikte bestehen, nutze den Skill `symphony-pull`, um
    `origin/main` zu holen/zu mergen und Konflikte zu lösen. Wenn dieser Pull
    oder seine Konfliktlösung Dateien ändert, committe sie mit
-   `Merge (AI) Autocommit`, verschiebe das Issue zurück nach `Test (AI)` und
+   `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue zurück nach `Test (AI)` und
    stoppe, damit der Testzyklus auf dem gemergten Code erneut läuft. Nur wenn
    kein erneuter Lauf nötig ist, veröffentliche den aktualisierten Branch mit
    `symphony-push`.
@@ -45,7 +45,7 @@ description:
    und erforderliche Fixes vor dem Merge erledigt wurden.
 7. Beobachte die Checks bis zum Abschluss.
 8. Falls Checks fehlschlagen, ziehe die Logs, behebe das Problem, committe
-   daraus entstehende Änderungen in diesem Status mit `Merge (AI) Autocommit`,
+   daraus entstehende Änderungen in diesem Status mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body,
    veröffentliche sie mit `symphony-push` und starte die Checks erneut.
 9. Wenn alle Checks grün sind und Review-Feedback erledigt ist, merge die PR
    mit dem merge-commit-Betreff `<IssueId>: <IssueTitle>`.
@@ -128,7 +128,7 @@ Exit-Codes:
 
 - Wenn Checks fehlschlagen, hole Details mit `gh pr checks` und
   `gh run view --log`, behebe das Problem lokal, committe das Ergebnis in
-  diesem Status mit `Merge (AI) Autocommit`, veröffentliche es mit
+  diesem Status mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, veröffentliche es mit
   `symphony-push` und starte den Watch erneut.
 - Nutze Augenmaß, um instabile Fehler zu erkennen. Wenn ein Fehler nur ein
   Ausreißer ist (z. B. Timeout auf einer Plattform), darfst du ohne Fix

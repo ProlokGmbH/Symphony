@@ -1,9 +1,21 @@
 defmodule SymphonyElixir.WorkspaceAndConfigTest do
   use SymphonyElixir.TestSupport
   alias Ecto.Changeset
+  alias SymphonyElixir.AutocommitMessage
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
   alias SymphonyElixir.Linear.Client
+
+  test "autocommit messages include issue identifier, workflow state and explanatory body" do
+    assert AutocommitMessage.build(%Issue{identifier: "MT-REVIEW"}, "Review (AI)") ==
+             "MT-REVIEW Review (AI) Autocommit\n\nDieser automatische Commit wird im Schritt Review (AI) erstellt und sichert den bis dahin offenen Arbeitsstand für MT-REVIEW. Er ist kein Nachweis, dass Review (AI) bereits abgeschlossen ist."
+
+    assert AutocommitMessage.build(%{identifier: " MT-TEST "}, " Test (AI) ") ==
+             "MT-TEST Test (AI) Autocommit\n\nDieser automatische Commit wird im Schritt Test (AI) erstellt und sichert den bis dahin offenen Arbeitsstand für MT-TEST. Er ist kein Nachweis, dass Test (AI) bereits abgeschlossen ist."
+
+    assert AutocommitMessage.build("", "Merge (AI)") =~ "Unbekanntes Issue Merge (AI) Autocommit"
+    assert AutocommitMessage.build(nil, "Merge (AI)") =~ "für Unbekanntes Issue"
+  end
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
@@ -314,19 +326,54 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       marker_path_b = review_autocommit_marker_path!(workspace_b)
 
       File.write!(Path.join(workspace_a, "review-a.txt"), "dirty\n")
-      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_a, "Review (AI) Autocommit")
+      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_a, AutocommitMessage.build("MT-REVIEW-A", "Review (AI)"))
       assert File.exists?(marker_path_a)
       refute File.exists?(marker_path_b)
 
       File.write!(Path.join(workspace_b, "review-b.txt"), "dirty\n")
-      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_b, "Review (AI) Autocommit")
+      assert {:ok, :committed} = Workspace.prepare_review_autocommit(workspace_b, AutocommitMessage.build("MT-REVIEW-B", "Review (AI)"))
       assert File.exists?(marker_path_a)
       assert File.exists?(marker_path_b)
 
       assert :ok = Workspace.clear_review_autocommit_marker(workspace_a)
       refute File.exists?(marker_path_a)
       assert File.exists?(marker_path_b)
-      assert {:ok, :already_recorded} = Workspace.prepare_review_autocommit(workspace_b, "Review (AI) Autocommit")
+      assert {:ok, :already_recorded} = Workspace.prepare_review_autocommit(workspace_b, AutocommitMessage.build("MT-REVIEW-B", "Review (AI)"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "commit_all_changes writes multiline commit messages as subject and body" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-multiline-commit-message-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace = Path.join(test_root, "workspace")
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "base\n")
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "init", "-b", "main"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "add", "README.md"], stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "initial"], stderr_to_stdout: true)
+
+      File.write!(Path.join(workspace, "README.md"), "base\nchange\n")
+
+      message = AutocommitMessage.build("MT-MULTILINE", "Test (AI)")
+      assert {:ok, :committed} = Workspace.commit_all_changes(workspace, message)
+
+      assert {"MT-MULTILINE Test (AI) Autocommit\n", 0} =
+               System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
+
+      assert {body, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%b"])
+      assert body =~ "Dieser automatische Commit wird im Schritt Test (AI) erstellt"
+      assert body =~ "Er ist kein Nachweis, dass Test (AI) bereits abgeschlossen ist."
     after
       File.rm_rf(test_root)
     end
