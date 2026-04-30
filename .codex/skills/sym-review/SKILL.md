@@ -32,6 +32,8 @@ Verwende diesen Skill `sym-review` als massgebliche Checkliste fuer
      - `Findings:` mit priorisierten, belastbaren Befunden inklusive Datei-/Zeilenreferenzen und knapper Begründung
      - `Keine Findings.` optional mit kurzen Restrisiken oder Testlücken
    - Wenn der Subagent `Findings:` meldet, gilt Schritt 2 als nicht bestanden. Markiere den Schritt nicht als erledigt, sondern behebe die Findings selbst im aktuellen Workspace und starte anschließend die Checkliste erneut bei Schritt 1.
+   - Wenn der Subagent `Findings:` meldet und du diese Findings behandeln musst, poste die gelieferten Findings vor den Fixes als separaten Linear-Issue-Kommentar. Dieser Kommentar dient der Nachvollziehbarkeit am Issue und ersetzt nicht das Workpad.
+   - Wenn du aufgrund dieser Findings Änderungen vornimmst, poste nach den Änderungen einen weiteren separaten Linear-Issue-Kommentar, der die Findings einordnet, den Zweck der Änderungen beschreibt und die Finding-zu-Änderung-Zuordnung festhält.
    - Schritt 2 ist erst dann erfolgreich abgeschlossen, wenn ein erneuter read-only Review-Durchlauf mit `Keine Findings.` endet.
    - Wenn diese Isolation in der aktuellen Session nicht möglich ist, bleibt Schritt 2 offen; ersetze ihn nicht durch ein lokales Review.
 
