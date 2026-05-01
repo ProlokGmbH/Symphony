@@ -982,6 +982,59 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert query =~ "state: {name: {in: $stateNames}}"
   end
 
+  test "linear client includes manual approval states in candidate polling in yolo mode" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      restore_app_env(:yolo, previous_yolo)
+
+      if is_nil(previous_request_fun) do
+        Application.delete_env(:symphony_elixir, :linear_client_request_fun)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_request_fun, previous_request_fun)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo (AI)", "Review (AI)"]
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:fetch_candidate_issues, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => []
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, []} = Client.fetch_candidate_issues()
+
+    assert_receive {:fetch_candidate_issues,
+                    %{
+                      "variables" => %{
+                        stateNames: [
+                          "Todo (AI)",
+                          "Review (AI)",
+                          "In Arbeit",
+                          "Freigabe Planung",
+                          "Freigabe Implementierung",
+                          "Freigabe Review"
+                        ]
+                      }
+                    }}
+  end
+
   test "linear client paginates issue comment bodies beyond the first page" do
     previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
 
@@ -1207,6 +1260,45 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     }
 
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
+  test "manual approval issues remain dispatch-eligible in yolo mode" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    on_exit(fn -> restore_app_env(:yolo, previous_yolo) end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issues = [
+      %Issue{
+        id: "yolo-freigabe-planung",
+        identifier: "MT-YOLO-1",
+        title: "Yolo skips planning approval",
+        state: "Freigabe Planung"
+      },
+      %Issue{
+        id: "yolo-freigabe-implementierung",
+        identifier: "MT-YOLO-2",
+        title: "Yolo skips implementation approval",
+        state: "Freigabe Implementierung"
+      },
+      %Issue{
+        id: "yolo-freigabe-review",
+        identifier: "MT-YOLO-3",
+        title: "Yolo skips review approval",
+        state: "Freigabe Review"
+      }
+    ]
+
+    assert Enum.all?(issues, &Orchestrator.should_dispatch_issue_for_test(&1, state))
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
