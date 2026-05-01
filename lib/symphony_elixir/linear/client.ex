@@ -603,12 +603,16 @@ defmodule SymphonyElixir.Linear.Client do
   defp assignee_email(%{} = assignee), do: normalize_assignee_email_value(assignee["email"])
 
   defp routing_assignee_filter do
-    case Config.settings!().tracker.assignee do
-      nil ->
-        {:ok, nil}
+    if Config.yolo?() do
+      {:ok, nil}
+    else
+      case Config.settings!().tracker.assignee do
+        nil ->
+          {:ok, nil}
 
-      assignee ->
-        build_assignee_filter(assignee)
+        assignee ->
+          build_assignee_filter(assignee)
+      end
     end
   end
 

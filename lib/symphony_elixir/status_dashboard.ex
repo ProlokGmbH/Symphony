@@ -417,12 +417,16 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_assignee_lines do
-    case Config.settings!().tracker.assignee do
-      assignee when is_binary(assignee) and assignee != "" ->
-        [colorize("│ Assignee: ", @ansi_bold) <> colorize(assignee, @ansi_cyan)]
+    if Config.yolo?() do
+      [colorize("│ Assignee: ", @ansi_bold) <> colorize("--yolo", @ansi_cyan)]
+    else
+      case Config.settings!().tracker.assignee do
+        assignee when is_binary(assignee) and assignee != "" ->
+          [colorize("│ Assignee: ", @ansi_bold) <> colorize(assignee, @ansi_cyan)]
 
-      _ ->
-        []
+        _ ->
+          []
+      end
     end
   end
 

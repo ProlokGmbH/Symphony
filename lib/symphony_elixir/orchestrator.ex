@@ -705,7 +705,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
        when is_boolean(assigned_to_worker),
-       do: assigned_to_worker
+       do: Config.yolo?() or assigned_to_worker
 
   defp issue_routable_to_worker?(_issue), do: true
 

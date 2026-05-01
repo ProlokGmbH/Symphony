@@ -88,6 +88,29 @@ defmodule SymphonyElixir.CLITest do
     assert :ok = CLI.evaluate([@ack_flag], deps)
   end
 
+  test "accepts --yolo and passes the runtime mode to deps" do
+    parent = self()
+
+    deps = %{
+      default_workflow_path: fn -> "/tmp/symphony-install/WORKFLOW.md" end,
+      env_files_dir: fn -> "/tmp/project" end,
+      file_regular?: fn _path -> true end,
+      load_env_files: fn _path -> :ok end,
+      set_workflow_file_path: fn _path -> :ok end,
+      validate_startup_requirements: fn -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_yolo_mode: fn enabled? ->
+        send(parent, {:yolo_mode, enabled?})
+        :ok
+      end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert :ok = CLI.evaluate(["--yolo"], deps)
+    assert_received {:yolo_mode, true}
+  end
+
   test "rejects positional workflow path overrides" do
     deps = %{
       default_workflow_path: fn -> "/tmp/symphony-install/WORKFLOW.md" end,
@@ -102,7 +125,7 @@ defmodule SymphonyElixir.CLITest do
     }
 
     assert {:error, message} = CLI.evaluate(["tmp/custom/WORKFLOW.md"], deps)
-    assert message == "Usage: symphony [--logs-root <path>] [--port <port>]"
+    assert message == "Usage: symphony [--logs-root <path>] [--port <port>] [--yolo]"
   end
 
   test "loads env files from .symphony under the invocation directory instead of the workflow directory" do

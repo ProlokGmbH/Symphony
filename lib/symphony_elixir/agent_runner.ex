@@ -36,6 +36,11 @@ defmodule SymphonyElixir.AgentRunner do
     "freigabe review",
     "freigabe final"
   ]
+  @yolo_skip_state_names [
+    "freigabe planung",
+    "freigabe implementierung",
+    "freigabe review"
+  ]
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
@@ -142,11 +147,13 @@ defmodule SymphonyElixir.AgentRunner do
   defp skip_current_manual_state?(%Issue{} = issue) do
     current_state = normalize_issue_state(issue.state)
 
-    Issue.label_names(issue)
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.any?(fn label ->
-      label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
-    end)
+    (Config.yolo?() and current_state in @yolo_skip_state_names) or
+      issue
+      |> Issue.label_names()
+      |> Enum.map(&normalize_issue_state/1)
+      |> Enum.any?(fn label ->
+        label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
+      end)
   end
 
   defp codex_message_handler(recipient, issue) do

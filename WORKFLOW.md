@@ -266,6 +266,12 @@ Status selbst ein manueller Freigabe-Status ist und dafür ein passendes
 `Skip "<Status>"`-Label gesetzt wurde, verwendet Symphony den nächsten
 Tabellenstatus als Ziel und läuft von dort weiter.
 
+Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Planung`,
+`Freigabe Implementierung` und `Freigabe Review` unabhängig von gesetzten
+Labels als übersprungen. Außerdem bearbeitet Symphony dann alle passenden
+Tickets unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem
+Modus `--yolo` statt des Assignees.
+
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |

@@ -42,8 +42,8 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    mix setup
    ```
 
-2. Umgebungsvariablen vorbereiten, zum Beispiel ueber `.symphony/.env.local`.
-   Typisch benoetigt werden:
+2. Umgebungsvariablen vorbereiten, zum Beispiel über `.symphony/.env.local`.
+   Typisch benötigt werden:
    - `LINEAR_API_KEY`
    - `LINEAR_PROJECT_SLUG`
    - `LINEAR_ASSIGNEE`
@@ -57,6 +57,8 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    ```
 
 Der Wrapper `./symphony` verlinkt die mitgelieferten Skills in dein lokales Codex-Skill-Verzeichnis und startet anschliessend `bin/symphony`. Wenn ein Port gesetzt ist, ist das Dashboard danach typischerweise unter `http://127.0.0.1:4000/` erreichbar.
+
+Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees.
 
 ### Qualitaetssicherung
 
@@ -89,7 +91,7 @@ Nicht automatisch durch Dependabot aktualisierbar sind aktuell:
 ## Workflow
 
 Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Review-Freigabe. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
-Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt auch fuer die drei manuellen Freigabepunkte.
+Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt auch fuer die drei manuellen Freigabepunkte. Im `--yolo`-Modus gelten die drei Freigabepunkte immer als übersprungen.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |

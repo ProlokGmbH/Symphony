@@ -787,6 +787,39 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert query =~ ~s(assignee: {id: {eq: "user-123"}})
   end
 
+  test "linear candidate polling omits assignee filter in yolo mode" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      restore_app_env(:yolo, previous_yolo)
+      restore_app_env(:linear_client_request_fun, previous_request_fun)
+    end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:linear_candidate_query, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => [],
+               "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, []} = Client.fetch_candidate_issues()
+    assert_received {:linear_candidate_query, %{"query" => query}}
+    refute query =~ "assignee:"
+  end
+
   test "linear client pagination merge helper preserves issue ordering" do
     issue_page_1 = [
       %Issue{id: "issue-1", identifier: "MT-1"},
@@ -1148,6 +1181,32 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
+  test "issue assigned to another worker remains dispatch-eligible in yolo mode" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    on_exit(fn -> restore_app_env(:yolo, previous_yolo) end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "assigned-away-yolo",
+      identifier: "MT-1007-YOLO",
+      title: "Owned elsewhere",
+      state: "Todo (AI)",
+      assigned_to_worker: false
+    }
+
+    assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
@@ -2192,6 +2251,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   defp project_worktree_script_path(filename) when is_binary(filename) do
     Path.expand("../../.symphony/#{filename}", __DIR__)
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
+  defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
 
   defp review_autocommit_marker_path!(workspace) do
     {output, 0} =
