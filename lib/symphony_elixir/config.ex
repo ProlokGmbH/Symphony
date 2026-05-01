@@ -91,6 +91,11 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec yolo?() :: boolean()
+  def yolo? do
+    Application.get_env(:symphony_elixir, :yolo, false) == true
+  end
+
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
@@ -153,7 +158,7 @@ defmodule SymphonyElixir.Config do
       not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
-      not is_binary(settings.tracker.assignee) ->
+      not yolo?() and not is_binary(settings.tracker.assignee) ->
         {:error, :missing_linear_assignee}
 
       true ->
@@ -162,6 +167,16 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_required_environment(%{tracker: %{kind: "linear"}}) do
+    if yolo?() do
+      :ok
+    else
+      validate_required_assignee_environment()
+    end
+  end
+
+  defp validate_required_environment(_settings), do: :ok
+
+  defp validate_required_assignee_environment do
     case System.get_env("LINEAR_ASSIGNEE") do
       value when is_binary(value) ->
         if String.trim(value) == "", do: {:error, :missing_linear_assignee_env}, else: :ok
@@ -170,8 +185,6 @@ defmodule SymphonyElixir.Config do
         {:error, :missing_linear_assignee_env}
     end
   end
-
-  defp validate_required_environment(_settings), do: :ok
 
   defp format_config_error(reason) do
     case reason do

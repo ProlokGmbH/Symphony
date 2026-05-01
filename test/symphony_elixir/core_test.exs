@@ -191,6 +191,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
     assert prompt =~ "Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann"
     assert prompt =~ "verschiebe nach `BLOCKER`"
+    assert prompt =~ "Wenn Symphony mit `--yolo` gestartet wird"
+    assert prompt =~ "die Hauptmaske zeigt in diesem"
+    assert prompt =~ "Modus `--yolo` statt des Assignees."
     assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
     assert prompt =~ "Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`"
     assert prompt =~ "Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`"
@@ -326,6 +329,27 @@ defmodule SymphonyElixir.CoreTest do
     assert implementation_handoff_skip_status == "Review (AI)"
     assert review_skip_status == "Test (AI)"
     assert review_handoff_skip_status == "Test (AI)"
+  end
+
+  test "workflow treats yolo mode like approval skip labels" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+    original_workflow_path = Workflow.workflow_file_path()
+    repo_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    on_exit(fn ->
+      restore_app_env(:yolo, previous_yolo)
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end)
+
+    Workflow.set_workflow_file_path(repo_workflow_path)
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    assert Workflow.resolve_next_status("Planung (AI)", []) == "In Arbeit (AI)"
+    assert Workflow.resolve_next_status("Freigabe Planung", []) == "In Arbeit (AI)"
+    assert Workflow.resolve_next_status("PreReview (AI)", []) == "Review (AI)"
+    assert Workflow.resolve_next_status("Freigabe Implementierung", []) == "Review (AI)"
+    assert Workflow.resolve_next_status("Review (AI)", []) == "Test (AI)"
+    assert Workflow.resolve_next_status("Freigabe Review", []) == "Test (AI)"
   end
 
   test "workflow falls back to built-in transitions when the prompt has no status overview" do
@@ -464,6 +488,28 @@ defmodule SymphonyElixir.CoreTest do
     System.put_env("LINEAR_ASSIGNEE", "dev@example.com")
 
     assert :ok = Config.validate_startup_requirements()
+  end
+
+  test "startup validation does not require LINEAR_ASSIGNEE in yolo mode" do
+    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    on_exit(fn ->
+      restore_env("LINEAR_ASSIGNEE", previous_linear_assignee)
+      restore_app_env(:yolo, previous_yolo)
+    end)
+
+    System.delete_env("LINEAR_ASSIGNEE")
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_assignee: nil,
+      tracker_project_slug: "project",
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert :ok = Config.validate_startup_requirements()
+    assert Config.yolo?()
   end
 
   test "application startup preflight loads env files from .symphony before validating assignee" do
@@ -5530,6 +5576,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
 
     try do
       remote_repo = Path.join(test_root, "remote.git")
@@ -5581,7 +5628,7 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 1
       )
 
-      run_case = fn issue_id, start_state, label, expected_state ->
+      run_case = fn issue_id, start_state, labels, expected_state ->
         File.rm(codex_log)
 
         {:ok, state_agent} = Agent.start_link(fn -> start_state end)
@@ -5593,8 +5640,6 @@ defmodule SymphonyElixir.CoreTest do
           end)
 
         Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
-
-        labels = [label]
 
         state_fetcher = fn [_requested_issue_id] ->
           current_state = Agent.get(state_agent, & &1)
@@ -5636,24 +5681,34 @@ defmodule SymphonyElixir.CoreTest do
       run_case.(
         "issue-skip-planning",
         "Freigabe Planung",
-        ~s(skip "freigabe planung"),
+        [~s(skip "freigabe planung")],
         "In Arbeit (AI)"
       )
 
       run_case.(
         "issue-skip-implementation",
         "Freigabe Implementierung",
-        ~s(skip "freigabe implementierung"),
+        [~s(skip "freigabe implementierung")],
         "Review (AI)"
       )
 
       run_case.(
         "issue-skip-review",
         "Freigabe Review",
-        ~s(skip "freigabe review"),
+        [~s(skip "freigabe review")],
         "Test (AI)"
       )
+
+      Application.put_env(:symphony_elixir, :yolo, true)
+
+      run_case.(
+        "issue-yolo-skip-implementation",
+        "Freigabe Implementierung",
+        [],
+        "Review (AI)"
+      )
     after
+      restore_app_env(:yolo, previous_yolo)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end

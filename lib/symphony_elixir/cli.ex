@@ -7,10 +7,11 @@ defmodule SymphonyElixir.CLI do
 
   # Keep the legacy acknowledgement flag accepted so older scripts still parse.
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
+  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, yolo: :boolean]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
+          optional(:set_yolo_mode) => (boolean() -> :ok | {:error, term()}),
           default_workflow_path: (-> String.t()),
           env_files_dir: (-> String.t()),
           file_regular?: (String.t() -> boolean()),
@@ -39,7 +40,8 @@ defmodule SymphonyElixir.CLI do
     case OptionParser.parse(args, strict: @switches) do
       {opts, [], []} ->
         with :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
+             :ok <- maybe_set_server_port(opts, deps),
+             :ok <- maybe_set_yolo_mode(opts, deps) do
           run(deps.default_workflow_path.(), deps.env_files_dir.(), deps)
         end
 
@@ -65,7 +67,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [--yolo]"
   end
 
   @spec runtime_deps() :: deps()
@@ -79,6 +81,7 @@ defmodule SymphonyElixir.CLI do
       validate_startup_requirements: &SymphonyElixir.Config.validate_startup_requirements/0,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
+      set_yolo_mode: &set_yolo_mode/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
   end
@@ -177,6 +180,16 @@ defmodule SymphonyElixir.CLI do
 
   defp set_server_port_override(port) when is_integer(port) and port >= 0 do
     Application.put_env(:symphony_elixir, :server_port_override, port)
+    :ok
+  end
+
+  defp maybe_set_yolo_mode(opts, deps) do
+    set_yolo_mode = Map.get(deps, :set_yolo_mode, &set_yolo_mode/1)
+    set_yolo_mode.(Keyword.get(opts, :yolo, false))
+  end
+
+  defp set_yolo_mode(enabled?) when is_boolean(enabled?) do
+    Application.put_env(:symphony_elixir, :yolo, enabled?)
     :ok
   end
 

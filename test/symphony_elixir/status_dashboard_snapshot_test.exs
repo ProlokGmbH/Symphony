@@ -43,6 +43,31 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("idle_with_dashboard_url", render_snapshot(snapshot_data, 0.0))
   end
 
+  test "idle dashboard shows yolo mode instead of configured assignee" do
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    on_exit(fn ->
+      if is_nil(previous_yolo) do
+        Application.delete_env(:symphony_elixir, :yolo)
+      else
+        Application.put_env(:symphony_elixir, :yolo, previous_yolo)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }}
+
+    assert render_snapshot(snapshot_data, 0.0) =~ "--yolo"
+  end
+
   test "snapshot fixture: super busy dashboard" do
     snapshot_data =
       {:ok,

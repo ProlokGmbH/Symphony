@@ -15,6 +15,7 @@ defmodule SymphonyElixir.Workflow do
     "freigabe implementierung",
     "freigabe review"
   ]
+  @yolo_skip_labels Enum.map(@direct_skip_state_names, &~s(skip "#{&1}"))
   @default_status_overview [
     %{status: "Backlog", next_regular_status: "Todo (AI)"},
     %{status: "Todo", next_regular_status: "Todo (AI)"},
@@ -149,6 +150,7 @@ defmodule SymphonyElixir.Workflow do
   def resolve_next_status(current_status, labels)
       when is_binary(current_status) and is_list(labels) do
     entries = status_overview_or_default()
+    labels = effective_skip_labels(labels)
 
     entries
     |> find_status_entry(current_status)
@@ -173,6 +175,8 @@ defmodule SymphonyElixir.Workflow do
   @spec resolve_target_status(String.t(), [String.t()]) :: String.t() | nil
   def resolve_target_status(target_status, labels)
       when is_binary(target_status) and is_list(labels) do
+    labels = effective_skip_labels(labels)
+
     status_overview_or_default()
     |> Enum.map(& &1.status)
     |> Enum.drop_while(&(normalize_status_name(&1) != normalize_status_name(target_status)))
@@ -515,6 +519,14 @@ defmodule SymphonyElixir.Workflow do
   defp direct_skip_state?(status_name) when is_binary(status_name) do
     normalized_status = normalize_status_name(status_name)
     Enum.any?(@direct_skip_state_names, &(&1 == normalized_status))
+  end
+
+  defp effective_skip_labels(labels) when is_list(labels) do
+    if Application.get_env(:symphony_elixir, :yolo, false) == true do
+      labels ++ @yolo_skip_labels
+    else
+      labels
+    end
   end
 
   defp next_status_after(entries, current_status)

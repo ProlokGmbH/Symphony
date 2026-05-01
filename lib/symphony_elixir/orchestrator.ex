@@ -19,6 +19,7 @@ defmodule SymphonyElixir.Orchestrator do
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
+  @yolo_manual_state_names ["freigabe planung", "freigabe implementierung", "freigabe review"]
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,
@@ -705,7 +706,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
        when is_boolean(assigned_to_worker),
-       do: assigned_to_worker
+       do: Config.yolo?() or assigned_to_worker
 
   defp issue_routable_to_worker?(_issue), do: true
 
@@ -766,9 +767,17 @@ defmodule SymphonyElixir.Orchestrator do
   defp active_state_set do
     Config.settings!().tracker.active_states
     |> Enum.map(&normalize_issue_state/1)
-    |> Enum.concat([@manual_in_progress_state_name])
+    |> Enum.concat(extra_active_state_names())
     |> Enum.filter(&(&1 != ""))
     |> MapSet.new()
+  end
+
+  defp extra_active_state_names do
+    if Config.yolo?() do
+      [@manual_in_progress_state_name | @yolo_manual_state_names]
+    else
+      [@manual_in_progress_state_name]
+    end
   end
 
   defp manual_in_progress_issue_state?(state_name) when is_binary(state_name) do

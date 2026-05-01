@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Linear.Client do
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
   @manual_in_progress_state_name "In Arbeit"
+  @yolo_manual_state_names ["Freigabe Planung", "Freigabe Implementierung", "Freigabe Review"]
 
   @issue_selection """
   id
@@ -288,11 +289,19 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp candidate_state_names(state_names) when is_list(state_names) do
     state_names
-    |> Kernel.++([@manual_in_progress_state_name])
+    |> Kernel.++(extra_candidate_state_names())
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
+  end
+
+  defp extra_candidate_state_names do
+    if Config.yolo?() do
+      [@manual_in_progress_state_name | @yolo_manual_state_names]
+    else
+      [@manual_in_progress_state_name]
+    end
   end
 
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do
@@ -603,12 +612,16 @@ defmodule SymphonyElixir.Linear.Client do
   defp assignee_email(%{} = assignee), do: normalize_assignee_email_value(assignee["email"])
 
   defp routing_assignee_filter do
-    case Config.settings!().tracker.assignee do
-      nil ->
-        {:ok, nil}
+    if Config.yolo?() do
+      {:ok, nil}
+    else
+      case Config.settings!().tracker.assignee do
+        nil ->
+          {:ok, nil}
 
-      assignee ->
-        build_assignee_filter(assignee)
+        assignee ->
+          build_assignee_filter(assignee)
+      end
     end
   end
 
