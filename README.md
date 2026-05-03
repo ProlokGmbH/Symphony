@@ -50,6 +50,13 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    - `SYMPHONY_PROJECT_ROOT`
    - `SYMPHONY_PROJECT_WORKTREES_ROOT`
 
+   `sym-codex <TicketId>` priorisiert für den Linear-MCP-Zugriff die
+   `.symphony/.env(.local)` des aufrufenden Projekt-Roots auch gegenüber
+   geerbten Shell-Werten. Dadurch können
+   mehrere Projekte parallel mit unterschiedlichen `LINEAR_API_KEY`-Werten
+   arbeiten; das Symphony-Source-Repository bleibt der Fallback, wenn kein
+   Projekt-Root übergeben wird.
+
 3. Symphony starten:
 
    ```bash

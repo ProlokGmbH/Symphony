@@ -4864,7 +4864,7 @@ defmodule SymphonyElixir.CoreTest do
     File.mkdir_p!(Path.join(project_root, ".symphony"))
     File.write!(Path.join(project_root, ".symphony/.env"), "LINEAR_API_KEY=project-root-key\n")
     File.write!(interactive_workflow_path, "---\n---\ninteractive={{ issue.identifier }}\n")
-    System.delete_env("LINEAR_API_KEY")
+    System.put_env("LINEAR_API_KEY", "inherited-shell-key")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",

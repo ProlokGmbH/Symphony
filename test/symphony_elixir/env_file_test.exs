@@ -44,6 +44,24 @@ defmodule SymphonyElixir.EnvFileTest do
     assert System.get_env("LINEAR_API_KEY") == "shell-key"
   end
 
+  test "can explicitly let project env files override inherited env vars" do
+    project_root = temp_project_root("override-system-env")
+    env_dir = symphony_dir(project_root)
+    previous_api_key = System.get_env("LINEAR_API_KEY")
+
+    on_exit(fn ->
+      restore_env("LINEAR_API_KEY", previous_api_key)
+      File.rm_rf(project_root)
+    end)
+
+    System.put_env("LINEAR_API_KEY", "shell-key")
+    File.write!(Path.join(env_dir, ".env"), "LINEAR_API_KEY=repo-key\n")
+    File.write!(Path.join(env_dir, ".env.local"), "LINEAR_API_KEY=local-key\n")
+
+    assert :ok = EnvFile.load(env_dir, override_existing: true)
+    assert System.get_env("LINEAR_API_KEY") == "local-key"
+  end
+
   test "supports quoted values and comments" do
     project_root = temp_project_root("quoted-values")
     env_dir = symphony_dir(project_root)
