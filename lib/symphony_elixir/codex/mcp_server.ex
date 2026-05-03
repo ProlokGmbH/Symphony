@@ -38,17 +38,34 @@ defmodule SymphonyElixir.Codex.MCPServer do
 
   @spec bootstrap(keyword()) :: :ok | {:error, term()}
   def bootstrap(opts \\ []) do
-    env_loader = Keyword.get(opts, :env_loader, &EnvFile.load/1)
+    env_loader = Keyword.get(opts, :env_loader, &load_project_env/1)
+    logger_configurer = Keyword.get(opts, :logger_configurer, &silence_stdout_logger/0)
     workflow_setter = Keyword.get(opts, :workflow_setter, &Workflow.set_workflow_file_path/1)
-    source_repo = System.get_env("SYMPHONY_SOURCE_REPO") || File.cwd!()
-    workflow_file = System.get_env("SYMPHONY_WORKFLOW_FILE") || Workflow.default_workflow_file_path()
+    source_repo = env_value("SYMPHONY_SOURCE_REPO") || File.cwd!()
+    env_files_root = env_value("SYMPHONY_PROJECT_ROOT") || source_repo
+    workflow_file = env_value("SYMPHONY_WORKFLOW_FILE") || Workflow.default_workflow_file_path()
 
-    with :ok <- env_loader.(EnvFile.config_dir(source_repo)),
+    with :ok <- logger_configurer.(),
+         :ok <- env_loader.(EnvFile.config_dir(env_files_root)),
          :ok <- workflow_setter.(workflow_file),
          {:ok, _apps} <- Application.ensure_all_started(:req) do
       :ok
     end
   end
+
+  defp env_value(name) do
+    case System.get_env(name) do
+      value when is_binary(value) and value != "" -> value
+      _empty_or_missing -> nil
+    end
+  end
+
+  defp silence_stdout_logger do
+    :logger.remove_handler(:default)
+    :ok
+  end
+
+  defp load_project_env(config_dir), do: EnvFile.load(config_dir, override_existing: true)
 
   @spec run([String.t()], keyword()) :: :ok
   def run(_args \\ [], opts \\ []) do

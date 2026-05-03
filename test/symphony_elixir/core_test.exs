@@ -173,7 +173,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist"
     assert prompt =~ "mise exec -- mix run --no-start -e"
     assert prompt =~ "git rev-parse --show-toplevel"
-    assert prompt =~ "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))"
+
+    assert prompt =~
+             "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)"
+
     assert prompt =~ "Application.ensure_all_started(:req)"
     assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
     assert prompt =~ "verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap"
@@ -4864,7 +4867,7 @@ defmodule SymphonyElixir.CoreTest do
     File.mkdir_p!(Path.join(project_root, ".symphony"))
     File.write!(Path.join(project_root, ".symphony/.env"), "LINEAR_API_KEY=project-root-key\n")
     File.write!(interactive_workflow_path, "---\n---\ninteractive={{ issue.identifier }}\n")
-    System.delete_env("LINEAR_API_KEY")
+    System.put_env("LINEAR_API_KEY", "inherited-shell-key")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",

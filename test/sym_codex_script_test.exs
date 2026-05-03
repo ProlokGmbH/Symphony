@@ -199,6 +199,9 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{worktree}"
+    assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
+    assert output =~ ~s(SYMPHONY_PROJECT_ROOT="#{project_root}")
+    assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
   end
 
   test "sym-codex infers the issue identifier from an external project worktree" do

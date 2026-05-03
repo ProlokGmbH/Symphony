@@ -76,7 +76,7 @@ defmodule SymphonyElixir.CLI do
       default_workflow_path: &Workflow.default_workflow_file_path/0,
       env_files_dir: &File.cwd!/0,
       file_regular?: &File.regular?/1,
-      load_env_files: &SymphonyElixir.EnvFile.load/1,
+      load_env_files: &load_project_env_files/1,
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       validate_startup_requirements: &SymphonyElixir.Config.validate_startup_requirements/0,
       set_logs_root: &set_logs_root/1,
@@ -84,6 +84,10 @@ defmodule SymphonyElixir.CLI do
       set_yolo_mode: &set_yolo_mode/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
+  end
+
+  defp load_project_env_files(env_files_dir) when is_binary(env_files_dir) do
+    EnvFile.load(env_files_dir, override_existing: true)
   end
 
   defp format_env_file_error({:invalid_env_file, path, line_number, reason}) do

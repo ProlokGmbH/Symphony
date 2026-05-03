@@ -17,14 +17,20 @@ defmodule SymphonyElixir.EnvFile do
   end
 
   @spec load(String.t()) :: :ok | {:error, term()}
-  def load(config_dir) when is_binary(config_dir) do
+  def load(config_dir) when is_binary(config_dir), do: load(config_dir, [])
+
+  @spec load(String.t(), keyword()) :: :ok | {:error, term()}
+  def load(config_dir, opts) when is_binary(config_dir) and is_list(opts) do
+    override_existing = Keyword.get(opts, :override_existing, false)
+
     existing_keys =
       System.get_env()
       |> Map.keys()
+      |> maybe_ignore_existing_keys(override_existing)
       |> MapSet.new()
 
     @env_files
-    |> Enum.reduce_while({:ok, MapSet.new()}, fn {filename, mode}, {:ok, loaded_keys} ->
+    |> Enum.reduce_while({:ok, empty_key_set()}, fn {filename, mode}, {:ok, loaded_keys} ->
       config_dir
       |> Path.join(filename)
       |> load_file(mode, existing_keys, loaded_keys)
@@ -38,6 +44,12 @@ defmodule SymphonyElixir.EnvFile do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @spec maybe_ignore_existing_keys([String.t()], boolean()) :: [String.t()]
+  defp maybe_ignore_existing_keys(_keys, true), do: []
+  defp maybe_ignore_existing_keys(keys, false), do: keys
+
+  defp empty_key_set, do: MapSet.delete(MapSet.new([""]), "")
 
   defp load_file(path, mode, existing_keys, loaded_keys) do
     env_putter = &maybe_put_env(&1, &2, mode, existing_keys, &3)
@@ -57,6 +69,8 @@ defmodule SymphonyElixir.EnvFile do
     end
   end
 
+  @spec maybe_put_env(String.t(), String.t(), load_mode(), MapSet.t(), MapSet.t()) ::
+          {:ok, MapSet.t()}
   defp maybe_put_env(key, value, mode, existing_keys, loaded_keys) do
     cond do
       mode == :defaults and MapSet.member?(existing_keys, key) ->
