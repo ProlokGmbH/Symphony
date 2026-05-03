@@ -173,7 +173,10 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist"
     assert prompt =~ "mise exec -- mix run --no-start -e"
     assert prompt =~ "git rev-parse --show-toplevel"
-    assert prompt =~ "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root))"
+
+    assert prompt =~
+             "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)"
+
     assert prompt =~ "Application.ensure_all_started(:req)"
     assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
     assert prompt =~ "verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap"
