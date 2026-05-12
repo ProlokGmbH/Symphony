@@ -11,7 +11,6 @@ defmodule SymphonyElixir.Workflow do
   @prompt_snippets_key "prompt_snippets"
   @render_opts [strict_variables: true, strict_filters: true]
   @direct_skip_state_names [
-    "freigabe planung",
     "freigabe implementierung",
     "freigabe review"
   ]
@@ -20,8 +19,8 @@ defmodule SymphonyElixir.Workflow do
     %{status: "Backlog", next_regular_status: "Todo (AI)"},
     %{status: "Todo", next_regular_status: "Todo (AI)"},
     %{status: "Todo (AI)", next_regular_status: "Planung (AI)"},
-    %{status: "Planung (AI)", next_regular_status: "Freigabe Planung"},
-    %{status: "Freigabe Planung", next_regular_status: nil},
+    %{status: "Planung (AI)", next_regular_status: "In Arbeit (AI)"},
+    %{status: "Planung", next_regular_status: nil},
     %{status: "In Arbeit (AI)", next_regular_status: "PreReview (AI)"},
     %{status: "PreReview (AI)", next_regular_status: "Freigabe Implementierung"},
     %{status: "Freigabe Implementierung", next_regular_status: nil},

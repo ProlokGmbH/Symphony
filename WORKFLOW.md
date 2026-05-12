@@ -266,19 +266,19 @@ Status selbst ein manueller Freigabe-Status ist und dafür ein passendes
 `Skip "<Status>"`-Label gesetzt wurde, verwendet Symphony den nächsten
 Tabellenstatus als Ziel und läuft von dort weiter.
 
-Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Planung`,
-`Freigabe Implementierung` und `Freigabe Review` unabhängig von gesetzten
-Labels als übersprungen. Außerdem bearbeitet Symphony dann alle passenden
-Tickets unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem
-Modus `--yolo` statt des Assignees.
+Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Implementierung`
+und `Freigabe Review` unabhängig von gesetzten Labels als übersprungen.
+Außerdem bearbeitet Symphony dann alle passenden Tickets unabhängig vom
+konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt
+des Assignees.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
-| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `Freigabe Planung` |
-| `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
+| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
+| `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn `Planung (AI)` offene Verständnis- oder Umsetzungsfragen festgestellt hat. | Warten auf menschliches Verschieben |
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen und bei neuen Erkenntnissen begründet im Workpad anpassen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
@@ -302,7 +302,7 @@ Modus `--yolo` statt des Assignees.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
-   - `Freigabe Planung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Freigabe Implementierung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
@@ -345,8 +345,9 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
 ### Ziel
 
 Ticketbeschreibung, Workpad-Plan und geplante Validierung so vorbereiten, dass die
-anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzung in
-`In Arbeit (AI)` mit einer belastbaren Arbeitsgrundlage beginnen kann.
+anschließende Umsetzung in `In Arbeit (AI)` vollständig autonom beginnen kann, oder
+offenen Klärungsbedarf so dokumentieren, dass der Benutzer den Plan im Status
+`Planung` gezielt schärfen kann.
 
 ### Voraussetzungen
 
@@ -357,6 +358,7 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
 1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue und befolge für Aufbau und Pflege des Kommentars den globalen Skill `symphony-workpad`.
 2. Führe die inhaltliche Planung mit dem globalen Skill `symphony-planning` aus:
    - prüfe, ob die Ticketbeschreibung ausführlich genug für sichere Umsetzung ist,
+   - prüfe streng, ob Codex das Ticket auf Basis von Beschreibung, Workpad und Kontext vollständig autonom verstehen und umsetzen kann,
    - stelle bei langen Beschreibungen sicher, dass oben eine kurze Zusammenfassung mit Trenner `---` vor dem Haupttext steht,
    - du darfst die Ticketbeschreibung in diesem Status automatisiert ändern, wenn das für eine vollständige Planung nötig ist,
    - falls du die Ticketbeschreibung änderst, hinterlasse in Linear einen Kommentar mit der Originalbeschreibung, damit die Änderung nachvollziehbar bleibt,
@@ -365,10 +367,16 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
    - erstelle oder aktualisiere `### Validierung` als Checkliste des geplanten Nachweises.
 3. Starte in diesem Status keine Implementierung.
 4. Erstelle in diesem Status die initiale inhaltliche Planung. Spätere automatische Schritte dürfen `### Plan` und `### Validierung` bei Bedarf anpassen, wenn neue Erkenntnisse aus der Umsetzung das erforderlich machen; solche Änderungen müssen im Workpad nachvollziehbar begründet werden.
+5. Entscheide am Ende dieses Status selbst, ob die Planung für eine vollständig autonome Umsetzung ausreicht.
+   - Wenn ja, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+   - Wenn nein, arbeite die vom System empfohlenen Lösungsvorschläge zunächst in `### Plan` und `### Validierung` ein, damit der Plan bei Zustimmung des Benutzers direkt ausführbar ist.
+   - Lege anschließend in Linear einen separaten Kommentar an, der die offenen Verständnis- oder Umsetzungsfragen beschreibt, pro Frage einen empfohlenen Lösungsvorschlag nennt und deutlich macht, welche Planannahmen bereits eingearbeitet wurden.
+   - Verschiebe das Issue danach nach `Planung`.
 
 ### Abschluss und nächster Status
 
-- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend vorbereitet sind, verschiebe das Issue nach `Freigabe Planung`, damit ein Mensch den Plan vor der Umsetzung prüfen kann.
+- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend für vollständig autonome Umsetzung vorbereitet sind, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+- Wenn Klärungsbedarf bleibt, kommentiere die offenen Fragen mit empfohlenen Lösungen in Linear und verschiebe das Issue nach `Planung`.
 
 ### Sonderfälle
 
@@ -384,7 +392,7 @@ nach `PreReview (AI)`.
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `In Arbeit (AI)`.
-- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und anschließend im manuellen Status `Freigabe Planung` geprüft worden sein.
+- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und bei Bedarf im manuellen Status `Planung` geschärft worden sein.
 
 ### Ablauf
 
@@ -537,26 +545,27 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 
 - Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch.
 
-## Ablauf für `Freigabe Planung`
+## Ablauf für `Planung`
 
 ### Ziel
 
-Die manuelle Planprüfung vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+Die manuelle Planschärfung vollständig dem Benutzer überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
 
 ### Voraussetzungen
 
-- Das Issue befindet sich aktuell in `Freigabe Planung`.
+- Das Issue befindet sich aktuell in `Planung`.
+- `Planung (AI)` hat zuvor einen Linear-Kommentar mit offenen Fragen, empfohlenen Lösungsvorschlägen und den bereits eingearbeiteten Planannahmen hinterlassen.
 
 ### Ablauf
 
 1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler die manuelle Planprüfung.
+2. In diesem Status übernimmt der Benutzer die manuelle Planschärfung.
 3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
 
 ### Abschluss und nächster Status
 
-- Nach der manuellen Planfreigabe verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
-- Wenn Plan-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Planung (AI)`.
+- Wenn der Benutzer den vorgeschlagenen Plan akzeptiert oder final geschärft hat, verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
+- Wenn eine erneute automatische Planung gewünscht ist, verschiebt ein Mensch das Issue nach `Planung (AI)`.
 
 ### Sonderfälle
 
@@ -700,7 +709,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
+- In `Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
 - In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.

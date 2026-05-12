@@ -19,7 +19,7 @@ defmodule SymphonyElixir.Orchestrator do
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
-  @yolo_manual_state_names ["freigabe planung", "freigabe implementierung", "freigabe review"]
+  @yolo_manual_state_names ["freigabe implementierung", "freigabe review"]
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,

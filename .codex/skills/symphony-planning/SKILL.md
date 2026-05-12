@@ -50,8 +50,9 @@ Erkenntnissen nachvollziehbar angepasst werden kann.
   persistente Workpad.
 - Verwende fuer Lesen und Schreiben in Linear den Skill `symphony-linear`.
 - Wenn die Beschreibung fuer sichere Planung nicht ausreicht, erfinde keine
-  Anforderungen. Halte die Luecke im Workpad fest und befolge fuer das weitere
-  Vorgehen die Workflow-Datei.
+  Anforderungen. Arbeite empfohlene Annahmen zunächst nachvollziehbar in den
+  Plan ein, halte die Lücke im Workpad fest und bereite die offene Frage mit
+  empfohlenem Lösungsvorschlag für den manuellen Status `Planung` vor.
 
 ## Detailplanung im Symphony Workpad
 
@@ -80,6 +81,10 @@ Erkenntnissen nachvollziehbar angepasst werden kann.
 - Zerlege die Arbeit in nachvollziehbare, abhakbare Schritte.
 - Plane Validierung nicht nachtraeglich als Freitext, sondern vorab als
   konkrete Checkliste.
+- Prüfe am Ende von `Planung (AI)`, ob der Plan für eine vollständig autonome
+  Umsetzung ausreicht. Wenn nicht, müssen die offenen Fragen und empfohlenen
+  Lösungen so konkret sein, dass der Benutzer den Plan im Status `Planung`
+  direkt freigeben oder gezielt ändern kann.
 
 ## Umgang mit automatischen Planänderungen
 

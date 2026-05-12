@@ -64,7 +64,7 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 5)
     assert Config.settings!().agent.max_turns == 5
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Freigabe Planung,")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Planung,")
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"
 
@@ -195,8 +195,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann"
     assert prompt =~ "verschiebe nach `BLOCKER`"
     assert prompt =~ "Wenn Symphony mit `--yolo` gestartet wird"
-    assert prompt =~ "die Hauptmaske zeigt in diesem"
-    assert prompt =~ "Modus `--yolo` statt des Assignees."
+    assert prompt =~ "die Hauptmaske zeigt"
+    assert prompt =~ "`--yolo`"
+    assert prompt =~ "des Assignees."
     assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
     assert prompt =~ "Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`"
     assert prompt =~ "Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`"
@@ -279,7 +280,7 @@ defmodule SymphonyElixir.CoreTest do
       "Todo",
       "Todo (AI)",
       "Planung (AI)",
-      "Freigabe Planung",
+      "Planung",
       "In Arbeit (AI)",
       "PreReview (AI)",
       "Freigabe Implementierung",
@@ -316,9 +317,9 @@ defmodule SymphonyElixir.CoreTest do
         ~s(skip "freigabe implementierung")
       ])
 
-    plan_skip_status = Workflow.resolve_next_status("Planung (AI)", [~s(skip "freigabe planung")])
+    plan_next_status = Workflow.resolve_next_status("Planung (AI)", [~s(skip "planung")])
 
-    planning_handoff_skip_status = Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")])
+    manual_planning_skip_status = Workflow.resolve_next_status("Planung", [~s(skip "planung")])
 
     implementation_handoff_skip_status = Workflow.resolve_next_status("Freigabe Implementierung", [~s(skip "freigabe implementierung")])
 
@@ -327,14 +328,14 @@ defmodule SymphonyElixir.CoreTest do
     review_handoff_skip_status = Workflow.resolve_next_status("Freigabe Review", [~s(skip "freigabe review")])
 
     assert next_status == "Review (AI)"
-    assert plan_skip_status == "In Arbeit (AI)"
-    assert planning_handoff_skip_status == "In Arbeit (AI)"
+    assert plan_next_status == "In Arbeit (AI)"
+    assert manual_planning_skip_status == nil
     assert implementation_handoff_skip_status == "Review (AI)"
     assert review_skip_status == "Test (AI)"
     assert review_handoff_skip_status == "Test (AI)"
   end
 
-  test "workflow treats yolo mode like approval skip labels" do
+  test "workflow treats yolo mode like approval skip labels without skipping manual planning" do
     previous_yolo = Application.get_env(:symphony_elixir, :yolo)
     original_workflow_path = Workflow.workflow_file_path()
     repo_workflow_path = Path.expand("../../WORKFLOW.md", __DIR__)
@@ -348,7 +349,7 @@ defmodule SymphonyElixir.CoreTest do
     Application.put_env(:symphony_elixir, :yolo, true)
 
     assert Workflow.resolve_next_status("Planung (AI)", []) == "In Arbeit (AI)"
-    assert Workflow.resolve_next_status("Freigabe Planung", []) == "In Arbeit (AI)"
+    assert Workflow.resolve_next_status("Planung", []) == nil
     assert Workflow.resolve_next_status("PreReview (AI)", []) == "Review (AI)"
     assert Workflow.resolve_next_status("Freigabe Implementierung", []) == "Review (AI)"
     assert Workflow.resolve_next_status("Review (AI)", []) == "Test (AI)"
@@ -363,7 +364,7 @@ defmodule SymphonyElixir.CoreTest do
              "Todo",
              "Todo (AI)",
              "Planung (AI)",
-             "Freigabe Planung",
+             "Planung",
              "In Arbeit (AI)",
              "PreReview (AI)",
              "Freigabe Implementierung",
@@ -379,7 +380,7 @@ defmodule SymphonyElixir.CoreTest do
            ]
 
     assert Workflow.resolve_next_status("Merge (AI)", []) == "Review"
-    assert Workflow.resolve_next_status("Freigabe Planung", []) == nil
+    assert Workflow.resolve_next_status("Planung", []) == nil
     assert Workflow.resolve_target_status("Review", [nil, "skip review"]) == "Fertig"
     assert Workflow.resolve_next_status(nil, []) == nil
     assert Workflow.resolve_target_status(nil, []) == nil
@@ -389,18 +390,32 @@ defmodule SymphonyElixir.CoreTest do
     assert Workflow.resolve_next_status("Unbekannt", []) == nil
   end
 
-  test "workflow returns nil when a skipped manual handoff has no following table status" do
+  test "workflow returns nil for manual planning even when a skip label is present" do
     prompt = """
     ## Statusübersicht
 
     | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
     | --- | --- | --- | --- |
-    | `Freigabe Planung` | Nein | Manueller Freigabepunkt | Warten auf menschliches Verschieben |
+    | `Planung` | Nein | Manueller Klärungspunkt | Warten auf menschliches Verschieben |
     """
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: prompt)
 
-    assert Workflow.resolve_next_status("Freigabe Planung", [~s(skip "freigabe planung")]) == nil
+    assert Workflow.resolve_next_status("Planung", [~s(skip "planung")]) == nil
+  end
+
+  test "workflow returns nil when a skipped direct handoff has no following table status" do
+    prompt = """
+    ## Statusübersicht
+
+    | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
+    | --- | --- | --- | --- |
+    | `Freigabe Review` | Nein | Manueller Freigabepunkt | Warten auf menschliches Verschieben |
+    """
+
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: prompt)
+
+    assert Workflow.resolve_next_status("Freigabe Review", [~s(skip "freigabe review")]) == nil
   end
 
   test "workflow status overview parser returns an error when no status table exists" do
@@ -4535,7 +4550,7 @@ defmodule SymphonyElixir.CoreTest do
       identifier: "MT-698C",
       title: "Session mode",
       description: "Expose manual and automated modes",
-      state: "Freigabe Planung",
+      state: "Planung",
       url: "https://example.org/issues/MT-698C",
       labels: []
     }
@@ -4772,15 +4787,15 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "globals=/opt/symphony/bin"
   end
 
-  test "prompt builder treats Freigabe Planung as interactive in orchestrated and manual sessions" do
+  test "prompt builder treats Planung as interactive in orchestrated and manual sessions" do
     workflow_prompt = "{% if runtime.automated %}AUTO{% else %}INTERACTIVE{% endif %}"
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
     issue = %Issue{
       identifier: "MT-698D",
-      title: "Freigabe Planung bootstrap",
+      title: "Planung bootstrap",
       description: "Session mode changes behavior",
-      state: "Freigabe Planung",
+      state: "Planung",
       url: "https://example.org/issues/MT-698D",
       labels: []
     }
@@ -4838,7 +4853,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698E",
         title: "Resolve by identifier",
         description: "Manual prompt lookup",
-        state: "Freigabe Planung",
+        state: "Planung",
         url: "https://example.org/issues/MT-698E",
         labels: []
       }
@@ -4881,7 +4896,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698F",
         title: "External env directory",
         description: "Manual prompt should load env files from .symphony",
-        state: "Freigabe Planung",
+        state: "Planung",
         url: "https://example.org/issues/MT-698F",
         labels: []
       }
@@ -5297,7 +5312,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-698G",
         title: "Interactive workpad skill",
         description: "Manual prompt should mention workpad handling",
-        state: "Freigabe Planung",
+        state: "Planung",
         url: "https://example.org/issues/MT-698G",
         labels: []
       }
@@ -5317,7 +5332,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Aktiv bearbeitetes Repository/Worktree"
     assert prompt =~ "Repo-lokale `sym-*`-Skills"
     assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln"
-    assert prompt =~ "Beginne nicht sofort mit der Ausführung"
+    assert prompt =~ "Das Ticket befindet sich im manuellen Status `Planung`"
+    assert prompt =~ "an welchen Punkten die Planung noch Klärungsbedarf hat"
+    assert prompt =~ "Nach Freigabe durch den Benutzer aktualisiere den finalen Plan"
     assert prompt =~ "Statuslogik"
   end
 
@@ -5510,7 +5527,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner ignores Freigabe Planung without creating a workspace" do
+  test "agent runner ignores Planung without creating a workspace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -5533,12 +5550,19 @@ defmodule SymphonyElixir.CoreTest do
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
+      previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+      on_exit(fn ->
+        restore_app_env(:yolo, previous_yolo)
+      end)
+
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
         codex_command: "sh -lc 'touch #{codex_stamp}'"
       )
 
+      Application.put_env(:symphony_elixir, :yolo, true)
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
 
       issue = %Issue{
@@ -5546,7 +5570,7 @@ defmodule SymphonyElixir.CoreTest do
         identifier: "MT-BOOT",
         title: "Bootstrap only",
         description: "Prepare worktree and workpad",
-        state: "Freigabe Planung",
+        state: "Planung",
         url: "https://example.org/issues/MT-BOOT",
         labels: ["backend"]
       }
@@ -5680,13 +5704,6 @@ defmodule SymphonyElixir.CoreTest do
 
         Agent.stop(state_agent)
       end
-
-      run_case.(
-        "issue-skip-planning",
-        "Freigabe Planung",
-        [~s(skip "freigabe planung")],
-        "In Arbeit (AI)"
-      )
 
       run_case.(
         "issue-skip-implementation",

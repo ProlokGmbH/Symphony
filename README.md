@@ -65,7 +65,7 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
 
 Der Wrapper `./symphony` verlinkt die mitgelieferten Skills in dein lokales Codex-Skill-Verzeichnis und startet anschliessend `bin/symphony`. Wenn ein Port gesetzt ist, ist das Dashboard danach typischerweise unter `http://127.0.0.1:4000/` erreichbar.
 
-Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees.
+Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen.
 
 ### Qualitaetssicherung
 
@@ -97,16 +97,16 @@ Nicht automatisch durch Dependabot aktualisierbar sind aktuell:
 
 ## Workflow
 
-Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und drei manuellen Freigabepunkten fuer Planung, Implementierung und Review-Freigabe. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
-Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt auch fuer die drei manuellen Freigabepunkte. Im `--yolo`-Modus gelten die drei Freigabepunkte immer als übersprungen.
+Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Klärungs- bzw. Freigabepunkten. `Planung` ist der manuelle Klärungspunkt nach `Planung (AI)`, falls Codex die Planung noch nicht für vollständig autonome Umsetzung ausreichend findet. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
+Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt fuer die Freigabepunkte `Freigabe Implementierung` und `Freigabe Review`. Für `Planung` gibt es kein Skip-Label. Im `--yolo`-Modus gelten nur `Freigabe Implementierung` und `Freigabe Review` als übersprungen.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
 | `Todo` | Mensch | Nicht automatisiertes Benutzer-Todo ausserhalb des Symphony-Scopes. | bleibt offen bis zum naechsten AI-Status |
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
-| `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung im Workpad vorbereiten. | `Freigabe Planung` |
-| `Freigabe Planung` | Mensch | Manueller Pruefpunkt fuer den in `Planung (AI)` vorbereiteten Plan. | `In Arbeit (AI)` oder `Planung (AI)` |
+| `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung vorbereiten und entscheiden, ob autonome Umsetzung möglich ist. | `In Arbeit (AI)` oder `Planung` |
+| `Planung` | Mensch | Manueller Klärungs- und Planschärfungspunkt mit von Codex empfohlenen Lösungsvorschlägen. | `In Arbeit (AI)` oder `Planung (AI)` |
 | `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei Bedarf begründete Plananpassung, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
@@ -122,7 +122,9 @@ Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft
 
 Der typische Pfad ist damit:
 
-`Todo (AI)` -> `Planung (AI)` -> `Freigabe Planung` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe Implementierung` -> `Review (AI)` -> `Freigabe Review` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
+`Todo (AI)` -> `Planung (AI)` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe Implementierung` -> `Review (AI)` -> `Freigabe Review` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
+
+Wenn `Planung (AI)` noch Klärungsbedarf erkennt, verläuft der Pfad stattdessen über `Planung`; dort prüft der Benutzer die offenen Fragen und die empfohlenen Lösungsvorschläge und verschiebt das Ticket anschließend manuell weiter.
 
 ## Zentrale Dateien
 
