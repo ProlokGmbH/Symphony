@@ -129,4 +129,4 @@ Der typische Pfad ist damit:
 - `WORKFLOW.md`: Workflow, Prompt-Vertrag und Runtime-Konfiguration
 - `AGENTS.md`: Repository-spezifische Regeln fuer Codex
 - `SPEC.md`: uebergeordnete Servicespezifikation
-- `.codex/skills/`: repo-spezifische Skills fuer Planning, Workpad, Review, Test, Push und Merge
+- `.codex/skills/`: repo-spezifische Skills für Planung, Workpad, Debugging, Review, Test, Push und Merge
