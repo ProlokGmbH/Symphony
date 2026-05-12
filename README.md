@@ -107,7 +107,7 @@ Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
 | `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung im Workpad vorbereiten. | `Freigabe Planung` |
 | `Freigabe Planung` | Mensch | Manueller Pruefpunkt fuer den in `Planung (AI)` vorbereiteten Plan. | `In Arbeit (AI)` oder `Planung (AI)` |
-| `In Arbeit (AI)` | AI | Umsetzung des bestehenden, zuvor manuell geprueften Plans, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
+| `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei Bedarf begründete Plananpassung, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
 | `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Freigabe Review` |
