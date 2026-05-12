@@ -1,12 +1,12 @@
 ---
-name: symphony-debug
+name: debugging
 description:
   Untersuche hängende Läufe und Ausführungsfehler über Symphony- und
   Codex-Logs mit Issue-/Session-IDs; nutze den Skill bei Hängern,
-  Wiederholschleifen oder unerwarteten Fehlschlägen.
+  Wiederholschleifen oder unerwarteten Fehlschlägen im Symphony-Projekt.
 ---
 
-# Debug
+# Debugging
 
 ## Ziele
 
@@ -92,8 +92,8 @@ In Symphony werden Codex-Session-Diagnosen in `log/symphony.log` ausgegeben und
 1. `Codex session started ... session_id=...`
 2. Session-Stream-/Lifecycle-Events für dieselbe `session_id`
 3. Terminales Event:
-    - `Codex session completed ...`, or
-    - `Codex session ended with error ...`, or
+    - `Codex session completed ...`, oder
+    - `Codex session ended with error ...`, oder
     - `Issue stalled ... restarting with backoff`
 
 Für die Untersuchung einer konkreten Session halte den Trace eng:
