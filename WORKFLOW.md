@@ -187,7 +187,7 @@ Zusätzliche Review-Hinweise:
 
 ### Linear-Zugriff
 
-Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Codex Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Symphony Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
 
 Wenn du einen Ticket-Key wie `PRO-190` hast und zuerst nur Status, Titel und die interne Linear-`id` brauchst, verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap und führe erst danach breitere Folgeabfragen aus:
 
@@ -328,7 +328,7 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
 
 1. Für `Todo (AI)`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "Planung (AI)")`
-   - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
+   - `## Symphony Workpad`-Bootstrap-Kommentar finden/erstellen
    - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
    - erst danach in den Ablauf `Planung (AI)` übergehen.
 
@@ -388,7 +388,7 @@ nach `PreReview (AI)`.
 
 ### Ablauf
 
-1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
+1. Öffne den vorhandenen `## Symphony Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
 2. Führe anschließend den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
 3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
 4. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
@@ -644,8 +644,8 @@ Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber ab
 
 Führe dieses Protokoll nur dann aus, wenn alle folgenden Bedingungen gleichzeitig erfüllt sind:
 
-1. Du hast in diesem Turn festgestellt, dass vorab kein aktiver `## Codex Workpad`-Kommentar existierte und musstest deshalb einen neuen Workpad-Kommentar anlegen.
-2. Du hast zusätzlich per separater, vollständig paginierter Kommentarabfrage einschließlich aufgelöster Kommentare bestätigt, dass für dieses Issue außer dem Workpad-Kommentar, den du gerade in diesem Turn neu angelegt hast, noch nie ein `## Codex Workpad`-Kommentar existiert hat.
+1. Du hast in diesem Turn festgestellt, dass vorab kein aktiver `## Symphony Workpad`-Kommentar existierte und musstest deshalb einen neuen Workpad-Kommentar anlegen.
+2. Du hast zusätzlich per separater, vollständig paginierter Kommentarabfrage einschließlich aufgelöster Kommentare bestätigt, dass für dieses Issue außer dem Workpad-Kommentar, den du gerade in diesem Turn neu angelegt hast, noch nie ein `## Symphony Workpad`-Kommentar existiert hat.
 3. Wenn du diese Erstkontakt-Bedingung nicht zuverlässig verifizieren kannst, weil Kommentare oder Seiten nicht vollständig abrufbar sind, überspringe das Protokoll vollständig und lasse die Issue-Beschreibung unverändert.
 
 Wenn die Trigger-Bedingungen erfüllt sind:
@@ -666,7 +666,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
   - was fehlt,
   - warum dadurch erforderliche Validierung blockiert wird,
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
-- Wenn kein Linear-MCP-Server und kein `linear_graphql` bereits vor dem ersten Workpad-Zugriff verfügbar sind, nutze stattdessen den lokalen Repo-Tracker-Fallback (`mise exec -- mix run --no-start -e` mit vorgeschaltetem Repo-Root-Resolve via `git rev-parse --show-toplevel`, anschließend `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)`, `Application.ensure_all_started(:req)`, danach `SymphonyElixir.Tracker.fetch_issue_by_identifier/1`, vollständig paginierter `workpad_exists?/1`-Prüfung, `create_comment/2` und `update_issue_state/2`), um zuerst zwischen Erstkontakt und bestehendem Workpad zu unterscheiden. Wenn `workpad_exists?/1` bestätigt, dass noch kein Workpad existiert, erstelle den kanonischen `## Codex Workpad`-Kommentar mit dem Blocker-Hinweis darin; existiert bereits ein Workpad, erstelle stattdessen einen dedizierten Blocker-Kommentar außerhalb des Workpads. Persistiere in beiden Fällen den Statuswechsel nach `BLOCKER`.
+- Wenn kein Linear-MCP-Server und kein `linear_graphql` bereits vor dem ersten Workpad-Zugriff verfügbar sind, nutze stattdessen den lokalen Repo-Tracker-Fallback (`mise exec -- mix run --no-start -e` mit vorgeschaltetem Repo-Root-Resolve via `git rev-parse --show-toplevel`, anschließend `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)`, `Application.ensure_all_started(:req)`, danach `SymphonyElixir.Tracker.fetch_issue_by_identifier/1`, vollständig paginierter `workpad_exists?/1`-Prüfung, `create_comment/2` und `update_issue_state/2`), um zuerst zwischen Erstkontakt und bestehendem Workpad zu unterscheiden. Wenn `workpad_exists?/1` bestätigt, dass noch kein Workpad existiert, erstelle den kanonischen `## Symphony Workpad`-Kommentar mit dem Blocker-Hinweis darin; existiert bereits ein Workpad, erstelle stattdessen einen dedizierten Blocker-Kommentar außerhalb des Workpads. Persistiere in beiden Fällen den Statuswechsel nach `BLOCKER`.
 - Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt, nutze den lokalen Tracker-Fallback ebenfalls über `mise exec -- mix run --no-start -e` mit derselben Env-/`:req`-Bootstrap-Sequenz, um einen dedizierten Blocker-Kommentar außerhalb des Workpads anzulegen und den Statuswechsel nach `BLOCKER` zu persistieren. Halte in der Abschlussnachricht zusätzlich fest, dass der bestehende Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte.
 - Nur wenn auch dieser lokale Tracker-Fallback scheitert, dokumentiere den Blocker in der Abschlussnachricht; ohne irgendeinen funktionierenden Schreibpfad können weder Statuswechsel noch Blocker-Hinweis persistiert werden.
 - Halte den Hinweis knapp und handlungsorientiert; füge außerhalb des Workpads nur dann einen zusätzlichen Top-Level-Kommentar hinzu, wenn dieser dedizierte Blocker-Kommentar gemäß diesem Escape Hatch erforderlich ist.
@@ -676,7 +676,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 Für Aufbau, Standardstruktur und Pflege des persistierenden Workpad-Kommentars ist
 der globale Skill `symphony-workpad` die maßgebliche Quelle.
 
-- Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Codex Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
+- Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Symphony Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
 - Die Schrittreihenfolge der einzelnen Workflow-Phasen und alle Statusübergänge bleiben ausschließlich in dieser `WORKFLOW.md` definiert.
 
 ## Planungs-Handhabung
@@ -691,7 +691,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 
 - Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
-- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
+- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Symphony Workpad`).
 - Die im `Review (AI)`-Ablauf vorgeschriebenen separaten Linear-Issue-Kommentare zu Review-Subagent-Findings und daraus folgenden Fix-Einordnungen sind zulässige Nachvollziehbarkeitskommentare neben dem Workpad; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `<Issue-Key> Test (AI) Autocommit` oder `<Issue-Key> Merge (AI) Autocommit`.

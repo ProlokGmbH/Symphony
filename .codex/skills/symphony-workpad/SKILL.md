@@ -3,7 +3,7 @@ name: symphony-workpad
 description:
   Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
   fuer Aufbau, Standardstruktur und Pflege des persistenten
-  `## Codex Workpad`-Kommentars. Er deckt Finden/Anlegen des einen Workpads,
+  `## Symphony Workpad`-Kommentars. Er deckt Finden/Anlegen des einen Workpads,
   Environment-Stamp, die kanonischen Abschnitte, Verlauf und den finalen
   Handoff-Zustand ab. Inhaltliche Planung von `Plan` und `Validierung` liegt
   beim Skill `symphony-planning`; Statuslogik bleibt in `WORKFLOW.md` bzw.
@@ -13,7 +13,7 @@ description:
 # Symphony Workpad
 
 Verwende diesen Skill nur, wenn du innerhalb eines laufenden
-Symphony-Issue-Workflows das persistente Codex Workpad eines Tickets finden,
+Symphony-Issue-Workflows das persistente Symphony Workpad eines Tickets finden,
 anlegen, strukturieren oder aktuell halten musst.
 
 ## Abgrenzung
@@ -30,7 +30,7 @@ anlegen, strukturieren oder aktuell halten musst.
 ## Persistenter Kommentar
 
 - Verwende pro Issue genau einen persistierenden Kommentar mit dem Marker
-  `## Codex Workpad`.
+  `## Symphony Workpad`.
 - Durchsuche vorhandene Kommentare nach diesem Marker.
 - Nur aktive/nicht aufgeloeste Kommentare duerfen als Live-Workpad
   wiederverwendet werden.
@@ -46,7 +46,7 @@ anlegen, strukturieren oder aktuell halten musst.
 Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 
 ````md
-## Codex Workpad
+## Symphony Workpad
 
 ```text
 <hostname>:<abs-path>@<short-sha>

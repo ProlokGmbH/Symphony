@@ -1074,7 +1074,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                "data" => %{
                  "issue" => %{
                    "comments" => %{
-                     "nodes" => [%{"body" => "## Codex Workpad\n\npresent"}],
+                     "nodes" => [%{"body" => "## Symphony Workpad\n\npresent"}],
                      "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
                    }
                  }
@@ -1084,7 +1084,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       end
     end)
 
-    assert {:ok, ["older note", "## Codex Workpad\n\npresent"]} =
+    assert {:ok, ["older note", "## Symphony Workpad\n\npresent"]} =
              Client.fetch_issue_comment_bodies("issue-1")
 
     assert_receive {:fetch_issue_comments,

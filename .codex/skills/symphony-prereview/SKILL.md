@@ -36,7 +36,7 @@ Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 
 ## Workpad-Aktualisierung
 
-- Nutze den vorhandenen Kommentar `## Codex Workpad`.
+- Nutze den vorhandenen Kommentar `## Symphony Workpad`.
 - Spiegele die Schritte aus `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` unter `### Review`
   als Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschliesslich den Abschnitt `### Review`; aendere `### Test` nicht.

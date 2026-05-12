@@ -188,7 +188,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "führe zuerst gezielte Introspection über den in der Session verfügbaren Linear-Zugriff aus."
     assert prompt =~ "Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt"
     assert prompt =~ "einen dedizierten Blocker-Kommentar außerhalb des Workpads"
-    assert prompt =~ "erstelle den kanonischen `## Codex Workpad`-Kommentar"
+    assert prompt =~ "erstelle den kanonischen `## Symphony Workpad`-Kommentar"
     assert prompt =~ "falls vor dem ersten Workpad-Bootstrap noch kein Workpad existiert"
     assert prompt =~ "Wenn die aktuelle Linear-API `branchName` in `IssueUpdateInput` unterstützt"
     assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
@@ -6698,7 +6698,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-manual-stale-review-casing" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -6833,7 +6833,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-handoff" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -6948,7 +6948,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-workpad-open" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7170,7 +7170,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-workpad-no-section" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Test
 
@@ -7284,7 +7284,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-workpad-no-checklist" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7394,7 +7394,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-dirty-handoff" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7518,7 +7518,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-dirty-preflight" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7651,7 +7651,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-dirty-restart" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7804,7 +7804,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-before-run-failure" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -7969,7 +7969,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-startup-failure-marker" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -8173,7 +8173,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-marker-clear" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 
@@ -8479,7 +8479,7 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-review-skip-handoff" => [
           """
-          ## Codex Workpad
+          ## Symphony Workpad
 
           ### Review
 

@@ -4,7 +4,7 @@ description:
   Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
   fuer Ticket- und Umsetzungsplanung. Er legt fest, wie die
   Linear-Beschreibung aufgebaut sein muss und wie `Plan` und `Validierung` im
-  Codex Workpad vorbereitet und gepflegt werden. Automatische
+  Symphony Workpad vorbereitet und gepflegt werden. Automatische
   Plan-Aenderungen sind nur in `Planung (AI)` erlaubt; Statuslogik bleibt in
   `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
 ---
@@ -18,7 +18,7 @@ geplant werden muss.
 ## Zielsetzung
 
 Ziel des Plans ist, in einem einzelnen Symphony-Ticket mit Beschreibung und
-Codex Workpad eine vollstaendige Planung eines Umsetzungsitems zu erfassen, das
+Symphony Workpad eine vollstaendige Planung eines Umsetzungsitems zu erfassen, das
 in weiteren Schritten vollstaendig automatisiert durch Codex umgesetzt werden
 kann.
 
@@ -26,7 +26,7 @@ kann.
 
 - Dieser Skill regelt Ticketbeschreibung, Detailplanung und geplante
   Validierung.
-- Aufbau, Persistenz und Standardstruktur des Kommentars `## Codex Workpad`
+- Aufbau, Persistenz und Standardstruktur des Kommentars `## Symphony Workpad`
   kommen aus `.codex/skills/symphony-workpad/SKILL.md`.
 - Statusuebergaenge und Schrittreihenfolgen bleiben ausschliesslich in
   `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
@@ -52,9 +52,9 @@ kann.
   Anforderungen. Halte die Luecke im Workpad fest und befolge fuer das weitere
   Vorgehen die Workflow-Datei.
 
-## Detailplanung im Codex Workpad
+## Detailplanung im Symphony Workpad
 
-- Vor Beginn der Implementierung muss im `## Codex Workpad` eine konkrete
+- Vor Beginn der Implementierung muss im `## Symphony Workpad` eine konkrete
   Planung vorliegen.
 - Pflege die inhaltliche Planung in den Abschnitten `### Plan` und
   `### Validierung`.

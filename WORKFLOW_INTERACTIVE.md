@@ -27,7 +27,7 @@ Beginne nicht sofort mit der Ausführung, sondern frage den Benutzer zunächst w
 Sobald der Benutzer die gewünschte Aufgabe benannt hat:
 
 - Verwende fuer Ticketplanung, Plan-Qualitaet und die inhaltliche Pflege von `Plan` und `Validierung` den Skill `symphony-planning`.
-- Verwende fuer Aufbau und Pflege des Codex Workpads den Skill `symphony-workpad`.
+- Verwende fuer Aufbau und Pflege des Symphony Workpads den Skill `symphony-workpad`.
 - Verwende fuer Linear-Lese- und Schreibzugriffe weiterhin den Skill `symphony-linear`.
 - Oeffne repo-lokale `sym-*`-Skills immer direkt unter `{{ runtime.active_repo_skill_root }}` des aktuell bearbeiteten Repository/Worktrees.
 - Oeffne globale `symphony-*`-Skills immer direkt unter den globalen Skill-Wurzeln `{{ runtime.global_skill_roots_text }}` und nicht relativ zum Repository.
