@@ -16,6 +16,7 @@ defmodule SymphonyElixir.Orchestrator do
   @idle_shutdown_message "Symphony nach Inaktivität beendet"
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
+  @codex_recent_events_limit 200
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
@@ -848,6 +849,7 @@ defmodule SymphonyElixir.Orchestrator do
             workspace_path: nil,
             session_id: nil,
             last_codex_message: nil,
+            recent_codex_events: [],
             last_codex_timestamp: nil,
             last_codex_event: nil,
             codex_app_server_pid: nil,
@@ -1499,6 +1501,7 @@ defmodule SymphonyElixir.Orchestrator do
           started_at: metadata.started_at,
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
+          recent_codex_events: Map.get(metadata, :recent_codex_events, []),
           last_codex_event: metadata.last_codex_event,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
@@ -1594,10 +1597,17 @@ defmodule SymphonyElixir.Orchestrator do
       review_subagent_ids
     )
 
+    summarized_update = summarize_codex_update(update)
+
     {
       Map.merge(running_entry, %{
         last_codex_timestamp: timestamp,
-        last_codex_message: summarize_codex_update(update),
+        last_codex_message: summarized_update,
+        recent_codex_events:
+          update_recent_codex_events(
+            Map.get(running_entry, :recent_codex_events, []),
+            summarized_update
+          ),
         session_id: session_id_for_update(existing_session_id, update),
         last_codex_event: event,
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
@@ -1661,6 +1671,14 @@ defmodule SymphonyElixir.Orchestrator do
       timestamp: update[:timestamp]
     }
   end
+
+  defp update_recent_codex_events(events, event) when is_list(events) and is_map(event) do
+    events
+    |> Kernel.++([event])
+    |> Enum.take(-@codex_recent_events_limit)
+  end
+
+  defp update_recent_codex_events(_events, event) when is_map(event), do: [event]
 
   defp review_subagent_call_ids_for_update(running_entry, existing_session_id, update)
        when is_map(running_entry) and is_map(update) do

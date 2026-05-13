@@ -60,12 +60,14 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
 3. Symphony starten:
 
    ```bash
-   ./symphony --port 4000
+   ./symphony
    ```
 
-Der Wrapper `./symphony` verlinkt die mitgelieferten Skills in dein lokales Codex-Skill-Verzeichnis und startet anschliessend `bin/symphony`. Wenn ein Port gesetzt ist, ist das Dashboard danach typischerweise unter `http://127.0.0.1:4000/` erreichbar.
+Der Wrapper `./symphony` verlinkt die mitgelieferten Skills in dein lokales Codex-Skill-Verzeichnis und startet anschliessend `bin/symphony`. Das Dashboard ist standardmäßig unter `http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Port überschrieben werden.
 
 Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen.
+
+Mit `./sym-watch <TicketId>` kann eine laufende Codex-Sitzung eines Tickets im Terminal verfolgt werden. Das Tool liest die Symphony-Observability-API, wartet bei fehlender Sitzung weiter und wechselt automatisch auf die nächste Sitzung desselben Tickets. Wenn Symphony nicht auf dem Standard-Dashboard `http://127.0.0.1:4000` läuft, kann die API-Basis mit `--url` oder `SYMPHONY_WATCH_URL` gesetzt werden.
 
 ### Qualitaetssicherung
 

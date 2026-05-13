@@ -99,6 +99,19 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              message: %{method: "some-event"},
              timestamp: now
            }
+
+    assert snapshot_entry.recent_codex_events == [
+             %{
+               event: :session_started,
+               message: nil,
+               timestamp: now
+             },
+             %{
+               event: :notification,
+               message: %{method: "some-event"},
+               timestamp: now
+             }
+           ]
   end
 
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do
@@ -972,7 +985,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
-  test "status dashboard renders linear project link in header" do
+  test "status dashboard renders linear project and dashboard links in header" do
     snapshot_data =
       {:ok,
        %{
@@ -985,7 +998,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
     assert rendered =~ "https://linear.app/project/project/issues"
-    refute rendered =~ "Dashboard:"
+    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "http://127.0.0.1:4000/"
   end
 
   test "status dashboard renders dashboard url on its own line when server port is configured" do
@@ -1421,6 +1435,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
       assert humanized =~ expected_fragment
     end)
+
+    leading_space_delta = %{
+      "method" => "item/agentMessage/delta",
+      "params" => %{"delta" => " prüfe zuerst"}
+    }
+
+    assert StatusDashboard.humanize_codex_message(%{event: :notification, message: leading_space_delta}) ==
+             "agent message streaming:  prüfe zuerst"
   end
 
   test "status dashboard humanizes dynamic tool wrapper events" do

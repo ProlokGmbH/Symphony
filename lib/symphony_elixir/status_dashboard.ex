@@ -1722,8 +1722,11 @@ defmodule SymphonyElixir.StatusDashboard do
 
     case delta do
       value when is_binary(value) ->
-        trimmed = String.trim(value)
-        if trimmed == "", do: nil, else: inline_text(trimmed)
+        if value == "" do
+          nil
+        else
+          stream_inline_text(value)
+        end
 
       _ ->
         nil
@@ -1815,6 +1818,13 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp inline_text(other), do: other |> to_string() |> inline_text()
+
+  defp stream_inline_text(text) when is_binary(text) do
+    text
+    |> String.replace("\n", " ")
+    |> String.replace(~r/[^\S ]+/, " ")
+    |> truncate(80)
+  end
 
   defp parse_integer(value) when is_integer(value), do: value
 
