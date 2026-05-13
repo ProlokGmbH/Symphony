@@ -9,6 +9,15 @@ from pathlib import Path
 MANAGED_BINARIES = ("symphony", "sym-codex")
 
 
+def copy_env_local(source: Path, target: Path) -> None:
+    if not source.is_file():
+        return
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    target.chmod(0o600)
+
+
 def ensure_managed_symlink(workspace: Path, binary_name: str) -> None:
     target = workspace / binary_name
     link_path = managed_link_path(workspace, binary_name)
@@ -40,14 +49,11 @@ def main(argv: list[str]) -> int:
 
     source_repo = Path(argv[1]).expanduser().resolve()
     workspace = Path(argv[2]).expanduser().resolve()
-    source_env = source_repo / ".symphony" / ".env.local"
-    workspace_symphony = workspace / ".symphony"
-    workspace_env = workspace_symphony / ".env.local"
-
-    if source_env.is_file():
-        workspace_symphony.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_env, workspace_env)
-        workspace_env.chmod(0o600)
+    copy_env_local(
+        source_repo / ".symphony" / ".env.local",
+        workspace / ".symphony" / ".env.local",
+    )
+    copy_env_local(source_repo / ".env.local", workspace / ".env.local")
 
     for binary_name in MANAGED_BINARIES:
         ensure_managed_symlink(workspace, binary_name)
