@@ -643,12 +643,12 @@ sym_codex_run() {
   sym_codex_load_launch_env "$source_repo"
   sym_codex_set_launch_profile "$workflow_step"
 
+  if [[ "$SYM_CODEX_FAST" == "1" ]]; then
+    codex_args+=(--config "service_tier=fast")
+  fi
+
   if [[ -n "$SYM_CODEX_REASONING_EFFORT" ]]; then
-    if [[ "$SYM_CODEX_FAST" == "1" ]]; then
-      codex_args+=(--config "model_reasoning_effort=minimal")
-    else
-      codex_args+=(--config "model_reasoning_effort=$SYM_CODEX_REASONING_EFFORT")
-    fi
+    codex_args+=(--config "model_reasoning_effort=$SYM_CODEX_REASONING_EFFORT")
   fi
 
   if [[ -n "$SYM_CODEX_MODEL" ]]; then

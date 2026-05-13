@@ -166,7 +166,7 @@ defmodule SymCodexScriptTest do
     end
   end
 
-  test "sym-codex lets root .env.local override root .env and maps fast mode to minimal reasoning" do
+  test "sym-codex lets root .env.local override root .env and maps fast mode to service tier" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -195,8 +195,9 @@ defmodule SymCodexScriptTest do
              )
 
     assert output =~ "--model gpt-5.4-mini"
-    assert output =~ "--config model_reasoning_effort=minimal"
-    refute output =~ "--config model_reasoning_effort=low"
+    assert output =~ "--config service_tier=fast"
+    assert output =~ "--config model_reasoning_effort=low"
+    refute output =~ "--config model_reasoning_effort=minimal"
   end
 
   test "sym-codex reads launch overrides from the active Symphony worktree" do
@@ -262,7 +263,7 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "--model gpt-5.2"
     assert output =~ "--config model_reasoning_effort=xhigh"
-    refute output =~ "--config model_reasoning_effort=minimal"
+    refute output =~ "--config service_tier=fast"
   end
 
   test "sym-codex rejects invalid fast flag values" do

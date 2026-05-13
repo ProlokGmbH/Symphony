@@ -66,7 +66,7 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
 
    Die Präzedenz ist: explizite Shell-Umgebung vor `.env.local` vor `.env` vor
    eingebauten Defaults. Wenn `SYM_CODEX_FAST=1` gesetzt ist, startet
-   `sym-codex` Codex mit `model_reasoning_effort=minimal`.
+   `sym-codex` Codex mit `service_tier=fast`.
 
 3. Symphony starten:
 
