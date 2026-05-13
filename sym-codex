@@ -33,6 +33,9 @@ EOF
 
 SYM_CODEX_PROMPT=""
 SYM_CODEX_WORKFLOW_STEP=""
+SYM_CODEX_MODEL_DEFAULT="gpt-5.5"
+SYM_CODEX_REASONING_EFFORT_DEFAULT="high"
+SYM_CODEX_FAST_DEFAULT="0"
 
 sym_codex_die() {
   sym_codex_stderr "$@"
@@ -283,15 +286,109 @@ sym_codex_parse_manual_prompt_context() {
   SYM_CODEX_PROMPT="$prompt_context"
 }
 
+sym_codex_trim() {
+  local value="$1"
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+
+  printf '%s\n' "$value"
+}
+
+sym_codex_unquote_env_value() {
+  local value="$1"
+
+  case "$value" in
+    \"*\")
+      value="${value#\"}"
+      value="${value%\"}"
+      ;;
+    \'*\')
+      value="${value#\'}"
+      value="${value%\'}"
+      ;;
+  esac
+
+  printf '%s\n' "$value"
+}
+
+sym_codex_apply_launch_env_file() {
+  local env_path="$1"
+  local keep_model="$2"
+  local keep_reasoning="$3"
+  local keep_fast="$4"
+  local line
+  local assignment
+  local key
+  local value
+
+  [[ -f "$env_path" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    line="$(sym_codex_trim "$line")"
+
+    [[ -z "$line" || "$line" == \#* ]] && continue
+
+    if [[ "$line" == export[[:space:]]* ]]; then
+      line="$(sym_codex_trim "${line#export}")"
+    fi
+
+    [[ "$line" == *=* ]] || continue
+
+    key="$(sym_codex_trim "${line%%=*}")"
+    value="${line#*=}"
+    value="${value%%#*}"
+    value="$(sym_codex_trim "$value")"
+    value="$(sym_codex_unquote_env_value "$value")"
+    assignment="$key=$value"
+
+    case "$key" in
+      SYM_CODEX_MODEL)
+        if [[ "$keep_model" != "1" ]]; then
+          export "$assignment"
+        fi
+        ;;
+      SYM_CODEX_REASONING_EFFORT)
+        if [[ "$keep_reasoning" != "1" ]]; then
+          export "$assignment"
+        fi
+        ;;
+      SYM_CODEX_FAST)
+        if [[ "$keep_fast" != "1" ]]; then
+          export "$assignment"
+        fi
+        ;;
+    esac
+  done <"$env_path"
+}
+
+sym_codex_load_launch_env() {
+  local project_root="$1"
+  local keep_model=0
+  local keep_reasoning=0
+  local keep_fast=0
+
+  [[ -n "${SYM_CODEX_MODEL+x}" ]] && keep_model=1
+  [[ -n "${SYM_CODEX_REASONING_EFFORT+x}" ]] && keep_reasoning=1
+  [[ -n "${SYM_CODEX_FAST+x}" ]] && keep_fast=1
+
+  sym_codex_apply_launch_env_file "$project_root/.env" "$keep_model" "$keep_reasoning" "$keep_fast"
+  sym_codex_apply_launch_env_file "$project_root/.env.local" "$keep_model" "$keep_reasoning" "$keep_fast"
+}
+
 sym_codex_set_launch_profile() {
-  local workflow_step="$1"
+  local _workflow_step="$1"
 
-  SYM_CODEX_MODEL="gpt-5.5"
-  SYM_CODEX_REASONING_EFFORT="high"
+  : "${SYM_CODEX_MODEL:=$SYM_CODEX_MODEL_DEFAULT}"
+  : "${SYM_CODEX_REASONING_EFFORT:=$SYM_CODEX_REASONING_EFFORT_DEFAULT}"
+  : "${SYM_CODEX_FAST:=$SYM_CODEX_FAST_DEFAULT}"
 
-  case "$workflow_step" in
-    "Review (AI)")
-      SYM_CODEX_REASONING_EFFORT="high"
+  case "$SYM_CODEX_FAST" in
+    0|1)
+      ;;
+    *)
+      sym_codex_die "SYM_CODEX_FAST must be 0 or 1, got: $SYM_CODEX_FAST"
       ;;
   esac
 }
@@ -543,11 +640,20 @@ sym_codex_run() {
     workflow_step="$SYM_CODEX_WORKFLOW_STEP"
   fi
 
+  sym_codex_load_launch_env "$source_repo"
   sym_codex_set_launch_profile "$workflow_step"
-  codex_args+=(
-    --config "model_reasoning_effort=$SYM_CODEX_REASONING_EFFORT"
-    --model "$SYM_CODEX_MODEL"
-  )
+
+  if [[ -n "$SYM_CODEX_REASONING_EFFORT" ]]; then
+    if [[ "$SYM_CODEX_FAST" == "1" ]]; then
+      codex_args+=(--config "model_reasoning_effort=minimal")
+    else
+      codex_args+=(--config "model_reasoning_effort=$SYM_CODEX_REASONING_EFFORT")
+    fi
+  fi
+
+  if [[ -n "$SYM_CODEX_MODEL" ]]; then
+    codex_args+=(--model "$SYM_CODEX_MODEL")
+  fi
 
   if (( observer_mode )); then
     codex_args+=(app-server)
