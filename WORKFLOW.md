@@ -187,7 +187,7 @@ Zusätzliche Review-Hinweise:
 
 ### Linear-Zugriff
 
-Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Codex Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
+Der Agent sollte mit Linear kommunizieren können, entweder über einen konfigurierten Linear-MCP-Server oder über das injizierte Tool `linear_graphql`. Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist, nutze den lokalen Repo-Tracker-Fallback über `mise exec -- mix run --no-start -e` und `SymphonyElixir.Tracker`. Bootstrappe diesen Fallback zuerst minimal, indem du den Repo-Root per `git rev-parse --show-toplevel` auflöst, `.symphony/.env(.local)` von dort per `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)` lädst und anschließend nur `:req` per `Application.ensure_all_started(:req)` startest. Unterscheide dann per vollständig paginierter `workpad_exists?/1`-Prüfung zwischen Erstkontakt und bestehendem Workpad: Existiert noch kein Workpad, erstelle den kanonischen `## Symphony Workpad`-Kommentar und schreibe den Blocker-Hinweis dort hinein, bevor du das Issue nach `BLOCKER` verschiebst; existiert bereits ein Workpad, erstelle einen dedizierten Blocker-Kommentar außerhalb des Workpads, persistiere den Statuswechsel nach `BLOCKER` und halte in der Abschlussnachricht fest, dass der vorhandene Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte. Erst wenn auch dieser lokale Schreibpfad scheitert, stoppe sofort und melde den fehlenden Linear-Zugriff in der Abschlussnachricht.
 
 Wenn du einen Ticket-Key wie `PRO-190` hast und zuerst nur Status, Titel und die interne Linear-`id` brauchst, verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap und führe erst danach breitere Folgeabfragen aus:
 
@@ -266,20 +266,20 @@ Status selbst ein manueller Freigabe-Status ist und dafür ein passendes
 `Skip "<Status>"`-Label gesetzt wurde, verwendet Symphony den nächsten
 Tabellenstatus als Ziel und läuft von dort weiter.
 
-Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Planung`,
-`Freigabe Implementierung` und `Freigabe Review` unabhängig von gesetzten
-Labels als übersprungen. Außerdem bearbeitet Symphony dann alle passenden
-Tickets unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem
-Modus `--yolo` statt des Assignees.
+Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Implementierung`
+und `Freigabe Review` unabhängig von gesetzten Labels als übersprungen.
+Außerdem bearbeitet Symphony dann alle passenden Tickets unabhängig vom
+konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt
+des Assignees.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
-| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung für die Umsetzung vorbereiten; noch nicht implementieren. | `Freigabe Planung` |
-| `Freigabe Planung` | Nein | Manueller Plan-Freigabepunkt; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den bestehenden, zuvor manuell geprüften Plan ohne weitere automatische Commits umsetzen. | `PreReview (AI)` |
+| `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
+| `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn `Planung (AI)` offene Verständnis- oder Umsetzungsfragen festgestellt hat. | Warten auf menschliches Verschieben |
+| `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen und bei neuen Erkenntnissen begründet im Workpad anpassen. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern, anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
@@ -302,7 +302,7 @@ Modus `--yolo` statt des Assignees.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
-   - `Freigabe Planung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Freigabe Implementierung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
@@ -328,7 +328,7 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
 
 1. Für `Todo (AI)`-Tickets muss die Startsequenz exakt in dieser Reihenfolge erfolgen:
    - `update_issue(..., state: "Planung (AI)")`
-   - `## Codex Workpad`-Bootstrap-Kommentar finden/erstellen
+   - `## Symphony Workpad`-Bootstrap-Kommentar finden/erstellen
    - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
    - erst danach in den Ablauf `Planung (AI)` übergehen.
 
@@ -345,8 +345,9 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
 ### Ziel
 
 Ticketbeschreibung, Workpad-Plan und geplante Validierung so vorbereiten, dass die
-anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzung in
-`In Arbeit (AI)` ohne autonome Neuplanung beginnen kann.
+anschließende Umsetzung in `In Arbeit (AI)` vollständig autonom beginnen kann, oder
+offenen Klärungsbedarf so dokumentieren, dass der Benutzer den Plan im Status
+`Planung` gezielt schärfen kann.
 
 ### Voraussetzungen
 
@@ -357,6 +358,7 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
 1. Finde oder erstelle genau einen persistierenden Scratchpad-Kommentar für das Issue und befolge für Aufbau und Pflege des Kommentars den globalen Skill `symphony-workpad`.
 2. Führe die inhaltliche Planung mit dem globalen Skill `symphony-planning` aus:
    - prüfe, ob die Ticketbeschreibung ausführlich genug für sichere Umsetzung ist,
+   - prüfe streng, ob Codex das Ticket auf Basis von Beschreibung, Workpad und Kontext vollständig autonom verstehen und umsetzen kann,
    - stelle bei langen Beschreibungen sicher, dass oben eine kurze Zusammenfassung mit Trenner `---` vor dem Haupttext steht,
    - du darfst die Ticketbeschreibung in diesem Status automatisiert ändern, wenn das für eine vollständige Planung nötig ist,
    - falls du die Ticketbeschreibung änderst, hinterlasse in Linear einen Kommentar mit der Originalbeschreibung, damit die Änderung nachvollziehbar bleibt,
@@ -364,11 +366,17 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
    - stelle sicher, dass der Plan explizite Schritte für automatisierte Tests enthält,
    - erstelle oder aktualisiere `### Validierung` als Checkliste des geplanten Nachweises.
 3. Starte in diesem Status keine Implementierung.
-4. Ändere den inhaltlichen Plan und die geplante Validierung nur in diesem Status; spätere automatische Schritte dürfen diese Inhalte nicht autonom umschreiben.
+4. Erstelle in diesem Status die initiale inhaltliche Planung. Spätere automatische Schritte dürfen `### Plan` und `### Validierung` bei Bedarf anpassen, wenn neue Erkenntnisse aus der Umsetzung das erforderlich machen; solche Änderungen müssen im Workpad nachvollziehbar begründet werden.
+5. Entscheide am Ende dieses Status selbst, ob die Planung für eine vollständig autonome Umsetzung ausreicht.
+   - Wenn ja, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+   - Wenn nein, arbeite die vom System empfohlenen Lösungsvorschläge zunächst in `### Plan` und `### Validierung` ein, damit der Plan bei Zustimmung des Benutzers direkt ausführbar ist.
+   - Lege anschließend in Linear einen separaten Kommentar an, der die offenen Verständnis- oder Umsetzungsfragen beschreibt, pro Frage einen empfohlenen Lösungsvorschlag nennt und deutlich macht, welche Planannahmen bereits eingearbeitet wurden.
+   - Verschiebe das Issue danach nach `Planung`.
 
 ### Abschluss und nächster Status
 
-- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend vorbereitet sind, verschiebe das Issue nach `Freigabe Planung`, damit ein Mensch den Plan vor der Umsetzung prüfen kann.
+- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend für vollständig autonome Umsetzung vorbereitet sind, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+- Wenn Klärungsbedarf bleibt, kommentiere die offenen Fragen mit empfohlenen Lösungen in Linear und verschiebe das Issue nach `Planung`.
 
 ### Sonderfälle
 
@@ -378,20 +386,20 @@ anschließende menschliche Prüfung in `Freigabe Planung` und danach die Umsetzu
 
 ### Ziel
 
-Umsetzung des bestehenden Plans, lokale Validierung und ungecommittete Übergabe
+Umsetzung auf Basis des vorbereiteten Plans, lokale Validierung und ungecommittete Übergabe
 nach `PreReview (AI)`.
 
 ### Voraussetzungen
 
 - Das Issue befindet sich aktuell in `In Arbeit (AI)`.
-- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und anschließend im manuellen Status `Freigabe Planung` geprüft worden sein.
+- Bevor dieser Schritt beginnt, müssen Ticketbeschreibung, `Plan` und `Validierung` bereits in `Planung (AI)` vorbereitet und bei Bedarf im manuellen Status `Planung` geschärft worden sein.
 
 ### Ablauf
 
-1. Öffne den vorhandenen `## Codex Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
+1. Öffne den vorhandenen `## Symphony Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
 2. Führe anschließend den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
-3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als verbindliche Grundlage für die Ausführung.
-4. Ändere `### Plan` und die geplanten Punkte in `### Validierung` in diesem Status nicht autonom inhaltlich um; hake vorhandene Punkte ab und dokumentiere Fortschritt im bestehenden Workpad.
+3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als Arbeitsgrundlage für die Ausführung.
+4. Wenn neue Erkenntnisse aus der Umsetzung eine Anpassung von `### Plan` oder `### Validierung` erforderlich machen, aktualisiere diese Abschnitte im bestehenden Workpad, dokumentiere den Grund knapp in `### Verlauf` und erhalte verpflichtende ticketseitige Validierungsvorgaben aus `Validation`, `Test Plan` oder `Testing`.
 5. Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt `### Verlauf`.
 6. Implementiere entlang der vorhandenen Plan-Checkliste und aktualisiere den Workpad-Kommentar nach jedem wesentlichen Meilenstein.
 7. Führe die für den Scope erforderlichen Validierungen/Tests aus.
@@ -400,7 +408,7 @@ nach `PreReview (AI)`.
    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren, wenn das die Sicherheit erhöht.
    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in `### Validierung` und/oder `### Verlauf`.
-8. Wenn die Ausführung neue Erkenntnisse hervorbringt, die eine inhaltliche Neuplanung erfordern, halte das knapp im Workpad fest und verschiebe das Issue zurück nach `Planung (AI)`, statt den Plan in diesem Status autonom umzuschreiben.
+8. Wenn die Ausführung neue Erkenntnisse hervorbringt, prüfe, ob der Plan oder die geplante Validierung angepasst werden müssen. Passe sie bei Bedarf im Workpad an; wenn die Erkenntnis den Ticket-Scope unklar macht oder über den geplanten Scope hinausgeht, erfinde keinen neuen Scope und handle gemäß den übrigen Workflow-Regeln.
 9. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Der Arbeitsstand aus der eigentlichen Umsetzung muss für `PreReview (AI)` und den anschließenden manuellen Schritt `Freigabe Implementierung` bewusst ungecommittet bleiben.
 10. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
    - Markiere abgeschlossene Punkte in Plan-/Validierungs-Checklisten als erledigt.
@@ -537,26 +545,27 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 
 - Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch.
 
-## Ablauf für `Freigabe Planung`
+## Ablauf für `Planung`
 
 ### Ziel
 
-Die manuelle Planprüfung vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
+Die manuelle Planschärfung vollständig dem Benutzer überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
 
 ### Voraussetzungen
 
-- Das Issue befindet sich aktuell in `Freigabe Planung`.
+- Das Issue befindet sich aktuell in `Planung`.
+- `Planung (AI)` hat zuvor einen Linear-Kommentar mit offenen Fragen, empfohlenen Lösungsvorschlägen und den bereits eingearbeiteten Planannahmen hinterlassen.
 
 ### Ablauf
 
 1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler die manuelle Planprüfung.
+2. In diesem Status übernimmt der Benutzer die manuelle Planschärfung.
 3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
 
 ### Abschluss und nächster Status
 
-- Nach der manuellen Planfreigabe verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
-- Wenn Plan-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `Planung (AI)`.
+- Wenn der Benutzer den vorgeschlagenen Plan akzeptiert oder final geschärft hat, verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
+- Wenn eine erneute automatische Planung gewünscht ist, verschiebt ein Mensch das Issue nach `Planung (AI)`.
 
 ### Sonderfälle
 
@@ -644,8 +653,8 @@ Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber ab
 
 Führe dieses Protokoll nur dann aus, wenn alle folgenden Bedingungen gleichzeitig erfüllt sind:
 
-1. Du hast in diesem Turn festgestellt, dass vorab kein aktiver `## Codex Workpad`-Kommentar existierte und musstest deshalb einen neuen Workpad-Kommentar anlegen.
-2. Du hast zusätzlich per separater, vollständig paginierter Kommentarabfrage einschließlich aufgelöster Kommentare bestätigt, dass für dieses Issue außer dem Workpad-Kommentar, den du gerade in diesem Turn neu angelegt hast, noch nie ein `## Codex Workpad`-Kommentar existiert hat.
+1. Du hast in diesem Turn festgestellt, dass vorab kein aktiver `## Symphony Workpad`-Kommentar existierte und musstest deshalb einen neuen Workpad-Kommentar anlegen.
+2. Du hast zusätzlich per separater, vollständig paginierter Kommentarabfrage einschließlich aufgelöster Kommentare bestätigt, dass für dieses Issue außer dem Workpad-Kommentar, den du gerade in diesem Turn neu angelegt hast, noch nie ein `## Symphony Workpad`-Kommentar existiert hat.
 3. Wenn du diese Erstkontakt-Bedingung nicht zuverlässig verifizieren kannst, weil Kommentare oder Seiten nicht vollständig abrufbar sind, überspringe das Protokoll vollständig und lasse die Issue-Beschreibung unverändert.
 
 Wenn die Trigger-Bedingungen erfüllt sind:
@@ -666,7 +675,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
   - was fehlt,
   - warum dadurch erforderliche Validierung blockiert wird,
   - welche exakte menschliche Aktion zum Entblocken nötig ist.
-- Wenn kein Linear-MCP-Server und kein `linear_graphql` bereits vor dem ersten Workpad-Zugriff verfügbar sind, nutze stattdessen den lokalen Repo-Tracker-Fallback (`mise exec -- mix run --no-start -e` mit vorgeschaltetem Repo-Root-Resolve via `git rev-parse --show-toplevel`, anschließend `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)`, `Application.ensure_all_started(:req)`, danach `SymphonyElixir.Tracker.fetch_issue_by_identifier/1`, vollständig paginierter `workpad_exists?/1`-Prüfung, `create_comment/2` und `update_issue_state/2`), um zuerst zwischen Erstkontakt und bestehendem Workpad zu unterscheiden. Wenn `workpad_exists?/1` bestätigt, dass noch kein Workpad existiert, erstelle den kanonischen `## Codex Workpad`-Kommentar mit dem Blocker-Hinweis darin; existiert bereits ein Workpad, erstelle stattdessen einen dedizierten Blocker-Kommentar außerhalb des Workpads. Persistiere in beiden Fällen den Statuswechsel nach `BLOCKER`.
+- Wenn kein Linear-MCP-Server und kein `linear_graphql` bereits vor dem ersten Workpad-Zugriff verfügbar sind, nutze stattdessen den lokalen Repo-Tracker-Fallback (`mise exec -- mix run --no-start -e` mit vorgeschaltetem Repo-Root-Resolve via `git rev-parse --show-toplevel`, anschließend `SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)`, `Application.ensure_all_started(:req)`, danach `SymphonyElixir.Tracker.fetch_issue_by_identifier/1`, vollständig paginierter `workpad_exists?/1`-Prüfung, `create_comment/2` und `update_issue_state/2`), um zuerst zwischen Erstkontakt und bestehendem Workpad zu unterscheiden. Wenn `workpad_exists?/1` bestätigt, dass noch kein Workpad existiert, erstelle den kanonischen `## Symphony Workpad`-Kommentar mit dem Blocker-Hinweis darin; existiert bereits ein Workpad, erstelle stattdessen einen dedizierten Blocker-Kommentar außerhalb des Workpads. Persistiere in beiden Fällen den Statuswechsel nach `BLOCKER`.
 - Wenn der eine Workpad-Kommentar bereits existiert und später der Comment-Edit-Pfad ausfällt, nutze den lokalen Tracker-Fallback ebenfalls über `mise exec -- mix run --no-start -e` mit derselben Env-/`:req`-Bootstrap-Sequenz, um einen dedizierten Blocker-Kommentar außerhalb des Workpads anzulegen und den Statuswechsel nach `BLOCKER` zu persistieren. Halte in der Abschlussnachricht zusätzlich fest, dass der bestehende Workpad-Kommentar mangels Edit-Pfad nicht aktualisiert werden konnte.
 - Nur wenn auch dieser lokale Tracker-Fallback scheitert, dokumentiere den Blocker in der Abschlussnachricht; ohne irgendeinen funktionierenden Schreibpfad können weder Statuswechsel noch Blocker-Hinweis persistiert werden.
 - Halte den Hinweis knapp und handlungsorientiert; füge außerhalb des Workpads nur dann einen zusätzlichen Top-Level-Kommentar hinzu, wenn dieser dedizierte Blocker-Kommentar gemäß diesem Escape Hatch erforderlich ist.
@@ -676,7 +685,7 @@ Nutze dies nur, wenn der Abschluss durch fehlende erforderliche Tools oder fehle
 Für Aufbau, Standardstruktur und Pflege des persistierenden Workpad-Kommentars ist
 der globale Skill `symphony-workpad` die maßgebliche Quelle.
 
-- Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Codex Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
+- Der Skill regelt insbesondere Wiederverwendung/Neuanlage des einen `## Symphony Workpad`-Kommentars, die kanonische Kommentarstruktur sowie die Pflege-Regeln für `Plan`, `Validierung`, `Review`, `Test`, `Verlauf` und `Unklarheiten`.
 - Die Schrittreihenfolge der einzelnen Workflow-Phasen und alle Statusübergänge bleiben ausschließlich in dieser `WORKFLOW.md` definiert.
 
 ## Planungs-Handhabung
@@ -684,14 +693,14 @@ der globale Skill `symphony-workpad` die maßgebliche Quelle.
 Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 der globale Skill `symphony-planning` die maßgebliche Quelle.
 
-- Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind ausschließlich in `Planung (AI)` zulässig.
+- Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind zulässig, wenn neue Erkenntnisse aus der Umsetzung sie erforderlich machen. Dokumentiere solche Änderungen im Workpad und erhalte verpflichtende ticketseitige Validierungsvorgaben.
 - Interaktive Sitzungen dürfen auf Benutzeranweisung später erneut in die Planung eingreifen.
 
 ## Leitplanken und Verbote
 
 - Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
-- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Codex Workpad`).
+- Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Symphony Workpad`).
 - Die im `Review (AI)`-Ablauf vorgeschriebenen separaten Linear-Issue-Kommentare zu Review-Subagent-Findings und daraus folgenden Fix-Einordnungen sind zulässige Nachvollziehbarkeitskommentare neben dem Workpad; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `<Issue-Key> Test (AI) Autocommit` oder `<Issue-Key> Merge (AI) Autocommit`.
@@ -700,7 +709,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Freigabe Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
+- In `Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
 - In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.

@@ -4,8 +4,9 @@ description:
   Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
   fuer Ticket- und Umsetzungsplanung. Er legt fest, wie die
   Linear-Beschreibung aufgebaut sein muss und wie `Plan` und `Validierung` im
-  Codex Workpad vorbereitet und gepflegt werden. Automatische
-  Plan-Aenderungen sind nur in `Planung (AI)` erlaubt; Statuslogik bleibt in
+  Symphony Workpad vorbereitet und gepflegt werden. Planänderungen sind auch
+  nach `Planung (AI)` erlaubt, wenn neue Erkenntnisse sie erforderlich machen;
+  Statuslogik bleibt in
   `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
 ---
 
@@ -18,15 +19,15 @@ geplant werden muss.
 ## Zielsetzung
 
 Ziel des Plans ist, in einem einzelnen Symphony-Ticket mit Beschreibung und
-Codex Workpad eine vollstaendige Planung eines Umsetzungsitems zu erfassen, das
-in weiteren Schritten vollstaendig automatisiert durch Codex umgesetzt werden
-kann.
+Symphony Workpad eine belastbare Planung eines Umsetzungsitems zu erfassen, die
+in weiteren Schritten automatisiert durch Codex umgesetzt und bei neuen
+Erkenntnissen nachvollziehbar angepasst werden kann.
 
 ## Abgrenzung
 
 - Dieser Skill regelt Ticketbeschreibung, Detailplanung und geplante
   Validierung.
-- Aufbau, Persistenz und Standardstruktur des Kommentars `## Codex Workpad`
+- Aufbau, Persistenz und Standardstruktur des Kommentars `## Symphony Workpad`
   kommen aus `.codex/skills/symphony-workpad/SKILL.md`.
 - Statusuebergaenge und Schrittreihenfolgen bleiben ausschliesslich in
   `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
@@ -49,12 +50,13 @@ kann.
   persistente Workpad.
 - Verwende fuer Lesen und Schreiben in Linear den Skill `symphony-linear`.
 - Wenn die Beschreibung fuer sichere Planung nicht ausreicht, erfinde keine
-  Anforderungen. Halte die Luecke im Workpad fest und befolge fuer das weitere
-  Vorgehen die Workflow-Datei.
+  Anforderungen. Arbeite empfohlene Annahmen zunächst nachvollziehbar in den
+  Plan ein, halte die Lücke im Workpad fest und bereite die offene Frage mit
+  empfohlenem Lösungsvorschlag für den manuellen Status `Planung` vor.
 
-## Detailplanung im Codex Workpad
+## Detailplanung im Symphony Workpad
 
-- Vor Beginn der Implementierung muss im `## Codex Workpad` eine konkrete
+- Vor Beginn der Implementierung muss im `## Symphony Workpad` eine konkrete
   Planung vorliegen.
 - Pflege die inhaltliche Planung in den Abschnitten `### Plan` und
   `### Validierung`.
@@ -79,16 +81,24 @@ kann.
 - Zerlege die Arbeit in nachvollziehbare, abhakbare Schritte.
 - Plane Validierung nicht nachtraeglich als Freitext, sondern vorab als
   konkrete Checkliste.
+- Prüfe am Ende von `Planung (AI)`, ob der Plan für eine vollständig autonome
+  Umsetzung ausreicht. Wenn nicht, müssen die offenen Fragen und empfohlenen
+  Lösungen so konkret sein, dass der Benutzer den Plan im Status `Planung`
+  direkt freigeben oder gezielt ändern kann.
 
-## Grenze fuer automatische Plan-Aenderungen
+## Umgang mit automatischen Planänderungen
 
-- In automatisierten Workflow-Schritten duerfen `### Plan` und die geplanten
-  Punkte in `### Validierung` ausschliesslich in `Planung (AI)` inhaltlich
-  erstellt oder geaendert werden.
-- In spaeteren automatisierten Schritten darfst du bestehende Punkte nur
-  abarbeiten, abhaken und ihren Status im bestehenden Workpad dokumentieren.
-- Wenn waehrend automatisierter Umsetzung neue Erkenntnisse eine inhaltliche
-  Neuplanung erfordern, halte das knapp im Workpad fest und folge fuer das
-  weitere Vorgehen der Workflow-Datei.
+- In `Planung (AI)` werden `### Plan` und die geplanten Punkte in
+  `### Validierung` initial erstellt oder geschärft.
+- In späteren automatisierten Schritten dürfen `### Plan` und
+  `### Validierung` inhaltlich angepasst werden, wenn neue Erkenntnisse aus der
+  Umsetzung oder Validierung das erforderlich machen.
+- Dokumentiere jede inhaltliche Planänderung knapp im Workpad, inklusive Grund
+  und Auswirkung auf die Validierung.
+- Entferne oder schwäche keine verpflichtenden Vorgaben aus Ticket-Abschnitten
+  wie `Validation`, `Test Plan` oder `Testing`.
+- Wenn eine Erkenntnis den Ticket-Scope unklar macht oder über den geplanten
+  Scope hinausgeht, erfinde keinen neuen Scope; halte die Lücke im Workpad fest
+  und folge für das weitere Vorgehen der Workflow-Datei.
 - In interaktiven Sitzungen darf der Benutzer auch nach `Planung (AI)` noch
   Eingriffe in die Planung veranlassen.

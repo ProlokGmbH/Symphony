@@ -31,13 +31,12 @@ defmodule SymphonyElixir.AgentRunner do
     "todo",
     "in arbeit",
     "freigabe",
-    "freigabe planung",
+    "planung",
     "freigabe implementierung",
     "freigabe review",
     "freigabe final"
   ]
   @yolo_skip_state_names [
-    "freigabe planung",
     "freigabe implementierung",
     "freigabe review"
   ]

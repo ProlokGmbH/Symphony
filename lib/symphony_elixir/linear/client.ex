@@ -9,7 +9,7 @@ defmodule SymphonyElixir.Linear.Client do
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
   @manual_in_progress_state_name "In Arbeit"
-  @yolo_manual_state_names ["Freigabe Planung", "Freigabe Implementierung", "Freigabe Review"]
+  @yolo_manual_state_names ["Freigabe Implementierung", "Freigabe Review"]
 
   @issue_selection """
   id

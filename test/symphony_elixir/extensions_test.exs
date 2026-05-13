@@ -215,12 +215,12 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert {:ok, false} = SymphonyElixir.Tracker.workpad_exists?("issue-1")
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
-    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "## Codex Workpad\n\nbody")
+    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "## Symphony Workpad\n\nbody")
     assert {:ok, true} = SymphonyElixir.Tracker.workpad_exists?("issue-1")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Fertig")
     assert :ok = SymphonyElixir.Tracker.update_issue_branch_name("issue-1", "symphony/MT-1")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
-    assert_receive {:memory_tracker_comment, "issue-1", "## Codex Workpad\n\nbody"}
+    assert_receive {:memory_tracker_comment, "issue-1", "## Symphony Workpad\n\nbody"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Fertig"}
     assert_receive {:memory_tracker_branch_update, "issue-1", "symphony/MT-1"}
 
@@ -234,16 +234,16 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   test "workpad helper matches only the exact marker header" do
-    assert Workpad.marker() == "## Codex Workpad"
-    assert Workpad.comment_matches?("## Codex Workpad\n\nbody")
-    assert Workpad.comment_matches?("prefix\n## Codex Workpad\nsuffix")
-    refute Workpad.comment_matches?("## Codex Workpad extra")
+    assert Workpad.marker() == "## Symphony Workpad"
+    assert Workpad.comment_matches?("## Symphony Workpad\n\nbody")
+    assert Workpad.comment_matches?("prefix\n## Symphony Workpad\nsuffix")
+    refute Workpad.comment_matches?("## Symphony Workpad extra")
     refute Workpad.comment_matches?(nil)
   end
 
   test "workpad helper finds the workpad comment and detects open checklist items in a section" do
     workpad_body = """
-    ## Codex Workpad
+    ## Symphony Workpad
 
     ### Review
 
@@ -269,7 +269,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   test "workpad helper marks prose-only sections as missing an explicit checklist" do
     workpad_body = """
-    ## Codex Workpad
+    ## Symphony Workpad
 
     ### Review
 
@@ -299,10 +299,10 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     Process.put(
       {FakeLinearClient, :issue_comment_bodies_result},
-      {:ok, ["not it", "## Codex Workpad\n\npresent"]}
+      {:ok, ["not it", "## Symphony Workpad\n\npresent"]}
     )
 
-    assert {:ok, ["not it", "## Codex Workpad\n\npresent"]} = Adapter.fetch_issue_comment_bodies("issue-1")
+    assert {:ok, ["not it", "## Symphony Workpad\n\npresent"]} = Adapter.fetch_issue_comment_bodies("issue-1")
 
     assert_receive {:fetch_issue_comment_bodies_called, "issue-1"}
 

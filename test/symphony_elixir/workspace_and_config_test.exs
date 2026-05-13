@@ -904,7 +904,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                    "identifier" => "PRO-49",
                    "title" => "Shared prompt context",
                    "description" => "Load prompt for manual sessions",
-                   "state" => %{"name" => "Freigabe Planung"},
+                   "state" => %{"name" => "Planung"},
                    "labels" => %{"nodes" => [%{"name" => "workflow"}]},
                    "inverseRelations" => %{"nodes" => []}
                  }
@@ -915,7 +915,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
        }}
     end)
 
-    assert {:ok, %Issue{identifier: "PRO-49", state: "Freigabe Planung"} = issue} =
+    assert {:ok, %Issue{identifier: "PRO-49", state: "Planung"} = issue} =
              Client.fetch_issue_by_identifier("PRO-49")
 
     assert issue.title == "Shared prompt context"
@@ -1027,7 +1027,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                           "Todo (AI)",
                           "Review (AI)",
                           "In Arbeit",
-                          "Freigabe Planung",
                           "Freigabe Implementierung",
                           "Freigabe Review"
                         ]
@@ -1074,7 +1073,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                "data" => %{
                  "issue" => %{
                    "comments" => %{
-                     "nodes" => [%{"body" => "## Codex Workpad\n\npresent"}],
+                     "nodes" => [%{"body" => "## Symphony Workpad\n\npresent"}],
                      "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
                    }
                  }
@@ -1084,7 +1083,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       end
     end)
 
-    assert {:ok, ["older note", "## Codex Workpad\n\npresent"]} =
+    assert {:ok, ["older note", "## Symphony Workpad\n\npresent"]} =
              Client.fetch_issue_comment_bodies("issue-1")
 
     assert_receive {:fetch_issue_comments,
@@ -1277,13 +1276,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       retry_attempts: %{}
     }
 
+    planning_issue = %Issue{
+      id: "yolo-planung",
+      identifier: "MT-YOLO-1",
+      title: "Yolo keeps manual planning",
+      state: "Planung"
+    }
+
     issues = [
-      %Issue{
-        id: "yolo-freigabe-planung",
-        identifier: "MT-YOLO-1",
-        title: "Yolo skips planning approval",
-        state: "Freigabe Planung"
-      },
       %Issue{
         id: "yolo-freigabe-implementierung",
         identifier: "MT-YOLO-2",
@@ -1299,6 +1299,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     ]
 
     assert Enum.all?(issues, &Orchestrator.should_dispatch_issue_for_test(&1, state))
+    refute Orchestrator.should_dispatch_issue_for_test(planning_issue, state)
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
@@ -1684,7 +1685,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       poll_interval_ms: %{bad: true},
       workspace_root: 123,
       max_retry_backoff_ms: 0,
-      max_concurrent_agents_by_state: %{"Todo" => "1", "Freigabe Planung" => 0, "Fertig" => "bad"},
+      max_concurrent_agents_by_state: %{"Todo" => "1", "Planung" => 0, "Fertig" => "bad"},
       hook_timeout_ms: 0,
       observability_enabled: "maybe",
       observability_refresh_ms: %{bad: true},
@@ -1924,7 +1925,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "config keeps only AI/Codex managed active states" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_active_states: ["Todo", "Freigabe Planung", "Freigabe Review", "Review (AI)", "Abbruch (AI)", "Fertig"]
+      tracker_active_states: ["Todo", "Planung", "Freigabe Review", "Review (AI)", "Abbruch (AI)", "Fertig"]
     )
 
     assert Config.settings!().tracker.active_states == ["Review (AI)", "Abbruch (AI)"]

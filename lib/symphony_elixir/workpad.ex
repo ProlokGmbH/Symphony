@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Workpad do
   Helpers for the persistent Linear workpad comment managed by Symphony.
   """
 
-  @marker "## Codex Workpad"
+  @marker "## Symphony Workpad"
 
   @spec marker() :: String.t()
   def marker, do: @marker

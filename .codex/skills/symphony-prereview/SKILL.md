@@ -3,7 +3,7 @@ name: symphony-prereview
 description:
   Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
   `sym-prereview` aus dem aktuell bearbeiteten Repository/Worktree, fuehre die dort definierten
-  `PreReview (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
+  `PreReview (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Symphony
   Workpad als Checklistenpunkt, setze Fixes sofort um und wiederhole nach
   einem Fix nur den fehlgeschlagenen Schritt, bis der Workspace sauber ist
   oder `agent.max_turns` erreicht wurde.
@@ -36,7 +36,7 @@ Symphony-Issue-Workflows den Status `PreReview (AI)` erreicht.
 
 ## Workpad-Aktualisierung
 
-- Nutze den vorhandenen Kommentar `## Codex Workpad`.
+- Nutze den vorhandenen Kommentar `## Symphony Workpad`.
 - Spiegele die Schritte aus `<aktives-repo-root>/.codex/skills/sym-prereview/SKILL.md` unter `### Review`
   als Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschliesslich den Abschnitt `### Review`; aendere `### Test` nicht.

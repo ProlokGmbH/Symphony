@@ -22,12 +22,27 @@ Beschreibung:
 Keine Beschreibung vorhanden.
 {% endif %}
 
+{% if issue.state == "Planung" %}
+Das Ticket befindet sich im manuellen Status `Planung`.
+
+Beginne in diesem Fall nicht mit Implementierung. Öffne den bestehenden Symphony-Workpad-Kommentar und die relevanten Linear-Kommentare zu offenen Planungsfragen. Zeige dem Benutzer knapp auf:
+
+- an welchen Punkten die Planung noch Klärungsbedarf hat,
+- welche Lösungsvorschläge bereits im Plan angenommen oder vorbereitet wurden,
+- wie der Plan genauer spezifiziert werden könnte,
+- welche Lösung du jeweils empfiehlst.
+
+Frage den Benutzer anschließend, ob der Plan wie vorgeschlagen final angepasst werden soll oder ob Änderungen an den Vorschlägen vorgenommen werden sollen. Bearbeite die Punkte einzeln, bis der Benutzer den finalen Plan freigibt.
+
+Nach Freigabe durch den Benutzer aktualisiere den finalen Plan und die geplante Validierung automatisch in Linear im bestehenden Symphony Workpad. Verwende dafür `symphony-workpad` für die Workpad-Struktur, `symphony-planning` für `Plan` und `Validierung` und `symphony-linear` für Linear-Lese- und Schreibzugriffe. Verschiebe den Status nicht automatisch; der Benutzer verschiebt das Ticket anschließend manuell nach `In Arbeit (AI)` oder `Planung (AI)`.
+{% else %}
 Beginne nicht sofort mit der Ausführung, sondern frage den Benutzer zunächst was zu tun ist.
+{% endif %}
 
 Sobald der Benutzer die gewünschte Aufgabe benannt hat:
 
 - Verwende fuer Ticketplanung, Plan-Qualitaet und die inhaltliche Pflege von `Plan` und `Validierung` den Skill `symphony-planning`.
-- Verwende fuer Aufbau und Pflege des Codex Workpads den Skill `symphony-workpad`.
+- Verwende fuer Aufbau und Pflege des Symphony Workpads den Skill `symphony-workpad`.
 - Verwende fuer Linear-Lese- und Schreibzugriffe weiterhin den Skill `symphony-linear`.
 - Oeffne repo-lokale `sym-*`-Skills immer direkt unter `{{ runtime.active_repo_skill_root }}` des aktuell bearbeiteten Repository/Worktrees.
 - Oeffne globale `symphony-*`-Skills immer direkt unter den globalen Skill-Wurzeln `{{ runtime.global_skill_roots_text }}` und nicht relativ zum Repository.

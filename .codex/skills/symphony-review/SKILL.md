@@ -3,7 +3,7 @@ name: symphony-review
 description:
   Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
   `sym-review` aus dem aktuell bearbeiteten Repository/Worktree, führe die dort definierten
-  `Review (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Codex
+  `Review (AI)`-Schritte aus, protokolliere jeden Review-Schritt im Symphony
   Workpad als Checklistenpunkt, setze Fixes sofort um und starte den Review-
   Zyklus neu, bis der Workspace sauber ist oder `agent.max_turns` erreicht
   wurde.
@@ -49,7 +49,7 @@ Symphony-Issue-Workflows den Status `Review (AI)` erreicht.
 
 ## Workpad-Aktualisierung
 
-- Nutze den vorhandenen Kommentar `## Codex Workpad`.
+- Nutze den vorhandenen Kommentar `## Symphony Workpad`.
 - Spiegele die Schritte aus `<aktives-repo-root>/.codex/skills/sym-review/SKILL.md` unter `### Review`
   als Checkliste in derselben Reihenfolge.
 - Pflege mit diesem Skill ausschließlich den Abschnitt `### Review`; ändere `### Test` nicht.
