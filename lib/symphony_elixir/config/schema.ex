@@ -267,7 +267,7 @@ defmodule SymphonyElixir.Config.Schema do
 
     @primary_key false
     embedded_schema do
-      field(:port, :integer)
+      field(:port, :integer, default: 4_000)
       field(:host, :string, default: "127.0.0.1")
     end
 

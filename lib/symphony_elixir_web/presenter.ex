@@ -76,9 +76,9 @@ defmodule SymphonyElixirWeb.Presenter do
       running: running && running_issue_payload(running),
       retry: retry && retry_issue_payload(retry),
       logs: %{
-        codex_session_logs: []
+        codex_session_logs: recent_events_payload(running)
       },
-      recent_events: (running && recent_events_payload(running)) || [],
+      recent_events: recent_events_payload(running),
       last_error: retry && retry.error,
       tracked: %{}
     }
@@ -167,19 +167,60 @@ defmodule SymphonyElixirWeb.Presenter do
     (running && Map.get(running, :worker_host)) || (retry && Map.get(retry, :worker_host))
   end
 
+  defp recent_events_payload(nil), do: []
+
   defp recent_events_payload(running) do
-    [
-      %{
-        at: iso8601(running.last_codex_timestamp),
-        event: running.last_codex_event,
-        message: summarize_message(running.last_codex_message)
-      }
-    ]
+    running
+    |> Map.get(:recent_codex_events, [])
+    |> case do
+      [] -> fallback_recent_event(running)
+      events -> events
+    end
+    |> Enum.map(&recent_event_payload(&1, running))
     |> Enum.reject(&is_nil(&1.at))
   end
 
   defp summarize_message(nil), do: nil
   defp summarize_message(message), do: StatusDashboard.humanize_codex_message(message)
+
+  defp fallback_recent_event(running) do
+    case running.last_codex_message do
+      nil ->
+        []
+
+      message ->
+        [
+          %{
+            event: running.last_codex_event,
+            message: message,
+            session_id: running.session_id,
+            timestamp: running.last_codex_timestamp
+          }
+        ]
+    end
+  end
+
+  defp recent_event_payload(event, running) do
+    event
+    |> recent_event_base_payload(running)
+    |> maybe_put(:sequence, Map.get(event, :sequence) || Map.get(event, "sequence"))
+  end
+
+  defp recent_event_base_payload(event, running) do
+    %{
+      at: iso8601(Map.get(event, :timestamp) || Map.get(event, "timestamp")),
+      event: event_name(Map.get(event, :event) || Map.get(event, "event")),
+      session_id: Map.get(event, :session_id) || Map.get(event, "session_id") || running.session_id,
+      message: summarize_message(Map.get(event, :message) || Map.get(event, "message"))
+    }
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp event_name(event) when is_atom(event), do: Atom.to_string(event)
+  defp event_name(event) when is_binary(event), do: event
+  defp event_name(_event), do: nil
 
   defp due_at_iso8601(due_in_ms) when is_integer(due_in_ms) do
     DateTime.utc_now()

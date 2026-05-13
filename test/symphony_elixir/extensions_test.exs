@@ -571,8 +571,24 @@ defmodule SymphonyElixir.ExtensionsTest do
                "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
              },
              "retry" => nil,
-             "logs" => %{"codex_session_logs" => []},
-             "recent_events" => [],
+             "logs" => %{
+               "codex_session_logs" => [
+                 %{
+                   "at" => issue_payload["recent_events"] |> List.first() |> Map.fetch!("at"),
+                   "event" => "notification",
+                   "session_id" => "thread-http",
+                   "message" => "rendered"
+                 }
+               ]
+             },
+             "recent_events" => [
+               %{
+                 "at" => issue_payload["recent_events"] |> List.first() |> Map.fetch!("at"),
+                 "event" => "notification",
+                 "session_id" => "thread-http",
+                 "message" => "rendered"
+               }
+             ],
              "last_error" => nil,
              "tracked" => %{}
            }
@@ -848,6 +864,8 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   defp static_snapshot do
+    event_at = DateTime.utc_now()
+
     %{
       running: [
         %{
@@ -858,6 +876,9 @@ defmodule SymphonyElixir.ExtensionsTest do
           turn_count: 7,
           codex_app_server_pid: nil,
           last_codex_message: "rendered",
+          recent_codex_events: [
+            %{event: :notification, message: "rendered", session_id: "thread-http", timestamp: event_at}
+          ],
           last_codex_timestamp: nil,
           last_codex_event: :notification,
           codex_input_tokens: 4,
