@@ -655,7 +655,14 @@ defmodule SymCodexScriptTest do
   end
 
   defp run_script(script_path, bin_dir, args \\ ["--observer"], opts \\ []) do
-    env = [{"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}] ++ Keyword.get(opts, :env, [])
+    env =
+      [
+        {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+        {"SYM_CODEX_MODEL", nil},
+        {"SYM_CODEX_REASONING_EFFORT", nil},
+        {"SYM_CODEX_FAST", nil}
+      ] ++ Keyword.get(opts, :env, [])
+
     system_opts = [env: env, stderr_to_stdout: true]
     system_opts = maybe_put_cd(system_opts, Keyword.get(opts, :cd))
 

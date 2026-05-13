@@ -7,6 +7,7 @@ defmodule SymphonyElixir.HttpServer do
   alias SymphonyElixirWeb.Endpoint
 
   @secret_key_bytes 48
+  @max_tcp_port 65_535
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -24,10 +25,11 @@ defmodule SymphonyElixir.HttpServer do
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
-        with {:ok, ip} <- parse_host(host) do
+        with {:ok, ip} <- parse_host(host),
+             {:ok, bind_port} <- resolve_bind_port(ip, port) do
           endpoint_opts = [
             server: true,
-            http: [ip: ip, port: port],
+            http: [ip: ip, port: bind_port],
             url: [host: normalize_host(host)],
             orchestrator: orchestrator,
             snapshot_timeout_ms: snapshot_timeout_ms,
@@ -81,6 +83,27 @@ defmodule SymphonyElixir.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  defp resolve_bind_port(_ip, 0), do: {:ok, 0}
+  defp resolve_bind_port(ip, port), do: find_available_port(ip, port)
+
+  defp find_available_port(_ip, port) when port > @max_tcp_port do
+    {:error, :no_available_port}
+  end
+
+  defp find_available_port(ip, port) do
+    case :gen_tcp.listen(port, [:binary, ip: ip, active: false, reuseaddr: true]) do
+      {:ok, socket} ->
+        :ok = :gen_tcp.close(socket)
+        {:ok, port}
+
+      {:error, :eaddrinuse} ->
+        find_available_port(ip, port + 1)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)
