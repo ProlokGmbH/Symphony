@@ -36,6 +36,8 @@ kommt aus `symphony-workpad`; Statusübergänge aus `WORKFLOW.md` bzw.
 
 - Plan und Validierung vor der Umsetzung kritisch prüfen und schärfen.
 - Keine unscharfen Sammelpunkte als Hauptschritte.
+- Offene Entscheidungen zu Funktionalität, Verhalten oder Produktausgaben nicht
+  still treffen; mit empfohlenem Lösungsvorschlag als Klärungsbedarf festhalten.
 - Am Ende von `Planung (AI)` entscheiden, ob autonome Umsetzung möglich ist.
   Wenn nicht, müssen offene Fragen und empfohlene Lösungen direkt entscheidbar
   sein.
@@ -46,5 +48,6 @@ kommt aus `symphony-workpad`; Statusübergänge aus `WORKFLOW.md` bzw.
   nötig machen.
 - Jede Änderung mit Grund und Validierungsauswirkung im Workpad dokumentieren.
 - Verpflichtende Ticketvorgaben nicht entfernen oder abschwächen.
-- Bei unklarem oder erweitertem Scope keine Anforderungen erfinden; Workflow für
-  Klärung oder Folge-Issue nutzen.
+- Bei unklarem oder erweitertem Scope keine Anforderungen erfinden; betrifft die
+  neue Erkenntnis Funktionalität, Verhalten oder Produktausgaben, als
+  Klärungsbedarf mit empfohlenem Lösungsvorschlag behandeln.

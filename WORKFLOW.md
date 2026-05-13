@@ -278,8 +278,8 @@ des Assignees.
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
-| `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn `Planung (AI)` offene Verständnis- oder Umsetzungsfragen festgestellt hat. | Warten auf menschliches Verschieben |
-| `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen und bei neuen Erkenntnissen begründet im Workpad anpassen. | `PreReview (AI)` |
+| `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |
+| `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen. Nicht-funktionale Plananpassungen begründet im Workpad pflegen; produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
 | `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern, anschließende Fixes bleiben ungecommittet. | `Freigabe Review` |
@@ -369,6 +369,7 @@ offenen Klärungsbedarf so dokumentieren, dass der Benutzer den Plan im Status
 4. Erstelle in diesem Status die initiale inhaltliche Planung. Spätere automatische Schritte dürfen `### Plan` und `### Validierung` bei Bedarf anpassen, wenn neue Erkenntnisse aus der Umsetzung das erforderlich machen; solche Änderungen müssen im Workpad nachvollziehbar begründet werden.
 5. Entscheide am Ende dieses Status selbst, ob die Planung für eine vollständig autonome Umsetzung ausreicht.
    - Wenn ja, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+   - Wenn mehrere plausible Varianten die Funktionalität, das Verhalten oder eine Produktausgabe verändern würden und das Ticket keine klare Entscheidung enthält, wähle nicht still selbst.
    - Wenn nein, arbeite die vom System empfohlenen Lösungsvorschläge zunächst in `### Plan` und `### Validierung` ein, damit der Plan bei Zustimmung des Benutzers direkt ausführbar ist.
    - Lege anschließend in Linear einen separaten Kommentar an, der die offenen Verständnis- oder Umsetzungsfragen beschreibt, pro Frage einen empfohlenen Lösungsvorschlag nennt und deutlich macht, welche Planannahmen bereits eingearbeitet wurden.
    - Verschiebe das Issue danach nach `Planung`.
@@ -399,7 +400,8 @@ nach `PreReview (AI)`.
 1. Öffne den vorhandenen `## Symphony Workpad`-Kommentar und behandle ihn gemäß dem globalen Skill `symphony-workpad` als aktive Ausführungs-Checkliste.
 2. Führe anschließend den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
 3. Verwende `### Plan` und `### Validierung` aus der vorherigen `Planung (AI)`-Phase als Arbeitsgrundlage für die Ausführung.
-4. Wenn neue Erkenntnisse aus der Umsetzung eine Anpassung von `### Plan` oder `### Validierung` erforderlich machen, aktualisiere diese Abschnitte im bestehenden Workpad, dokumentiere den Grund knapp in `### Verlauf` und erhalte verpflichtende ticketseitige Validierungsvorgaben aus `Validation`, `Test Plan` oder `Testing`.
+4. Wenn neue Erkenntnisse aus der Umsetzung eine nicht-funktionale Anpassung von `### Plan` oder `### Validierung` erforderlich machen, aktualisiere diese Abschnitte im bestehenden Workpad, dokumentiere den Grund knapp in `### Verlauf` und erhalte verpflichtende ticketseitige Validierungsvorgaben aus `Validation`, `Test Plan` oder `Testing`.
+   - Wenn die neue Erkenntnis eine offene Entscheidung über Funktionalität, Verhalten oder eine Produktausgabe erzeugt, stoppe die Umsetzung, dokumentiere die Frage mit empfohlenem Lösungsvorschlag im Workpad und in einem separaten Linear-Kommentar, aktualisiere `### Plan`/`### Validierung` nur als vorgeschlagene Variante und verschiebe das Issue nach `Planung`.
 5. Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt `### Verlauf`.
 6. Implementiere entlang der vorhandenen Plan-Checkliste und aktualisiere den Workpad-Kommentar nach jedem wesentlichen Meilenstein.
 7. Führe die für den Scope erforderlichen Validierungen/Tests aus.
@@ -408,7 +410,7 @@ nach `PreReview (AI)`.
    - Du darfst temporäre lokale Proof-Änderungen machen, um Annahmen zu validieren, wenn das die Sicherheit erhöht.
    - Nimm jede temporäre Proof-Änderung vor der Übergabe nach `PreReview (AI)` wieder zurück.
    - Dokumentiere diese temporären Proof-Schritte und Ergebnisse in `### Validierung` und/oder `### Verlauf`.
-8. Wenn die Ausführung neue Erkenntnisse hervorbringt, prüfe, ob der Plan oder die geplante Validierung angepasst werden müssen. Passe sie bei Bedarf im Workpad an; wenn die Erkenntnis den Ticket-Scope unklar macht oder über den geplanten Scope hinausgeht, erfinde keinen neuen Scope und handle gemäß den übrigen Workflow-Regeln.
+8. Wenn die Ausführung neue Erkenntnisse hervorbringt, prüfe, ob der Plan oder die geplante Validierung angepasst werden müssen. Passe sie bei Bedarf im Workpad an; wenn die Erkenntnis den Ticket-Scope unklar macht, über den geplanten Scope hinausgeht oder eine offene Entscheidung über Produktverhalten erzeugt, erfinde keinen neuen Scope und gib das Issue mit empfohlenem Lösungsvorschlag nach `Planung` zurück.
 9. Führe nach dem vorgeschalteten `symphony-pull` keine weiteren automatischen Commits aus. Der Arbeitsstand aus der eigentlichen Umsetzung muss für `PreReview (AI)` und den anschließenden manuellen Schritt `Freigabe Implementierung` bewusst ungecommittet bleiben.
 10. Aktualisiere den Workpad-Kommentar mit dem finalen Checklistenstatus und den Validierungsnotizen.
    - Markiere abgeschlossene Punkte in Plan-/Validierungs-Checklisten als erledigt.
@@ -635,7 +637,7 @@ der globale Skill `symphony-workpad` die maßgebliche Quelle.
 Für Ticketbeschreibung, inhaltliche Planung und geplante Validierung ist
 der globale Skill `symphony-planning` die maßgebliche Quelle.
 
-- Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind zulässig, wenn neue Erkenntnisse aus der Umsetzung sie erforderlich machen. Dokumentiere solche Änderungen im Workpad und erhalte verpflichtende ticketseitige Validierungsvorgaben.
+- Automatische inhaltliche Änderungen an `Plan` und geplanter `Validierung` sind zulässig, wenn neue Erkenntnisse aus der Umsetzung sie erforderlich machen. Dokumentiere solche Änderungen im Workpad und erhalte verpflichtende ticketseitige Validierungsvorgaben. Wenn die Änderung Funktionalität, Verhalten oder eine Produktausgabe anders festlegen würde, dokumentiere sie nur als empfohlenen Lösungsvorschlag und verschiebe nach `Planung`.
 - Interaktive Sitzungen dürfen auf Benutzeranweisung später erneut in die Planung eingreifen.
 
 ## Leitplanken und Verbote
