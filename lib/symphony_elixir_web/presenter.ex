@@ -185,19 +185,38 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp fallback_recent_event(running) do
     case running.last_codex_message do
-      nil -> []
-      message -> [%{event: running.last_codex_event, message: message, timestamp: running.last_codex_timestamp}]
+      nil ->
+        []
+
+      message ->
+        [
+          %{
+            event: running.last_codex_event,
+            message: message,
+            session_id: running.session_id,
+            timestamp: running.last_codex_timestamp
+          }
+        ]
     end
   end
 
   defp recent_event_payload(event, running) do
+    event
+    |> recent_event_base_payload(running)
+    |> maybe_put(:sequence, Map.get(event, :sequence) || Map.get(event, "sequence"))
+  end
+
+  defp recent_event_base_payload(event, running) do
     %{
       at: iso8601(Map.get(event, :timestamp) || Map.get(event, "timestamp")),
       event: event_name(Map.get(event, :event) || Map.get(event, "event")),
-      session_id: running.session_id,
+      session_id: Map.get(event, :session_id) || Map.get(event, "session_id") || running.session_id,
       message: summarize_message(Map.get(event, :message) || Map.get(event, "message"))
     }
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp event_name(event) when is_atom(event), do: Atom.to_string(event)
   defp event_name(event) when is_binary(event), do: event

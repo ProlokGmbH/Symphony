@@ -877,7 +877,7 @@ defmodule SymphonyElixir.ExtensionsTest do
           codex_app_server_pid: nil,
           last_codex_message: "rendered",
           recent_codex_events: [
-            %{event: :notification, message: "rendered", timestamp: event_at}
+            %{event: :notification, message: "rendered", session_id: "thread-http", timestamp: event_at}
           ],
           last_codex_timestamp: nil,
           last_codex_event: :notification,

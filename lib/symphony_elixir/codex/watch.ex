@@ -193,20 +193,38 @@ defmodule SymphonyElixir.Codex.Watch do
   defp stream_close_for_new_session(_session_id, state), do: close_stream(state)
 
   defp render_running_events(events, session_id, state) when is_list(events) do
-    Enum.reduce(events, {state, []}, fn event, {acc_state, lines} ->
-      key = event_key(event, session_id)
-
-      if MapSet.member?(acc_state.seen, key) do
-        {acc_state, lines}
-      else
-        acc_state = %{acc_state | seen: MapSet.put(acc_state.seen, key)}
-        {acc_state, output} = format_event(event, acc_state)
-        {acc_state, lines ++ output}
-      end
-    end)
+    Enum.reduce(events, {state, []}, &render_running_event(&1, &2, session_id))
   end
 
   defp render_running_events(_events, _session_id, state), do: {state, []}
+
+  defp render_running_event(event, {state, lines}, session_id) do
+    if current_session_event?(event, session_id) do
+      append_unseen_event(event, session_id, state, lines)
+    else
+      {state, lines}
+    end
+  end
+
+  defp append_unseen_event(event, session_id, state, lines) do
+    key = event_key(event, session_id)
+
+    if MapSet.member?(state.seen, key) do
+      {state, lines}
+    else
+      state = %{state | seen: MapSet.put(state.seen, key)}
+      {state, output} = format_event(event, state)
+      {state, lines ++ output}
+    end
+  end
+
+  defp current_session_event?(event, session_id) do
+    case event_session_id(event) do
+      nil -> true
+      ^session_id -> true
+      _event_session_id -> false
+    end
+  end
 
   defp session_header(session_id, %{session_id: session_id}), do: nil
   defp session_header(session_id, _state), do: {:line, "== Codex session #{session_id} =="}
@@ -234,8 +252,19 @@ defmodule SymphonyElixir.Codex.Watch do
   end
 
   defp event_key(event, session_id) do
-    {session_id, Map.get(event, "at"), Map.get(event, "event"), Map.get(event, "message")}
+    event_session_id = event_session_id(event) || session_id
+
+    case event_sequence(event) do
+      nil -> {event_session_id, Map.get(event, "at"), Map.get(event, "event"), Map.get(event, "message")}
+      sequence -> {event_session_id, sequence}
+    end
   end
+
+  defp event_session_id(event) when is_map(event), do: Map.get(event, "session_id")
+  defp event_session_id(_event), do: nil
+
+  defp event_sequence(event) when is_map(event), do: Map.get(event, "sequence")
+  defp event_sequence(_event), do: nil
 
   defp format_event(event, state) do
     event

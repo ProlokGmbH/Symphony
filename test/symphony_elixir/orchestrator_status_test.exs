@@ -97,6 +97,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert snapshot_entry.last_codex_message == %{
              event: :notification,
              message: %{method: "some-event"},
+             sequence: 2,
+             session_id: "thread-live-turn-live",
              timestamp: now
            }
 
@@ -104,14 +106,79 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              %{
                event: :session_started,
                message: nil,
+               sequence: 1,
+               session_id: "thread-live-turn-live",
                timestamp: now
              },
              %{
                event: :notification,
                message: %{method: "some-event"},
+               sequence: 2,
+               session_id: "thread-live-turn-live",
                timestamp: now
              }
            ]
+  end
+
+  test "orchestrator keeps original session id on retained codex events" do
+    issue_id = "issue-session-switch"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-189",
+      title: "Session switch test",
+      description: "Capture event session ids",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-189"
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :SessionSwitchOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: issue.identifier,
+      issue: issue,
+      session_id: nil,
+      turn_count: 0,
+      last_codex_message: nil,
+      last_codex_timestamp: nil,
+      last_codex_event: nil,
+      started_at: DateTime.utc_now()
+    }
+
+    state_with_issue =
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+
+    :sys.replace_state(pid, fn _ -> state_with_issue end)
+
+    old_at = DateTime.utc_now()
+    new_at = DateTime.add(old_at, 1, :second)
+
+    send(pid, {:codex_worker_update, issue_id, %{event: :session_started, session_id: "thread-old-turn", timestamp: old_at}})
+    send(pid, {:codex_worker_update, issue_id, %{event: :notification, payload: "old output", timestamp: old_at}})
+    send(pid, {:codex_worker_update, issue_id, %{event: :session_started, session_id: "thread-new-turn", timestamp: new_at}})
+
+    snapshot = GenServer.call(pid, :snapshot)
+    assert %{running: [snapshot_entry]} = snapshot
+    assert snapshot_entry.session_id == "thread-new-turn"
+
+    assert [
+             %{event: :session_started, sequence: 1, session_id: "thread-old-turn"},
+             %{event: :notification, message: "old output", sequence: 2, session_id: "thread-old-turn"},
+             %{event: :session_started, sequence: 3, session_id: "thread-new-turn"}
+           ] = snapshot_entry.recent_codex_events
   end
 
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do

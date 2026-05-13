@@ -120,4 +120,87 @@ defmodule SymphonyElixir.Codex.WatchTest do
 
     assert_received {:output, "Warte auf Symphony-Observability-API unter http://127.0.0.1:4567 (connection refused). Starte Symphony mit `./symphony` oder setze `--url`."}
   end
+
+  test "main ignores retained events from an older session when a new session is running" do
+    test_pid = self()
+
+    req_fun = fn _opts ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "running" => %{"session_id" => "thread-new-turn"},
+           "recent_events" => [
+             %{
+               "at" => "2026-05-12T19:59:58Z",
+               "event" => "notification",
+               "session_id" => "thread-old-turn",
+               "message" => "agent message streaming: stale"
+             },
+             %{
+               "at" => "2026-05-12T20:00:00Z",
+               "event" => "notification",
+               "session_id" => "thread-new-turn",
+               "message" => "agent message streaming: fresh"
+             }
+           ]
+         }
+       }}
+    end
+
+    output_fun = fn line -> send(test_pid, {:output, line}) end
+    write_fun = fn text -> send(test_pid, {:write, text}) end
+
+    assert :ok =
+             Watch.main(["--url", "http://127.0.0.1:4567", "--once", "PRO-265"],
+               output_fun: output_fun,
+               write_fun: write_fun,
+               req_fun: req_fun
+             )
+
+    assert_received {:output, "== Codex session thread-new-turn =="}
+    refute_received {:write, "stale"}
+    assert_received {:write, "fresh"}
+  end
+
+  test "main keeps repeated streaming deltas when the API provides distinct event sequences" do
+    test_pid = self()
+
+    req_fun = fn _opts ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "running" => %{"session_id" => "thread-repeat-turn"},
+           "recent_events" => [
+             %{
+               "at" => "2026-05-12T20:00:00Z",
+               "event" => "notification",
+               "sequence" => 1,
+               "session_id" => "thread-repeat-turn",
+               "message" => "agent message streaming: ha"
+             },
+             %{
+               "at" => "2026-05-12T20:00:00Z",
+               "event" => "notification",
+               "sequence" => 2,
+               "session_id" => "thread-repeat-turn",
+               "message" => "agent message streaming: ha"
+             }
+           ]
+         }
+       }}
+    end
+
+    write_fun = fn text -> send(test_pid, {:write, text}) end
+
+    assert :ok =
+             Watch.main(["--url", "http://127.0.0.1:4567", "--once", "PRO-265"],
+               write_fun: write_fun,
+               req_fun: req_fun
+             )
+
+    assert_receive {:write, "ha"}
+    assert_receive {:write, "ha"}
+  end
 end
