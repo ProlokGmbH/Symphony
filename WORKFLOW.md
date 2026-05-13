@@ -493,29 +493,11 @@ Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen und das I
 
 ## Ablauf für `Freigabe Review`
 
-### Ziel
-
-Die manuelle Freigabe der reviewten Version vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
-
-### Voraussetzungen
-
-- Das Issue befindet sich aktuell in `Freigabe Review`.
-
-### Ablauf
-
-1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler die manuelle Freigabe des reviewten Branches für den anschließenden Test-/Merge-Zyklus.
-3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
-
-### Abschluss und nächster Status
-
-- Nach der manuellen Freigabe verschiebt ein Mensch das Issue regulär nach `Test (AI)`.
-- Wenn Freigabe-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
-- Wenn Freigabe-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
-
-### Sonderfälle
-
-- Wenn Review-Feedback in `Merge (AI)` trotz Ticketkontext, Plan, Code, Tests und lokaler Dokumentation semantisch nicht sicher autonom auflösbar ist, dokumentiere die offene Klärung im Workpad und im Review-Thread, verschiebe das Issue zurück nach `Freigabe Review` und beende den Merge-Lauf ohne weiteren Statuswechsel.
+Manueller Freigabepunkt. Weder coden noch Ticket-Inhalt ändern, kein Polling.
+Der nächste automatische Einstieg erfolgt erst nach externem Statuswechsel. Wenn
+Review-Feedback in `Merge (AI)` trotz Ticketkontext, Plan, Code, Tests und
+lokaler Dokumentation nicht sicher autonom lösbar ist, dokumentiere es im
+Workpad und Review-Thread, verschiebe zurück nach `Freigabe Review` und stoppe.
 
 ## Ablauf für `Test (AI)`
 
@@ -547,55 +529,15 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 
 ## Ablauf für `Planung`
 
-### Ziel
-
-Die manuelle Planschärfung vollständig dem Benutzer überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
-
-### Voraussetzungen
-
-- Das Issue befindet sich aktuell in `Planung`.
-- `Planung (AI)` hat zuvor einen Linear-Kommentar mit offenen Fragen, empfohlenen Lösungsvorschlägen und den bereits eingearbeiteten Planannahmen hinterlassen.
-
-### Ablauf
-
-1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Benutzer die manuelle Planschärfung.
-3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
-
-### Abschluss und nächster Status
-
-- Wenn der Benutzer den vorgeschlagenen Plan akzeptiert oder final geschärft hat, verschiebt ein Mensch das Issue regulär nach `In Arbeit (AI)`.
-- Wenn eine erneute automatische Planung gewünscht ist, verschiebt ein Mensch das Issue nach `Planung (AI)`.
-
-### Sonderfälle
-
-- Keine.
+Manueller Planschärfungspunkt nach offenen Fragen aus `Planung (AI)`. Weder
+coden noch Ticket-Inhalt ändern, kein Polling. Weiterarbeit beginnt erst nach
+externem Statuswechsel in einen AI-Status.
 
 ## Ablauf für `Freigabe Implementierung`
 
-### Ziel
-
-Den manuellen Review- und Commit-Schritt nach der Umsetzung vollständig dem Entwickler überlassen und bis zum nächsten menschlichen Statuswechsel nichts automatisiert fortsetzen.
-
-### Voraussetzungen
-
-- Das Issue befindet sich aktuell in `Freigabe Implementierung`.
-
-### Ablauf
-
-1. Weder coden noch den Ticket-Inhalt ändern.
-2. In diesem Status übernimmt der Entwickler den manuellen Review- und Commit-Schritt nach `PreReview (AI)`.
-3. In diesem Status kein regelmäßiges Polling ausführen; warten, bis ein Mensch das Issue in einen anderen Status verschiebt.
-
-### Abschluss und nächster Status
-
-- Nach der manuellen Freigabe verschiebt ein Mensch das Issue regulär nach `Review (AI)`.
-- Wenn Freigabe-Feedback Änderungen erfordert, verschiebt ein Mensch das Issue nach `In Arbeit (AI)`.
-- Wenn Freigabe-Feedback eine Neuplanung erforderlich macht, verschiebt ein Mensch das Issue nach `Planung (AI)`.
-
-### Sonderfälle
-
-- Keine.
+Manueller Review- und Commit-Schritt nach `PreReview (AI)`. Weder coden noch
+Ticket-Inhalt ändern, kein Polling. Weiterarbeit beginnt erst nach externem
+Statuswechsel in einen AI-Status.
 
 ## Ablauf für `Merge (AI)`
 
