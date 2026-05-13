@@ -9,6 +9,8 @@ USER_BIN_DIR="$HOME/.local/bin"
 PROJECT_DIR="$SCRIPT_DIR"
 CODEX_LINK_PATH="$USER_BIN_DIR/sym-codex"
 CODEX_TARGET_PATH="$PROJECT_DIR/sym-codex"
+WATCH_LINK_PATH="$USER_BIN_DIR/sym-watch"
+WATCH_TARGET_PATH="$PROJECT_DIR/sym-watch"
 
 mkdir -p "$USER_SKILLS_DIR"
 mkdir -p "$USER_BIN_DIR"
@@ -19,6 +21,13 @@ if [ -e "$CODEX_LINK_PATH" ] && [ ! -L "$CODEX_LINK_PATH" ]; then
 fi
 
 ln -sfnT "$CODEX_TARGET_PATH" "$CODEX_LINK_PATH"
+
+if [ -e "$WATCH_LINK_PATH" ] && [ ! -L "$WATCH_LINK_PATH" ]; then
+  echo "symphony: $WATCH_LINK_PATH exists and is not a symlink" >&2
+  exit 1
+fi
+
+ln -sfnT "$WATCH_TARGET_PATH" "$WATCH_LINK_PATH"
 
 shopt -s nullglob
 for skill_dir in "$SKILLS_DIR"/symphony-*; do

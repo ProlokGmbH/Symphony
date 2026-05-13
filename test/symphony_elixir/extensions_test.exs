@@ -852,6 +852,29 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
   end
 
+  test "http server falls back to the next free port when the configured port is occupied" do
+    {occupied_socket, occupied_port} = listen_with_free_successor!()
+    on_exit(fn -> :gen_tcp.close(occupied_socket) end)
+
+    orchestrator_name = Module.concat(__MODULE__, :FallbackPortOrchestrator)
+    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: static_snapshot()})
+
+    start_supervised!(
+      {HttpServer,
+       [
+         host: "127.0.0.1",
+         port: occupied_port,
+         orchestrator: orchestrator_name,
+         snapshot_timeout_ms: 50
+       ]}
+    )
+
+    assert HttpServer.bound_port() == occupied_port + 1
+
+    response = Req.get!("http://127.0.0.1:#{occupied_port + 1}/api/v1/state")
+    assert response.status == 200
+  end
+
   defp start_test_endpoint(overrides) do
     endpoint_config =
       :symphony_elixir
@@ -907,6 +930,38 @@ defmodule SymphonyElixir.ExtensionsTest do
     end)
 
     HttpServer.bound_port()
+  end
+
+  defp listen_with_free_successor! do
+    case :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false, reuseaddr: true]) do
+      {:ok, socket} ->
+        use_test_socket_or_retry(socket)
+
+      {:error, reason} ->
+        flunk("failed to reserve a test port: #{inspect(reason)}")
+    end
+  end
+
+  defp use_test_socket_or_retry(socket) do
+    with {:ok, {_ip, port}} when port < 65_535 <- :inet.sockname(socket),
+         true <- port_available?(port + 1) do
+      {socket, port}
+    else
+      _ ->
+        :ok = :gen_tcp.close(socket)
+        listen_with_free_successor!()
+    end
+  end
+
+  defp port_available?(port) do
+    case :gen_tcp.listen(port, [:binary, ip: {127, 0, 0, 1}, active: false, reuseaddr: true]) do
+      {:ok, socket} ->
+        :ok = :gen_tcp.close(socket)
+        true
+
+      {:error, _reason} ->
+        false
+    end
   end
 
   defp assert_eventually(fun, attempts \\ 20)

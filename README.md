@@ -74,7 +74,7 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    ./symphony
    ```
 
-Der Wrapper `./symphony` verlinkt die mitgelieferten Skills in dein lokales Codex-Skill-Verzeichnis und startet anschliessend `bin/symphony`. Das Dashboard ist standardmäßig unter `http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Port überschrieben werden.
+Der Wrapper `./symphony` verlinkt die mitgelieferten Skills sowie `sym-codex` und `sym-watch` in deine lokalen Codex- und Bin-Verzeichnisse und startet anschließend `bin/symphony`. Das Dashboard ist standardmäßig unter `http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Startport überschrieben werden. Wenn dieser Port bereits belegt ist, verwendet Symphony automatisch den nächsten freien Port.
 
 Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen.
 
