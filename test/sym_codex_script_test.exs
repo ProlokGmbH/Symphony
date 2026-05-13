@@ -109,7 +109,7 @@ defmodule SymCodexScriptTest do
     assert output =~ "manual-prompt-for-PRO-49"
   end
 
-  test "sym-codex keeps the default launch profile for non-review workflow steps" do
+  test "sym-codex keeps the built-in launch profile when root env files are absent" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -133,7 +133,7 @@ defmodule SymCodexScriptTest do
     assert output =~ "--config model_reasoning_effort=high"
   end
 
-  test "sym-codex uses high reasoning for Review (AI)" do
+  test "sym-codex uses the same root env launch profile for every workflow step" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -143,18 +143,173 @@ defmodule SymCodexScriptTest do
       File.rm_rf(workspace_root)
     end)
 
-    prompt_output = manual_prompt_context("Review (AI)", "manual-prompt-for-PRO-49")
+    File.write!(Path.join(repo_dir, ".env"), """
+    SYM_CODEX_MODEL=gpt-5.4-mini
+    SYM_CODEX_REASONING_EFFORT=medium
+    SYM_CODEX_FAST=0
+    """)
+
+    for workflow_step <- ["In Arbeit (AI)", "Review (AI)"] do
+      prompt_output = manual_prompt_context(workflow_step, "manual-prompt-for-PRO-49")
+
+      assert {output, 0} =
+               run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+                 cd: repo_dir,
+                 env: [
+                   {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                   {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+                 ]
+               )
+
+      assert output =~ "--model gpt-5.4-mini"
+      assert output =~ "--config model_reasoning_effort=medium"
+    end
+  end
+
+  test "sym-codex lets root .env.local override root .env and maps fast mode to minimal reasoning" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(repo_dir, ".env"), """
+    SYM_CODEX_MODEL=gpt-5.5
+    SYM_CODEX_REASONING_EFFORT=high
+    SYM_CODEX_FAST=0
+    """)
+
+    File.write!(Path.join(repo_dir, ".env.local"), """
+    SYM_CODEX_MODEL=gpt-5.4-mini
+    SYM_CODEX_REASONING_EFFORT=low
+    SYM_CODEX_FAST=1
+    """)
 
     assert {output, 0} =
              run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               cd: repo_dir,
+               env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
+             )
+
+    assert output =~ "--model gpt-5.4-mini"
+    assert output =~ "--config model_reasoning_effort=minimal"
+    refute output =~ "--config model_reasoning_effort=low"
+  end
+
+  test "sym-codex reads launch overrides from the active Symphony worktree" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(repo_dir, ".env"), """
+    SYM_CODEX_MODEL=gpt-5.5
+    SYM_CODEX_REASONING_EFFORT=high
+    SYM_CODEX_FAST=0
+    """)
+
+    File.write!(Path.join(worktree, ".env.local"), """
+    SYM_CODEX_REASONING_EFFORT=xhigh
+    """)
+
+    assert {output, 0} =
+             run_script(Path.join(worktree, "sym-codex"), bin_dir, ["--observer"], cd: worktree)
+
+    assert output =~ "--model gpt-5.5"
+    assert output =~ "--config model_reasoning_effort=xhigh"
+    refute output =~ "--config model_reasoning_effort=high"
+  end
+
+  test "sym-codex preserves explicit shell launch profile variables over root env files" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(repo_dir, ".env"), """
+    SYM_CODEX_MODEL=gpt-5.5
+    SYM_CODEX_REASONING_EFFORT=high
+    SYM_CODEX_FAST=0
+    """)
+
+    File.write!(Path.join(repo_dir, ".env.local"), """
+    SYM_CODEX_MODEL=gpt-5.4-mini
+    SYM_CODEX_REASONING_EFFORT=low
+    SYM_CODEX_FAST=1
+    """)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               cd: repo_dir,
                env: [
                  {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
-                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+                 {"SYM_CODEX_MODEL", "gpt-5.2"},
+                 {"SYM_CODEX_REASONING_EFFORT", "xhigh"},
+                 {"SYM_CODEX_FAST", "0"}
                ]
+             )
+
+    assert output =~ "--model gpt-5.2"
+    assert output =~ "--config model_reasoning_effort=xhigh"
+    refute output =~ "--config model_reasoning_effort=minimal"
+  end
+
+  test "sym-codex rejects invalid fast flag values" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(repo_dir, ".env"), "SYM_CODEX_FAST=yes\n")
+
+    assert {output, 1} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               cd: repo_dir,
+               env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
+             )
+
+    assert output =~ "SYM_CODEX_FAST must be 0 or 1, got: yes"
+  end
+
+  test "sym-codex ignores .symphony env files for launch profile values" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.mkdir_p!(Path.join(repo_dir, ".symphony"))
+    File.write!(Path.join(repo_dir, ".symphony/.env"), "SYM_CODEX_MODEL=gpt-5.4-mini\n")
+    File.write!(Path.join(repo_dir, ".symphony/.env.local"), "SYM_CODEX_REASONING_EFFORT=low\n")
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               cd: repo_dir,
+               env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
              )
 
     assert output =~ "--model gpt-5.5"
     assert output =~ "--config model_reasoning_effort=high"
+    refute output =~ "--model gpt-5.4-mini"
+    refute output =~ "--config model_reasoning_effort=low"
   end
 
   test "sym-codex exports the active worktree while building the manual prompt" do

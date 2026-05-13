@@ -57,6 +57,17 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    arbeiten; das Symphony-Source-Repository bleibt der Fallback, wenn kein
    Projekt-Root übergeben wird.
 
+   Das von `sym-codex` verwendete Codex-Startprofil wird dagegen aus `.env`
+   und optional `.env.local` im aktiven Symphony-Checkout geladen, nicht aus
+   `.symphony/.env(.local)`. Unterstützt werden:
+   - `SYM_CODEX_MODEL`, Standard `gpt-5.5`
+   - `SYM_CODEX_REASONING_EFFORT`, Standard `high`
+   - `SYM_CODEX_FAST`, `0` oder `1`, Standard `0`
+
+   Die Präzedenz ist: explizite Shell-Umgebung vor `.env.local` vor `.env` vor
+   eingebauten Defaults. Wenn `SYM_CODEX_FAST=1` gesetzt ist, startet
+   `sym-codex` Codex mit `model_reasoning_effort=minimal`.
+
 3. Symphony starten:
 
    ```bash
