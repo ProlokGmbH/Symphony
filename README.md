@@ -62,11 +62,13 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
    `.symphony/.env(.local)`. Unterstützt werden:
    - `SYM_CODEX_MODEL`, Standard `gpt-5.5`
    - `SYM_CODEX_REASONING_EFFORT`, Standard `high`
-   - `SYM_CODEX_FAST`, `0` oder `1`, Standard `0`
+   - `SYM_CODEX_FAST`, `0` oder `1`, Standard `0`; interaktive Starts
+     erzwingen nach der Profilvalidierung `1`
 
    Die Präzedenz ist: explizite Shell-Umgebung vor `.env.local` vor `.env` vor
-   eingebauten Defaults. Wenn `SYM_CODEX_FAST=1` gesetzt ist, startet
-   `sym-codex` Codex mit `service_tier=fast`.
+   eingebauten Defaults. Für interaktive/manuelle Starts setzt `sym-codex`
+   anschließend `SYM_CODEX_FAST=1`, sodass Codex mit `service_tier=fast`
+   startet. Observer-Starts behalten die aufgelöste Profilkonfiguration.
 
 3. Symphony starten:
 

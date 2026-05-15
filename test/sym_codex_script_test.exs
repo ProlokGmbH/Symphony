@@ -130,6 +130,7 @@ defmodule SymCodexScriptTest do
              )
 
     assert output =~ "--model gpt-5.5"
+    assert output =~ "--config service_tier=fast"
     assert output =~ "--config model_reasoning_effort=high"
   end
 
@@ -200,6 +201,33 @@ defmodule SymCodexScriptTest do
     refute output =~ "--config model_reasoning_effort=minimal"
   end
 
+  test "sym-codex forces fast mode for manual starts after validating env files" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(Path.join(repo_dir, ".env"), """
+    SYM_CODEX_FAST=0
+    """)
+
+    File.write!(Path.join(repo_dir, ".env.local"), """
+    SYM_CODEX_FAST=0
+    """)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
+               cd: repo_dir,
+               env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
+             )
+
+    assert output =~ "--config service_tier=fast"
+  end
+
   test "sym-codex reads launch overrides from the active Symphony worktree" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
       build_script_worktree_fixture!("PRO-49")
@@ -225,10 +253,11 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "--model gpt-5.5"
     assert output =~ "--config model_reasoning_effort=xhigh"
+    refute output =~ "--config service_tier=fast"
     refute output =~ "--config model_reasoning_effort=high"
   end
 
-  test "sym-codex preserves explicit shell launch profile variables over root env files" do
+  test "sym-codex preserves explicit shell model and reasoning while manual starts stay fast" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -263,7 +292,7 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "--model gpt-5.2"
     assert output =~ "--config model_reasoning_effort=xhigh"
-    refute output =~ "--config service_tier=fast"
+    assert output =~ "--config service_tier=fast"
   end
 
   test "sym-codex rejects invalid fast flag values" do
