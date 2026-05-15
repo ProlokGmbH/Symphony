@@ -393,6 +393,14 @@ sym_codex_set_launch_profile() {
   esac
 }
 
+sym_codex_apply_interactive_fast_mode() {
+  local observer_mode="$1"
+
+  if [[ "$observer_mode" != "1" ]]; then
+    export SYM_CODEX_FAST=1
+  fi
+}
+
 sym_codex_expand_path() {
   local project_root="$1"
   local raw_path="$2"
@@ -642,6 +650,7 @@ sym_codex_run() {
 
   sym_codex_load_launch_env "$source_repo"
   sym_codex_set_launch_profile "$workflow_step"
+  sym_codex_apply_interactive_fast_mode "$observer_mode"
 
   if [[ "$SYM_CODEX_FAST" == "1" ]]; then
     codex_args+=(--config "service_tier=fast")
