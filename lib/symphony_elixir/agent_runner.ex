@@ -23,6 +23,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_codex_state_name "test (ai)"
   @implementation_handoff_state_name "Freigabe Implementierung"
   @review_handoff_state_name "Freigabe Review"
+  @review_no_findings_handoff_state_name "Test (AI)"
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
@@ -620,11 +621,11 @@ defmodule SymphonyElixir.AgentRunner do
          worker_host
        ) do
     case review_workpad_handoff_status(issue) do
-      :ready ->
+      {:ready, review_result} ->
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          resolve_review_handoff_state(issue, workspace, worker_host),
+          resolve_review_handoff_state(issue, review_result, workspace, worker_host),
           :review_handoff_state_update_failed,
           "completed review issue",
           :stop
@@ -862,7 +863,10 @@ defmodule SymphonyElixir.AgentRunner do
       default_next_handoff_state(issue.state)
   end
 
-  defp resolve_review_handoff_state(%Issue{} = issue, _workspace, _worker_host),
+  defp resolve_review_handoff_state(%Issue{}, :no_findings, _workspace, _worker_host),
+    do: @review_no_findings_handoff_state_name
+
+  defp resolve_review_handoff_state(%Issue{} = issue, _review_result, _workspace, _worker_host),
     do: resolve_next_handoff_state(issue)
 
   defp review_workpad_handoff_status(%Issue{id: issue_id}) when is_binary(issue_id) do
@@ -873,11 +877,11 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp review_workpad_handoff_status(_issue), do: :ready
+  defp review_workpad_handoff_status(_issue), do: {:ready, :unknown}
 
   defp review_workpad_status_from_body(body) when is_binary(body) do
     case Workpad.section_checklist_status(body, "Review") do
-      :closed -> :ready
+      :closed -> {:ready, review_workpad_result_from_body(body)}
       :open -> :blocked
       :missing -> :blocked
       :no_checklist -> :blocked
@@ -885,6 +889,38 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp review_workpad_status_from_body(_body), do: :blocked
+
+  defp review_workpad_result_from_body(body) when is_binary(body) do
+    case review_section_body(body) do
+      {:ok, section_body} ->
+        if review_section_no_findings?(section_body), do: :no_findings, else: :unknown
+
+      :error ->
+        :unknown
+    end
+  end
+
+  defp review_section_body(body) when is_binary(body) do
+    pattern = ~r/(?:^|\n)###\s+Review\s*\n(?<body>.*?)(?=\n###\s+|\z)/s
+
+    case Regex.named_captures(pattern, body) do
+      %{"body" => section_body} -> {:ok, section_body}
+      _ -> :error
+    end
+  end
+
+  defp review_section_no_findings?(section_body) when is_binary(section_body) do
+    no_findings? =
+      Regex.match?(
+        ~r/\b(?:keine|no)(?:\s+(?:konkreten|concrete))?\s+findings\b/iu,
+        section_body
+      ) or
+        Regex.match?(~r/\b(?:without|ohne)\s+findings\b/iu, section_body)
+
+    findings_marker? = Regex.match?(~r/(?:^|\n)\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:\*\*)?findings(?:\*\*)?\s*:/iu, section_body)
+
+    no_findings? and not findings_marker?
+  end
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
     cond do

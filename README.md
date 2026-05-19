@@ -115,6 +115,8 @@ Nicht automatisch durch Dependabot aktualisierbar sind aktuell:
 Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Klärungs- bzw. Freigabepunkten. `Planung` ist der manuelle Klärungspunkt, wenn `Planung (AI)` oder die spätere Umsetzung offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen feststellt. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
 Wenn für einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, läuft Symphony direkt zum nächsten nicht übersprungenen Status weiter; das gilt für die Freigabepunkte `Freigabe Implementierung` und `Freigabe Review`. Für `Planung` gibt es kein Skip-Label. Im `--yolo`-Modus gelten nur `Freigabe Implementierung` und `Freigabe Review` als übersprungen.
 
+Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Freigabepunkt `Freigabe Review` generell und geht direkt nach `Test (AI)`. Diese No-Findings-Regel ist unabhängig von `--yolo` und Skip-Labels; `--yolo` und `Skip "Freigabe Review"` bleiben aber harte Skip-Regeln und überspringen `Freigabe Review` auch dann, wenn im Review Findings vorhanden waren.
+
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
@@ -125,7 +127,7 @@ Wenn für einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, läuft
 | `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei nicht-funktionalen Erkenntnissen begründete Plananpassung; produkt-/verhaltensrelevanter Klärungsbedarf geht nach `Planung`. | `PreReview (AI)` oder `Planung` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
-| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Freigabe Review` |
+| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | ohne Findings `Test (AI)`, sonst `Freigabe Review`; `--yolo` und `Skip "Freigabe Review"` überspringen den Freigabepunkt auch bei Findings |
 | `Freigabe Review` | Mensch | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | `Test (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
 | `Test (AI)` | AI | Vor den Tests per Pull auf den spaeteren Merge-Stand synchronisieren und den Test-/Fix-Zyklus auf diesem Stand ausfuehren. | `Merge (AI)` |
 | `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen; bei mergebedingten Codeaenderungen zurueck nach `Test (AI)`. | `Review` |

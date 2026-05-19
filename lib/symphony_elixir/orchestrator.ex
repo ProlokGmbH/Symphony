@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, PromptBuilder, StatusDashboard, Tracker, Workflow, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, PromptBuilder, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -21,6 +21,7 @@ defmodule SymphonyElixir.Orchestrator do
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
   @yolo_manual_state_names ["freigabe implementierung", "freigabe review"]
+  @review_no_findings_handoff_state_name "Test (AI)"
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
     input_tokens: 0,
@@ -2911,9 +2912,7 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp review_handoff_target_state(%Issue{} = issue) do
-    Workflow.resolve_next_status(issue.state, Issue.label_names(issue)) || "Freigabe Review"
-  end
+  defp review_handoff_target_state(%Issue{}), do: @review_no_findings_handoff_state_name
 
   defp review_recovered_context_kind(value) when is_binary(value) do
     case PromptBuilder.normalize_recovered_review_context(value) do
