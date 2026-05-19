@@ -7349,7 +7349,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner keeps Freigabe Review after a review turn with open workspace changes" do
+  test "agent runner skips Freigabe Review after a no-findings review with open workspace changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -7434,7 +7434,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-review-dirty-handoff",
              identifier: "MT-REVIEW-DIRTY",
              title: "Review handoff with dirty workspace",
-             description: "Keep manual review approval when review leaves changes behind",
+             description: "Skip manual review approval when review leaves changes behind but has no findings",
              state: current_state
            }
          ]}
@@ -7444,15 +7444,15 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-review-dirty-handoff",
         identifier: "MT-REVIEW-DIRTY",
         title: "Review handoff with dirty workspace",
-        description: "Keep manual review approval when review leaves changes behind",
+        description: "Skip manual review approval when review leaves changes behind but has no findings",
         state: "Review (AI)",
         url: "https://example.org/issues/MT-REVIEW-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -8435,7 +8435,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner skips Freigabe Review after a clean review turn when the label is set" do
+  test "agent runner skips Freigabe Review after a review turn with findings when the label is set" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -8444,6 +8444,7 @@ defmodule SymphonyElixir.CoreTest do
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
     previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -8487,61 +8488,72 @@ defmodule SymphonyElixir.CoreTest do
         max_turns: 3
       )
 
-      {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
-      parent = self()
+      run_case = fn issue_id, identifier, labels, yolo? ->
+        Application.put_env(:symphony_elixir, :yolo, yolo?)
 
-      recipient =
-        spawn(fn ->
-          review_handoff_test_recipient(parent, state_agent)
-        end)
+        {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+        parent = self()
 
-      Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+        recipient =
+          spawn(fn ->
+            review_handoff_test_recipient(parent, state_agent)
+          end)
 
-      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
-        "issue-review-skip-handoff" => [
-          """
-          ## Symphony Workpad
+        Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
-          ### Review
+        Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+          issue_id => [
+            """
+            ## Symphony Workpad
 
-          - [x] Review step one
-          - [x] Review subagent completed without findings
-          """
-        ]
-      })
+            ### Review
 
-      labels = [~s(skip "freigabe review")]
+            - [x] Review step one
+            - [x] Review subagent completed with findings
 
-      state_fetcher = fn [_issue_id] ->
-        current_state = Agent.get(state_agent, & &1)
+            Findings:
+            - High: Example finding.
+            """
+          ]
+        })
 
-        {:ok,
-         [
-           %Issue{
-             id: "issue-review-skip-handoff",
-             identifier: "MT-REVIEW-SKIP",
-             title: "Review handoff with skip",
-             description: "Advance directly to test when review approval is skipped",
-             state: current_state,
-             labels: labels
-           }
-         ]}
+        state_fetcher = fn [_issue_id] ->
+          current_state = Agent.get(state_agent, & &1)
+
+          {:ok,
+           [
+             %Issue{
+               id: issue_id,
+               identifier: identifier,
+               title: "Review handoff with skip",
+               description: "Advance directly to test when review approval is skipped",
+               state: current_state,
+               labels: labels
+             }
+           ]}
+        end
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: identifier,
+          title: "Review handoff with skip",
+          description: "Advance directly to test when review approval is skipped",
+          state: "Review (AI)",
+          url: "https://example.org/issues/#{identifier}",
+          labels: labels
+        }
+
+        assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}
+        assert "Test (AI)" == Agent.get(state_agent, & &1)
+
+        Agent.stop(state_agent)
       end
 
-      issue = %Issue{
-        id: "issue-review-skip-handoff",
-        identifier: "MT-REVIEW-SKIP",
-        title: "Review handoff with skip",
-        description: "Advance directly to test when review approval is skipped",
-        state: "Review (AI)",
-        url: "https://example.org/issues/MT-REVIEW-SKIP",
-        labels: labels
-      }
-
-      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-skip-handoff", "Test (AI)"}
-      assert "Test (AI)" == Agent.get(state_agent, & &1)
+      run_case.("issue-review-skip-handoff", "MT-REVIEW-SKIP", [~s(skip "freigabe review")], false)
+      run_case.("issue-review-yolo-handoff", "MT-REVIEW-YOLO", [], true)
     after
+      restore_app_env(:yolo, previous_yolo)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
