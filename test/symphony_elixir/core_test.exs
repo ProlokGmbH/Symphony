@@ -194,6 +194,9 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "der lokale Branchname und die dazugehörige PR bleiben maßgeblich."
     assert prompt =~ "Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann"
     assert prompt =~ "verschiebe nach `BLOCKER`"
+    assert prompt =~ "produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben"
+    assert prompt =~ "Wenn mehrere plausible Varianten die Funktionalität, das Verhalten oder eine Produktausgabe verändern würden"
+    assert prompt =~ "gib das Issue mit empfohlenem Lösungsvorschlag nach `Planung` zurück"
     assert prompt =~ "Wenn Symphony mit `--yolo` gestartet wird"
     assert prompt =~ "die Hauptmaske zeigt"
     assert prompt =~ "`--yolo`"
@@ -5216,6 +5219,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`<Issue-Key> Test (AI) Autocommit`"
     assert prompt =~ "`<Issue-Key> Merge (AI) Autocommit`"
+    assert prompt =~ "produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben"
     assert prompt =~ "Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung."
 
     assert prompt =~

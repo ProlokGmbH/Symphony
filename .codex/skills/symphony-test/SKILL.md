@@ -1,70 +1,33 @@
 ---
 name: symphony-test
 description:
-  Lies innerhalb eines laufenden Symphony-Issue-Workflows den Skill
-  `sym-test` aus dem aktuell bearbeiteten Repository/Worktree, führe die dort definierten `Test (AI)`-
-  Schritte aus, protokolliere jeden Test-Schritt im Symphony Workpad als
-  Checklistenpunkt, setze Fixes sofort um und starte den Test-Zyklus neu, bis
-  der Workspace sauber ist oder `agent.max_turns` erreicht wurde.
+  Führt im Status `Test (AI)` die repo-lokale `sym-test`-Checkliste inklusive
+  Test-/Fix-Schleife aus.
 ---
 
 # Symphony Test
 
-Verwende diesen Skill nur, wenn ein Ticket innerhalb des laufenden
-Symphony-Issue-Workflows den Status `Test (AI)` erreicht.
+Nur im Status `Test (AI)` verwenden. Pull/Rebase ist Aufgabe des aufrufenden
+Workflows.
 
-## Ziel
+## Ablauf
 
-- Lies die repository-spezifischen Anweisungen aus dem Skill `sym-test` unter
-  `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md`.
-- Committe bestehende oder neu entstehende Änderungen in diesem Status bei Bedarf mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body.
-- Verlasse dich darauf, dass der aufrufende Workflow den vorgeschalteten
-  `symphony-pull` bereits ausgeführt hat, bevor dieser Skill beginnt.
-- Halte eine kurze `pull skill evidence`-Notiz mit Rebase-Quelle(n) und Ergebnis
-  (`clean` oder `conflicts resolved`) im Workpad fest, falls der aufrufende
-  Schritt sie dort noch nicht hinterlegt hat.
-- Führe die dort definierte Test-Checkliste in der vorgegebenen Reihenfolge aus.
-- Halte unter `### Test` jeden Test-Schritt als Checklistenpunkt mit kurzer Statusnotiz fest.
-- Setze erforderliche Fixes sofort im selben Workspace um.
-- Starte die Checkliste nach jedem Fix wieder von vorn.
-- Stoppe erst, wenn alle Schritte ohne Abweichung durchlaufen oder `agent.max_turns` erreicht ist.
+- `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` vollständig lesen.
+- Nur diese Checkliste und Reihenfolge verwenden; fehlende Datei im Workpad
+  dokumentieren und stoppen.
+- Fehlende Pull-Evidence im Workpad ergänzen.
+- `### Test` pflegen, Details knapp in `### Verlauf`.
 
-## Repository-spezifische Anweisungen
+## Test-/Fix-Schleife
 
-- Öffne zu Beginn den repo-lokalen Skill `sym-test` unter
-  `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` und lies die Datei vollständig.
-- Verwende den Skill als maßgebliche Quelle für die konkrete Test-Checkliste und ihre Reihenfolge.
-- Erfinde keine fehlenden Test-Schritte aus früheren Repository-Konventionen.
-- Suche den repo-lokalen Skill immer im aktuell bearbeiteten Repository/Worktree und nicht relativ zu diesem `symphony-test`-Verzeichnis.
-- Wenn `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` fehlt oder nicht lesbar ist, dokumentiere das im Workpad und stoppe statt eine Checkliste zu raten.
+1. Mit dem ersten repo-lokalen Testschritt beginnen.
+2. Nach jedem Schritt den zugehörigen `### Test`-Punkt aktualisieren.
+3. Bei Fehlern Fix umsetzen, Workpad aktualisieren und wieder bei Schritt 1
+   starten.
+4. Lokale Fixes dürfen mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body
+   committet werden.
 
-## Workpad-Aktualisierung
+## Abschluss
 
-- Nutze den vorhandenen Kommentar `## Symphony Workpad`.
-- Spiegele die Schritte aus `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` unter `### Test` als
-  Checkliste in derselben Reihenfolge.
-- Pflege mit diesem Skill ausschließlich den Abschnitt `### Test`; ändere `### Review` nicht.
-- Pflege dort pro Schritt genau einen kurzen Eintrag, zum Beispiel:
-  - `- [x] Führe make all aus: erfolgreich`
-  - `- [ ] Führe <weiteren Testschritt> aus: Fehlerbild offen, Fix in Arbeit`
-- Verwende `### Test` nicht als zeitgestempeltes Befehls- oder Ergebnislog.
-- Halte Befehle, Ergebnisse und Fix-Notizen weiterhin kurz unter `### Verlauf` fest.
-- Wenn du Code änderst, ergänze unter `### Verlauf` eine kurze Notiz, was behoben wurde und warum die Checkliste erneut gestartet wird.
-
-## Test-Schleife
-
-1. Lies `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` und beginne mit dem ersten dort
-   definierten Schritt auf dem vom Workflow bereits synchronisierten Branch.
-2. Aktualisiere nach jedem Schritt zuerst den zugehörigen Checklistenpunkt unter `### Test` und dokumentiere Details im `### Verlauf`, bevor du weitermachst.
-3. Wenn ein Schritt fehlschlägt oder konkrete Änderungen verlangt:
-   - setze den Fix sofort um,
-   - aktualisiere das Workpad mit Fehlerbild und Fix-Zusammenfassung,
-   - starte die Checkliste wieder beim ersten in
-     `<aktives-repo-root>/.codex/skills/sym-test/SKILL.md` definierten Schritt.
-4. Wenn während der Schleife lokale Fixes entstanden sind, committe sie bei Bedarf in diesem Status mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body, bevor der nächste Pull-/Rebase- oder Merge-Schritt sie aufnimmt.
-5. Wenn alle Schritte in einem ununterbrochenen Durchlauf erfolgreich sind, ist der Testlauf abgeschlossen.
-6. Wenn `agent.max_turns` erreicht ist, bevor ein sauberer Durchlauf abgeschlossen wurde, beende die Schleife, dokumentiere die verbleibenden Abweichungen im Workpad und stoppe ohne Statuswechsel.
-
-## Abschlussbedingung
-
-- Wenn der Testlauf erfolgreich abgeschlossen ist, verschiebe das Ticket von `Test (AI)` nach `Merge (AI)`.
+Wenn alle Schritte sauber sind, nach `Merge (AI)` verschieben. Bei
+`agent.max_turns` Abweichungen dokumentieren und ohne Statuswechsel stoppen.

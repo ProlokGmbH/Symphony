@@ -2,48 +2,24 @@
 name: symphony-workpad
 description:
   Verwende diesen Skill nur innerhalb eines laufenden Symphony-Issue-Workflows
-  fuer Aufbau, Standardstruktur und Pflege des persistenten
-  `## Symphony Workpad`-Kommentars. Er deckt Finden/Anlegen des einen Workpads,
-  Environment-Stamp, die kanonischen Abschnitte, Verlauf und den finalen
-  Handoff-Zustand ab. Inhaltliche Planung von `Plan` und `Validierung` liegt
-  beim Skill `symphony-planning`; Statuslogik bleibt in `WORKFLOW.md` bzw.
-  `WORKFLOW_INTERACTIVE.md`.
+  für Aufbau und Pflege des einen `## Symphony Workpad`-Kommentars.
 ---
 
 # Symphony Workpad
 
-Verwende diesen Skill nur, wenn du innerhalb eines laufenden
-Symphony-Issue-Workflows das persistente Symphony Workpad eines Tickets finden,
-anlegen, strukturieren oder aktuell halten musst.
+Dieser Skill regelt nur das Workpad. Statuslogik bleibt in `WORKFLOW.md` bzw.
+`WORKFLOW_INTERACTIVE.md`; Planung von `### Plan` und `### Validierung` liegt
+bei `symphony-planning`.
 
-## Abgrenzung
+## Kommentar
 
-- Dieser Skill regelt nur Aufbau und Pflege des Workpads.
-- Statusuebergaenge, Escape Hatches und die Reihenfolge einzelner Workflow-Schritte
-  bleiben ausschliesslich in `WORKFLOW.md` bzw. `WORKFLOW_INTERACTIVE.md`.
-- Inhaltliche Regeln fuer Ticketbeschreibung, `Plan` und `Validierung` liegen in
-  `.codex/skills/symphony-planning/SKILL.md`.
-- Wenn Reihenfolge/Statuslogik und Workpad-Regeln gleichzeitig relevant sind, gilt:
-  Die Workflow-Datei bestimmt wann etwas passiert; dieser Skill bestimmt wie das
-  Workpad dabei aussieht und gepflegt wird.
-
-## Persistenter Kommentar
-
-- Verwende pro Issue genau einen persistierenden Kommentar mit dem Marker
+- Verwende pro Issue genau einen aktiven Kommentar mit dem Marker
   `## Symphony Workpad`.
-- Durchsuche vorhandene Kommentare nach diesem Marker.
-- Nur aktive/nicht aufgeloeste Kommentare duerfen als Live-Workpad
-  wiederverwendet werden.
-- Wenn ein aktiver Workpad-Kommentar existiert, verwende genau ihn weiter und
-  erstelle keinen zweiten.
-- Wenn kein aktiver Workpad-Kommentar existiert, erstelle einen neuen Kommentar
-  in der Standardstruktur dieses Skills.
-- Schreibe Fortschritts-, Review-, Test- und Handoff-Notizen immer in dieselbe
-  Kommentar-ID.
+- Suche vorhandene Kommentare nach diesem Marker und nutze einen aktiven Treffer
+  weiter; sonst erstelle einen neuen Kommentar in der Standardstruktur.
+- Fortschritt, Review, Test und Handoff bleiben in derselben Kommentar-ID.
 
 ## Standardstruktur
-
-Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 
 ````md
 ## Symphony Workpad
@@ -54,10 +30,8 @@ Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 
 ### Plan
 
-- [ ] 1\. Uebergeordnete Aufgabe
+- [ ] 1\. Übergeordnete Aufgabe
   - [ ] 1.1 Teilaufgabe
-  - [ ] 1.2 Teilaufgabe
-- [ ] 2\. Uebergeordnete Aufgabe
 
 ### Validierung
 
@@ -65,70 +39,39 @@ Verwende fuer den persistierenden Kommentar exakt diese Struktur:
 
 ### Review
 
-- [ ] `<PreReview-/Review-Schritt aus dem aktiven Skill>`: `<kurze Statusnotiz>`
+- [ ] `<PreReview-/Review-Schritt>`: `<kurze Statusnotiz>`
 
 ### Test
 
-- [ ] `<Test-Schritt aus .codex/skills/sym-test/SKILL.md>`: `<kurze Statusnotiz>`
+- [ ] `<Test-Schritt>`: `<kurze Statusnotiz>`
 
 ### Verlauf
 
-- <kurze Fortschritts-/Review-/Test-Notiz mit Zeitstempel in lokaler Zeit>
-
-### Unklarheiten
-
-- <nur einfuegen, wenn waehrend der Ausfuehrung etwas unklar war>
+- <Zeitstempel in lokaler Zeit> - <kurze Notiz>
 ````
 
-## Pflege-Regeln
+`### Unklarheiten` nur ergänzen, wenn wirklich etwas unklar oder
+widersprüchlich war.
 
-- Halte oben im Kommentar einen kompakten Environment-Stamp im Format
-  `<host>:<abs-workdir>@<short-sha>`.
-- Nimm in den Environment-Stamp keine Metadaten auf, die bereits aus den
-  Linear-Issue-Feldern ableitbar sind, insbesondere keine Issue-ID, keinen
-  Status und keinen Branchnamen.
-- Fuehre `### Plan` als hierarchische Checkliste und halte die Parent-/Child-Struktur
-  intakt.
-- Fuehre `### Validierung` als explizite Checkliste, nicht als Freitext.
-- Fuer die inhaltliche Pflege von `### Plan` und `### Validierung` ist
-  `.codex/skills/symphony-planning/SKILL.md` die massgebliche Quelle.
-- Halte `### Verlauf` fuer kurze, zeitgestempelte Notizen in lokaler Zeit. Nutze
-  dort keine UTC- oder `Z`-Zeitstempel.
-- `### Review` und `### Test` sind fuer die zugehoerigen Repo-Skills reserviert;
-  detaillierte Logs bleiben in `### Verlauf`.
-- Fuege `### Unklarheiten` nur ein, wenn waehrend der Ausfuehrung wirklich etwas
-  unklar oder widerspruechlich war.
+## Pflege
 
-## Planung und laufende Aktualisierung
-
-- Erfasse vor der Implementierung ein konkretes Reproduktionssignal im Abschnitt
-  `### Verlauf`.
-- Aktualisiere das Workpad unmittelbar nach jedem wesentlichen Meilenstein.
-- Lasse abgeschlossene Arbeit niemals ungecheckt im Plan oder in den
-  Validierungslisten stehen.
-- Dokumentiere temporaere lokale Proof-Schritte knapp in `### Validierung`
-  und/oder `### Verlauf`, wenn sie fuer den Nachweis wichtig sind.
-- Halte den finalen Handoff-Zustand im selben Kommentar fest, inklusive lokalem
-  Stand und Validierungszusammenfassung. Wenn die aktuelle Workflow-Phase einen
-  ungecommitten Stand verlangt, muss das dort explizit stehen.
-- Poste keine separaten Abschluss- oder Zusammenfassungs-Kommentare ausserhalb
-  dieses Workpads. Zulässige Ausnahmen sind die vom `Review (AI)`-Ablauf
-  ausdrücklich verlangten Linear-Issue-Kommentare zu Review-Subagent-Findings
-  und daraus folgenden Fix-Einordnungen; diese Kommentare dienen der
-  Nachvollziehbarkeit und ersetzen das Workpad nicht.
+- Environment-Stamp: `<host>:<abs-workdir>@<short-sha>` ohne Issue-ID, Status
+  oder Branch.
+- `### Plan` bleibt hierarchisch, `### Validierung` eine explizite Checkliste.
+- `### Verlauf` nutzt lokale Zeit, keine UTC- oder `Z`-Zeitstempel.
+- `### Review` und `### Test` spiegeln nur die jeweiligen Skill-Checklisten;
+  Befehle, Ergebnisse und Fix-Notizen stehen knapp in `### Verlauf`.
+- Vor Implementierungsbeginn ein konkretes Reproduktionssignal notieren.
+- Nach wesentlichen Meilensteinen Checklisten abhaken und Verlauf aktualisieren.
+- Finalen Handoff-Zustand inklusive lokalem Stand, Validierung und bei Bedarf
+  bewusst ungecommitteten Änderungen im selben Kommentar festhalten.
 
 ## Ticket-Interaktionen
 
-- Bearbeite den Issue-Body/die Beschreibung nicht fuer Fortschrittsverfolgung
-  oder laufende Workpad-Pflege.
-- Wenn Planungsaenderungen an der Ticketbeschreibung noetig sind, delegiere sie
-  ausschliesslich an `.codex/skills/symphony-planning/SKILL.md`.
-- Halte Abweichungen zwischen Status und Issue-Inhalt im bestehenden Workpad
-  fest. Wenn vor dem ersten Workpad-Bootstrap noch kein Workpad existiert,
-  uebernimm die Notiz beim Anlegen dieses ersten Kommentars statt dafuer einen
-  zusaetzlichen Fortschrittskommentar anzulegen.
-- Wenn `WORKFLOW.md` nach erstmaliger Workpad-Anlage das
-  `Erstkontakt-Protokoll fuer neue Items` verlangt, nutze fuer Lesen/Schreiben in
-  Linear den Skill `symphony-linear`.
-- Halte im Workpad knapp fest, ob eine Erstkontakt-Korrektur durchgefuehrt wurde
-  oder keine Aenderung noetig war.
+- Issue-Beschreibung nicht für Fortschritt oder Workpad-Pflege ändern.
+- Beschreibungspflege in `Planung (AI)` übernimmt `symphony-planning`.
+- Abweichungen zwischen Status und Inhalt im Workpad notieren.
+- Zulässige Ausnahmen zu separaten Kommentaren sind alle in `WORKFLOW.md`
+  ausdrücklich verlangten Kommentare, etwa für Originalbeschreibungen,
+  Klärungsfragen, Review-Subagent-Findings oder Fix-Einordnungen; sie
+  ersetzen das Workpad nicht.
