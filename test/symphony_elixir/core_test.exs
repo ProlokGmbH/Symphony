@@ -3772,7 +3772,7 @@ defmodule SymphonyElixir.CoreTest do
 
         send(pid, {:retry_issue, issue_id, retry_token})
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}, 1_000
         Process.sleep(100)
 
         state = orchestrator_state(pid)
@@ -6784,7 +6784,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves Review (AI) issues to Freigabe Review after a clean review turn" do
+  test "agent runner skips Freigabe Review after a no-findings clean review turn" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -6890,8 +6890,8 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-handoff", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -7577,8 +7577,8 @@ defmodule SymphonyElixir.CoreTest do
       expected_subject = review_autocommit_subject(issue.identifier)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-dirty-preflight", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-dirty-preflight", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
       assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\n"
       assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
       assert subject_output == "#{expected_subject}\n"
@@ -7872,8 +7872,8 @@ defmodule SymphonyElixir.CoreTest do
       expected_subject = review_autocommit_subject(issue.identifier)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-before-run-failure", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-before-run-failure", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
       assert File.read!(trace_file) =~ "HEAD:#{expected_subject}\nDIRTY:no\n"
       assert {subject_output, 0} = System.cmd("git", ["-C", workspace, "log", "-1", "--pretty=%s"])
       assert subject_output == "#{expected_subject}\n"
@@ -8016,8 +8016,8 @@ defmodule SymphonyElixir.CoreTest do
       end
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-startup-failure-marker", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-startup-failure-marker", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
 
       assert {log_output, 0} =
                System.cmd("git", ["-C", workspace, "log", "--pretty=%s", "--max-count=3"])
@@ -8233,16 +8233,16 @@ defmodule SymphonyElixir.CoreTest do
       expected_subject = review_autocommit_subject(issue.identifier)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
       refute File.exists?(marker_path)
 
       File.write!(Path.join(workspace, "README.md"), "# dirty before second review\n")
       Agent.update(state_agent, fn _state -> "Review (AI)" end)
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-marker-clear", "Test (AI)"}
+      assert "Test (AI)" == Agent.get(state_agent, & &1)
 
       assert File.read!(trace_file) =~
                "HEAD:#{expected_subject}\nDIRTY:no\nHEAD:#{expected_subject}\nDIRTY:no\n"

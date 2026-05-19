@@ -35,6 +35,9 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 
 ## Abschluss
 
-Wenn alle Schritte in einem ununterbrochenen Durchlauf sauber sind, nach
+Wenn alle Schritte in einem ununterbrochenen Durchlauf sauber sind und der
+Review-Subagent `Keine Findings.` geliefert hat, bei sauberem Workspace direkt
+nach `Test (AI)` verschieben. Wenn Findings behandelt wurden, Review-Fixes
+entstanden sind oder das No-Findings-Signal nicht eindeutig ist, nach
 `Freigabe Review` verschieben. Bei `agent.max_turns` Abweichungen dokumentieren
 und ohne Statuswechsel stoppen.
