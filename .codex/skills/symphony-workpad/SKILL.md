@@ -71,6 +71,7 @@ widersprüchlich war.
 - Issue-Beschreibung nicht für Fortschritt oder Workpad-Pflege ändern.
 - Beschreibungspflege in `Planung (AI)` übernimmt `symphony-planning`.
 - Abweichungen zwischen Status und Inhalt im Workpad notieren.
-- Zulässige Ausnahmen zu separaten Kommentaren sind nur die im Workflow
-  verlangten Review-Subagent-Findings und daraus folgenden Fix-Einordnungen;
-  sie ersetzen das Workpad nicht.
+- Zulässige Ausnahmen zu separaten Kommentaren sind alle in `WORKFLOW.md`
+  ausdrücklich verlangten Kommentare, etwa für Originalbeschreibungen,
+  Klärungsfragen, Review-Subagent-Findings oder Fix-Einordnungen; sie
+  ersetzen das Workpad nicht.

@@ -112,8 +112,8 @@ Nicht automatisch durch Dependabot aktualisierbar sind aktuell:
 
 ## Workflow
 
-Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Klärungs- bzw. Freigabepunkten. `Planung` ist der manuelle Klärungspunkt nach `Planung (AI)`, falls Codex die Planung noch nicht für vollständig autonome Umsetzung ausreichend findet. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
-Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft Symphony direkt zum naechsten nicht uebersprungenen Status weiter; das gilt fuer die Freigabepunkte `Freigabe Implementierung` und `Freigabe Review`. Für `Planung` gibt es kein Skip-Label. Im `--yolo`-Modus gelten nur `Freigabe Implementierung` und `Freigabe Review` als übersprungen.
+Der Ablauf trennt bewusst zwischen automatisierten AI-Phasen und manuellen Klärungs- bzw. Freigabepunkten. `Planung` ist der manuelle Klärungspunkt, wenn `Planung (AI)` oder die spätere Umsetzung offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen feststellt. `Review` bleibt die manuelle Abschlussstation nach dem Merge.
+Wenn für einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, läuft Symphony direkt zum nächsten nicht übersprungenen Status weiter; das gilt für die Freigabepunkte `Freigabe Implementierung` und `Freigabe Review`. Für `Planung` gibt es kein Skip-Label. Im `--yolo`-Modus gelten nur `Freigabe Implementierung` und `Freigabe Review` als übersprungen.
 
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
@@ -122,7 +122,7 @@ Wenn fuer einen Status ein passendes Label `Skip "<Status>"` gesetzt ist, laeuft
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
 | `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung vorbereiten und entscheiden, ob autonome Umsetzung möglich ist. | `In Arbeit (AI)` oder `Planung` |
 | `Planung` | Mensch | Manueller Klärungs- und Planschärfungspunkt mit von Codex empfohlenen Lösungsvorschlägen. | `In Arbeit (AI)` oder `Planung (AI)` |
-| `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei Bedarf begründete Plananpassung, lokale Validierung und Pflege des Workpads. | `PreReview (AI)` |
+| `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei nicht-funktionalen Erkenntnissen begründete Plananpassung; produkt-/verhaltensrelevanter Klärungsbedarf geht nach `Planung`. | `PreReview (AI)` oder `Planung` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
 | `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | `Freigabe Review` |
@@ -139,7 +139,7 @@ Der typische Pfad ist damit:
 
 `Todo (AI)` -> `Planung (AI)` -> `In Arbeit (AI)` -> `PreReview (AI)` -> `Freigabe Implementierung` -> `Review (AI)` -> `Freigabe Review` -> `Test (AI)` -> `Merge (AI)` -> `Review` -> `Fertig`
 
-Wenn `Planung (AI)` noch Klärungsbedarf erkennt, verläuft der Pfad stattdessen über `Planung`; dort prüft der Benutzer die offenen Fragen und die empfohlenen Lösungsvorschläge und verschiebt das Ticket anschließend manuell weiter.
+Wenn `Planung (AI)` oder die spätere Umsetzung Klärungsbedarf erkennt, verläuft der Pfad stattdessen über `Planung`; dort prüft der Benutzer die offenen Fragen und die empfohlenen Lösungsvorschläge und verschiebt das Ticket anschließend manuell weiter.
 
 ## Zentrale Dateien
 

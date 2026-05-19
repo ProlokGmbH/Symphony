@@ -387,8 +387,9 @@ offenen Klärungsbedarf so dokumentieren, dass der Benutzer den Plan im Status
 
 ### Ziel
 
-Umsetzung auf Basis des vorbereiteten Plans, lokale Validierung und ungecommittete Übergabe
-nach `PreReview (AI)`.
+Umsetzung auf Basis des vorbereiteten Plans, lokale Validierung und ungecommittete
+Übergabe nach `PreReview (AI)` oder Rückgabe nach `Planung`, wenn während der
+Umsetzung eine produkt-/verhaltensrelevante Entscheidung offen bleibt.
 
 ### Voraussetzungen
 
@@ -425,6 +426,7 @@ nach `PreReview (AI)`.
 
 - Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe Implementierung`.
 - Erst dann nach `PreReview (AI)` verschieben.
+  - Wenn Schritt 4 oder 8 wegen offener Funktionalitäts-, Verhaltens- oder Produktausgabe-Entscheidung greift, ist stattdessen `Planung` der zulässige Abschluss dieser Phase.
   - Ein direkter Übergang von `In Arbeit (AI)` nach `BLOCKER` ist nur über den blocked-access escape hatch zulässig.
   - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `BLOCKER` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
 - Vor dem Wechsel nach `PreReview (AI)` müssen alle folgenden Bedingungen erfüllt sein:
@@ -531,9 +533,10 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 
 ## Ablauf für `Planung`
 
-Manueller Planschärfungspunkt nach offenen Fragen aus `Planung (AI)`. Weder
-coden noch Ticket-Inhalt ändern, kein Polling. Weiterarbeit beginnt erst nach
-externem Statuswechsel in einen AI-Status.
+Manueller Planschärfungspunkt nach offenen Fragen aus `Planung (AI)` oder nach
+produkt-/verhaltensrelevantem Klärungsbedarf aus `In Arbeit (AI)`. Weder coden
+noch Ticket-Inhalt ändern, kein Polling. Weiterarbeit beginnt erst nach externem
+Statuswechsel in einen AI-Status.
 
 ## Ablauf für `Freigabe Implementierung`
 
