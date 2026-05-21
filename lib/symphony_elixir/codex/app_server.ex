@@ -5,10 +5,11 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   require Logger
   alias SymphonyElixir.Codex.{DynamicTool, LinearGraphqlTool}
-  alias SymphonyElixir.{Config, PathSafety, SSH, Workflow}
+  alias SymphonyElixir.{Config, PathSafety, RuntimePaths, SSH, Workflow}
 
   @initialize_id 1
   @thread_start_id 2
+  @thread_resume_id 2
   @turn_start_id 3
   @port_line_bytes 1_048_576
   @max_stream_log_bytes 1_000
@@ -24,6 +25,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           turn_sandbox_policy: map(),
           thread_id: String.t(),
           workspace: Path.t(),
+          launch_cwd: Path.t(),
           worker_host: String.t() | nil
         }
 
@@ -41,13 +43,16 @@ defmodule SymphonyElixir.Codex.AppServer do
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
+    resume_thread_id = Keyword.get(opts, :thread_id)
 
-    with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host) do
+    with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host, opts),
+         {:ok, launch_cwd} <- resolve_launch_cwd(expanded_workspace, worker_host, opts),
+         {:ok, port} <- start_port(launch_cwd, worker_host) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
+           {:ok, thread_id} <-
+             do_start_session(port, expanded_workspace, session_policies, resume_thread_id) do
         {:ok,
          %{
            port: port,
@@ -58,6 +63,7 @@ defmodule SymphonyElixir.Codex.AppServer do
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
            workspace: expanded_workspace,
+           launch_cwd: launch_cwd,
            worker_host: worker_host
          }}
       else
@@ -146,7 +152,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     stop_port(port)
   end
 
-  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
+  defp validate_workspace_cwd(workspace, nil, opts) when is_binary(workspace) do
     expanded_workspace = Path.expand(workspace)
     expanded_root = Path.expand(Config.settings!().workspace.root)
     expanded_root_prefix = expanded_root <> "/"
@@ -156,6 +162,10 @@ defmodule SymphonyElixir.Codex.AppServer do
       canonical_root_prefix = canonical_root <> "/"
 
       cond do
+        Keyword.get(opts, :allow_source_repo_cwd, false) and
+            source_repo_cwd?(canonical_workspace) ->
+          {:ok, canonical_workspace}
+
         canonical_workspace == canonical_root ->
           {:error, {:invalid_workspace_cwd, :workspace_root, canonical_workspace}}
 
@@ -174,7 +184,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp validate_workspace_cwd(workspace, worker_host)
+  defp validate_workspace_cwd(workspace, worker_host, _opts)
        when is_binary(workspace) and is_binary(worker_host) do
     cond do
       String.trim(workspace) == "" ->
@@ -185,6 +195,42 @@ defmodule SymphonyElixir.Codex.AppServer do
 
       true ->
         {:ok, workspace}
+    end
+  end
+
+  defp source_repo_cwd?(canonical_workspace) when is_binary(canonical_workspace) do
+    case PathSafety.canonicalize(RuntimePaths.project_root()) do
+      {:ok, canonical_source_repo} -> canonical_workspace == canonical_source_repo
+      {:error, _reason} -> false
+    end
+  end
+
+  defp resolve_launch_cwd(expanded_workspace, nil, opts) when is_binary(expanded_workspace) do
+    case Keyword.get(opts, :launch_cwd) do
+      nil -> {:ok, expanded_workspace}
+      launch_cwd when is_binary(launch_cwd) -> validate_launch_cwd(launch_cwd)
+      launch_cwd -> {:error, {:invalid_launch_cwd, launch_cwd}}
+    end
+  end
+
+  defp resolve_launch_cwd(expanded_workspace, worker_host, _opts)
+       when is_binary(expanded_workspace) and is_binary(worker_host) do
+    {:ok, expanded_workspace}
+  end
+
+  defp validate_launch_cwd(launch_cwd) when is_binary(launch_cwd) do
+    expanded_launch_cwd = Path.expand(launch_cwd)
+
+    case PathSafety.canonicalize(expanded_launch_cwd) do
+      {:ok, canonical_launch_cwd} ->
+        if File.dir?(canonical_launch_cwd) do
+          {:ok, canonical_launch_cwd}
+        else
+          {:error, {:invalid_launch_cwd, :not_directory, canonical_launch_cwd}}
+        end
+
+      {:error, {:path_canonicalize_failed, path, reason}} ->
+        {:error, {:invalid_launch_cwd, :path_unreadable, path, reason}}
     end
   end
 
@@ -201,7 +247,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.settings!().codex.command)],
+            args: [~c"-lc", String.to_charlist(Config.local_codex_command())],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -272,11 +318,23 @@ defmodule SymphonyElixir.Codex.AppServer do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
-  defp do_start_session(port, workspace, session_policies) do
+  defp do_start_session(port, workspace, session_policies, resume_thread_id) do
     case send_initialize(port) do
-      :ok -> start_thread(port, workspace, session_policies)
+      :ok -> start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp start_or_resume_thread(port, workspace, session_policies, resume_thread_id)
+       when is_binary(resume_thread_id) do
+    case String.trim(resume_thread_id) do
+      "" -> start_thread(port, workspace, session_policies)
+      thread_id -> resume_thread(port, workspace, session_policies, thread_id)
+    end
+  end
+
+  defp start_or_resume_thread(port, workspace, session_policies, _resume_thread_id) do
+    start_thread(port, workspace, session_policies)
   end
 
   defp start_thread(port, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
@@ -295,6 +353,31 @@ defmodule SymphonyElixir.Codex.AppServer do
       {:ok, %{"thread" => thread_payload}} ->
         case thread_payload do
           %{"id" => thread_id} -> {:ok, thread_id}
+          _ -> {:error, {:invalid_thread_payload, thread_payload}}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp resume_thread(port, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}, thread_id) do
+    send_message(port, %{
+      "method" => "thread/resume",
+      "id" => @thread_resume_id,
+      "params" => %{
+        "threadId" => thread_id,
+        "approvalPolicy" => approval_policy,
+        "sandbox" => thread_sandbox,
+        "cwd" => workspace,
+        "dynamicTools" => DynamicTool.tool_specs()
+      }
+    })
+
+    case await_response(port, @thread_resume_id) do
+      {:ok, %{"thread" => thread_payload}} ->
+        case thread_payload do
+          %{"id" => resumed_thread_id} -> {:ok, resumed_thread_id}
           _ -> {:error, {:invalid_thread_payload, thread_payload}}
         end
 

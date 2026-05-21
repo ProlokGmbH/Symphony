@@ -87,6 +87,65 @@ defmodule SymCodexScriptTest do
     assert output =~ "manual-prompt-for-PRO-49"
   end
 
+  test "sym-codex resumes dialog sessions in the project root" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+    workspace_root = Path.join(System.tmp_dir!(), "sym-codex-dialog-worktrees-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    prompt_output = manual_prompt_context_v2("Todo (Dialog-AI)", "thread-dialog", "follow-up-prompt")
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-351"],
+               cd: repo_dir,
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_WORKFLOW_STEP_OUTPUT", "Todo (Dialog-AI)"},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+               ]
+             )
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{repo_dir}"
+    assert output =~ "resume thread-dialog follow-up-prompt"
+    refute output =~ "no existing worktree"
+    refute File.exists?(Path.join(workspace_root, ".dialog"))
+  end
+
+  test "sym-codex resumes already answered dialog sessions without a new prompt" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+    workspace_root = Path.join(System.tmp_dir!(), "sym-codex-dialog-noop-worktrees-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    prompt_output = manual_prompt_context_v2("Todo (Dialog-AI)", "thread-dialog", "")
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-351"],
+               cd: repo_dir,
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_WORKFLOW_STEP_OUTPUT", "Todo (Dialog-AI)"},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+               ]
+             )
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{repo_dir}"
+    assert output =~ "resume thread-dialog"
+    refute output =~ "SYM_CODEX_PROMPT_V1"
+    refute output =~ "dialog="
+    refute File.exists?(Path.join(workspace_root, ".dialog"))
+  end
+
   test "sym-codex prefers the current Symphony worktree for MCP server wiring" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
       build_script_worktree_fixture!("PRO-49")
@@ -580,6 +639,7 @@ defmodule SymCodexScriptTest do
 
     if [ "$1" = "run" ]; then
       shift
+      mix_expr=""
 
       while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -587,6 +647,7 @@ defmodule SymCodexScriptTest do
             shift
             ;;
           -e)
+            mix_expr="$2"
             shift 2
             break
             ;;
@@ -606,7 +667,20 @@ defmodule SymCodexScriptTest do
           printf '%s' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
           exit 0
           ;;
-        3)
+        2)
+          case "$mix_expr" in
+            *dialog_workspace*)
+              dialog_workspace="${SYMPHONY_TEST_DIALOG_WORKSPACE:-${SYMPHONY_PROJECT_ROOT:-$(pwd -P)}}"
+              printf '%s' "$dialog_workspace"
+              ;;
+            *)
+              printf '%s' "${SYMPHONY_TEST_WORKFLOW_STEP_OUTPUT:-In Arbeit (AI)}"
+              ;;
+          esac
+          exit 0
+          ;;
+        3|4)
+          issue_identifier="$#"
           if [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT_FROM_ENV:-}" ]; then
             printf 'SYM_CODEX_CONTEXT_V1\nIn Arbeit (AI)\nSYM_CODEX_PROMPT_V1\nactive=%s source=%s workflow=%s' \
               "${SYMPHONY_ACTIVE_REPO_ROOT:-}" \
@@ -615,7 +689,8 @@ defmodule SymCodexScriptTest do
           elif [ -n "${SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT:-}" ]; then
             printf '%s' "$SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT"
           else
-            printf 'manual-prompt-for-%s' "$3"
+            eval "resolved_issue_identifier=\\${$issue_identifier}"
+            printf 'manual-prompt-for-%s' "$resolved_issue_identifier"
           fi
           exit 0
           ;;
@@ -632,6 +707,7 @@ defmodule SymCodexScriptTest do
     File.chmod!(mise_path, 0o755)
     File.write!(Path.join(repo_dir, "WORKFLOW.md"), "")
     File.cp!(@interactive_workflow_source, Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md"))
+    File.write!(Path.join(repo_dir, "WORKFLOW_DIALOG.md"), "---\n---\ndialog={{ issue.identifier }}\n")
     File.write!(Path.join(repo_dir, "mix.exs"), "")
 
     %{repo_dir: repo_dir, bin_dir: bin_dir}
@@ -743,5 +819,9 @@ defmodule SymCodexScriptTest do
 
   defp manual_prompt_context(workflow_step, prompt) do
     "SYM_CODEX_CONTEXT_V1\n#{workflow_step}\nSYM_CODEX_PROMPT_V1\n#{prompt}"
+  end
+
+  defp manual_prompt_context_v2(workflow_step, session_id, prompt) do
+    "SYM_CODEX_CONTEXT_V2\n#{workflow_step}\n#{session_id}\nSYM_CODEX_PROMPT_V1\n#{prompt}"
   end
 end

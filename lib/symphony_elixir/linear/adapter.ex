@@ -69,6 +69,11 @@ defmodule SymphonyElixir.Linear.Adapter do
     client_module().fetch_issue_by_identifier(identifier)
   end
 
+  @spec fetch_issue_comments(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_issue_comments(issue_id) when is_binary(issue_id) do
+    client_module().fetch_issue_comments(issue_id)
+  end
+
   @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
     client_module().fetch_issue_comment_bodies(issue_id)

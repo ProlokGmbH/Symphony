@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, PromptBuilder, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, Dialog, PromptBuilder, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -657,7 +657,7 @@ defmodule SymphonyElixir.Orchestrator do
        ) do
     candidate_issue?(issue, active_states, terminal_states) and
       !blocked_issue_in_dispatch_state?(issue, terminal_states) and
-      !completed_in_current_state?(issue, completed_states) and
+      dispatchable_after_completion?(issue, completed_states) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
@@ -666,6 +666,15 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  defp dispatchable_after_completion?(%Issue{state: issue_state} = issue, completed_states)
+       when is_binary(issue_state) do
+    Dialog.state?(issue_state) or not completed_in_current_state?(issue, completed_states)
+  end
+
+  defp dispatchable_after_completion?(issue, completed_states) do
+    not completed_in_current_state?(issue, completed_states)
+  end
 
   defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
     limit = Config.max_concurrent_agents_for_state(issue_state)
@@ -768,17 +777,19 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp active_state_set do
     Config.settings!().tracker.active_states
-    |> Enum.map(&normalize_issue_state/1)
     |> Enum.concat(extra_active_state_names())
+    |> Enum.map(&normalize_issue_state/1)
     |> Enum.filter(&(&1 != ""))
     |> MapSet.new()
   end
 
   defp extra_active_state_names do
+    dialog_state_names = [Dialog.state_name()]
+
     if Config.yolo?() do
-      [@manual_in_progress_state_name | @yolo_manual_state_names]
+      [@manual_in_progress_state_name | @yolo_manual_state_names] ++ dialog_state_names
     else
-      [@manual_in_progress_state_name]
+      [@manual_in_progress_state_name | dialog_state_names]
     end
   end
 
@@ -1184,18 +1195,18 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
        when is_binary(issue_id) and is_map(running_entry) do
-    if manual_in_progress_issue_state?(running_entry.issue.state) do
+    if manual_in_progress_issue_state?(running_entry.issue.state) or Dialog.state?(running_entry.issue.state) do
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual in-progress bootstrap finished without continuation")
 
       state
-      |> complete_issue(issue_id, running_entry.issue.state)
+      |> complete_issue(issue_id, running_entry.issue)
       |> release_issue_claim(issue_id)
     else
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
       log_review_retry_context(running_entry, session_id)
 
       state
-      |> complete_issue(issue_id, running_entry.issue.state)
+      |> complete_issue(issue_id, running_entry.issue)
       |> schedule_issue_retry(issue_id, 1, %{
         identifier: running_entry.identifier,
         delay_type: :continuation,
@@ -1208,20 +1219,59 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp completed_in_current_state?(%Issue{id: issue_id, state: issue_state}, completed_states)
+  defp completed_in_current_state?(
+         %Issue{id: issue_id, state: issue_state, updated_at: updated_at},
+         completed_states
+       )
        when is_binary(issue_id) and is_binary(issue_state) and is_map(completed_states) do
-    Map.get(completed_states, issue_id) == normalize_issue_state(issue_state)
+    completed_state_matches_issue?(Map.get(completed_states, issue_id), issue_state, updated_at)
   end
 
   defp completed_in_current_state?(_issue, _completed_states), do: false
 
+  defp put_completed_state(completed_states, issue_id, %Issue{
+         state: issue_state,
+         updated_at: updated_at
+       })
+       when is_map(completed_states) and is_binary(issue_id) and is_binary(issue_state) do
+    Map.put(completed_states, issue_id, completed_state_value(issue_state, updated_at))
+  end
+
   defp put_completed_state(completed_states, issue_id, issue_state)
        when is_map(completed_states) and is_binary(issue_id) and is_binary(issue_state) do
-    Map.put(completed_states, issue_id, normalize_issue_state(issue_state))
+    Map.put(completed_states, issue_id, completed_state_value(issue_state, nil))
   end
 
   defp put_completed_state(completed_states, _issue_id, _issue_state) when is_map(completed_states),
     do: completed_states
+
+  defp completed_state_value(issue_state, updated_at) when is_binary(issue_state) do
+    if Dialog.state?(issue_state) do
+      {normalize_issue_state(issue_state), completed_timestamp(updated_at)}
+    else
+      normalize_issue_state(issue_state)
+    end
+  end
+
+  defp completed_state_matches_issue?(
+         {completed_state, completed_updated_at},
+         issue_state,
+         updated_at
+       )
+       when is_binary(completed_state) and is_binary(issue_state) do
+    Dialog.state?(issue_state) and completed_state == normalize_issue_state(issue_state) and
+      completed_updated_at == completed_timestamp(updated_at)
+  end
+
+  defp completed_state_matches_issue?(completed_state, issue_state, _updated_at)
+       when is_binary(completed_state) and is_binary(issue_state) do
+    completed_state == normalize_issue_state(issue_state)
+  end
+
+  defp completed_state_matches_issue?(_completed_state, _issue_state, _updated_at), do: false
+
+  defp completed_timestamp(%DateTime{} = updated_at), do: DateTime.to_iso8601(updated_at)
+  defp completed_timestamp(_updated_at), do: nil
 
   defp retain_visible_completed_states(%State{} = state, issues) when is_list(issues) do
     visible_issue_ids =

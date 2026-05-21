@@ -37,6 +37,89 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server allows the source repo cwd only when explicitly requested" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-dialog-source-cwd-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      source_repo = Path.join(test_root, "project")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-dialog-source-cwd.trace")
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(source_repo)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      printf 'PWD:%s\\n' "$(pwd)" >> "$trace_file"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-dialog-source"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-dialog-source"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed","params":{}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-dialog-source-cwd",
+        identifier: "MT-DSOURCE",
+        title: "Dialog source cwd",
+        description: "Allow Dialog-AI to run from the project root",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-DSOURCE",
+        labels: []
+      }
+
+      File.cd!(source_repo, fn ->
+        assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} =
+                 AppServer.run(source_repo, "guard", issue)
+
+        assert {:ok, _result} =
+                 AppServer.run(source_repo, "Dialog prompt", issue,
+                   allow_source_repo_cwd: true,
+                   launch_cwd: source_repo
+                 )
+      end)
+
+      trace = File.read!(trace_file)
+      assert trace =~ "PWD:#{source_repo}"
+      assert trace =~ "Dialog prompt"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server rejects symlink escape cwd paths under the workspace root" do
     test_root =
       Path.join(
@@ -175,6 +258,97 @@ defmodule SymphonyElixir.AppServerTest do
                  end
                end)
       end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server resumes an existing thread when a thread id is provided" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-resume-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1002")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-resume.trace")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-existing"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-resumed"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed","params":{}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-resume-thread",
+        identifier: "MT-1002",
+        title: "Resume thread",
+        description: "Ensure app-server resumes existing dialog sessions",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-1002",
+        labels: []
+      }
+
+      assert {:ok, session} = AppServer.start_session(workspace, thread_id: "thread-existing")
+
+      try do
+        assert session.thread_id == "thread-existing"
+        assert {:ok, %{thread_id: "thread-existing", turn_id: "turn-resumed"}} = AppServer.run_turn(session, "Follow up", issue)
+      after
+        AppServer.stop_session(session)
+      end
+
+      trace = File.read!(trace_file)
+      assert trace =~ ~s("method":"thread/resume")
+      assert trace =~ ~s("threadId":"thread-existing")
+      refute trace =~ ~s("method":"thread/start")
+      assert trace =~ "Follow up"
+
+      resume_payload =
+        trace
+        |> String.split("\n", trim: true)
+        |> Enum.find_value(fn "JSON:" <> raw ->
+          payload = Jason.decode!(raw)
+          if payload["method"] == "thread/resume", do: payload
+        end)
+
+      assert [%{"name" => "linear_graphql"}] = get_in(resume_payload, ["params", "dynamicTools"])
     after
       File.rm_rf(test_root)
     end

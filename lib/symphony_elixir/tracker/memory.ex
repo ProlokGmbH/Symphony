@@ -45,9 +45,16 @@ defmodule SymphonyElixir.Tracker.Memory do
     end
   end
 
+  @spec fetch_issue_comments(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_issue_comments(issue_id) when is_binary(issue_id) do
+    {:ok, configured_comments() |> Map.get(issue_id, []) |> Enum.map(&normalize_comment/1)}
+  end
+
   @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
-    {:ok, Map.get(configured_comments(), issue_id, [])}
+    with {:ok, comments} <- fetch_issue_comments(issue_id) do
+      {:ok, Enum.map(comments, & &1.body)}
+    end
   end
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
@@ -89,7 +96,7 @@ defmodule SymphonyElixir.Tracker.Memory do
   defp has_workpad_comment?(issue_id) when is_binary(issue_id) do
     configured_comments()
     |> Map.get(issue_id, [])
-    |> Enum.any?(&Workpad.comment_matches?/1)
+    |> Enum.any?(&(&1 |> normalize_comment() |> Map.get(:body) |> Workpad.comment_matches?()))
   end
 
   defp store_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
@@ -107,6 +114,22 @@ defmodule SymphonyElixir.Tracker.Memory do
       _ -> :ok
     end
   end
+
+  defp normalize_comment(%{body: body} = comment) when is_binary(body) do
+    Map.take(comment, [:id, :body, :created_at, :updated_at])
+  end
+
+  defp normalize_comment(%{"body" => body} = comment) when is_binary(body) do
+    %{
+      id: comment["id"],
+      body: body,
+      created_at: comment["created_at"] || comment["createdAt"],
+      updated_at: comment["updated_at"] || comment["updatedAt"]
+    }
+  end
+
+  defp normalize_comment(body) when is_binary(body), do: %{body: body}
+  defp normalize_comment(_comment), do: %{body: ""}
 
   defp normalize_state(state) when is_binary(state) do
     state

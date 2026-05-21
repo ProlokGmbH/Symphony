@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Linear.Client do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.{Config, Dialog, Linear.Issue}
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -81,7 +81,10 @@ defmodule SymphonyElixir.Linear.Client do
     issue(id: $id) {
       comments(first: $first, after: $after) {
         nodes {
+          id
           body
+          createdAt
+          updatedAt
         }
         pageInfo {
           hasNextPage
@@ -180,7 +183,14 @@ defmodule SymphonyElixir.Linear.Client do
 
   @spec fetch_issue_comment_bodies(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def fetch_issue_comment_bodies(issue_id) when is_binary(issue_id) do
-    fetch_issue_comment_bodies_page(issue_id, nil, [])
+    with {:ok, comments} <- fetch_issue_comments(issue_id) do
+      {:ok, Enum.map(comments, &Map.get(&1, :body, ""))}
+    end
+  end
+
+  @spec fetch_issue_comments(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_issue_comments(issue_id) when is_binary(issue_id) do
+    fetch_issue_comments_page(issue_id, nil, [])
   end
 
   @spec graphql(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -297,10 +307,13 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp extra_candidate_state_names do
+    dialog_state_names =
+      [Dialog.state_name()]
+
     if Config.yolo?() do
-      [@manual_in_progress_state_name | @yolo_manual_state_names]
+      [@manual_in_progress_state_name | @yolo_manual_state_names] ++ dialog_state_names
     else
-      [@manual_in_progress_state_name]
+      [@manual_in_progress_state_name | dialog_state_names]
     end
   end
 
@@ -335,7 +348,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp finalize_paginated_issues(acc_issues) when is_list(acc_issues), do: Enum.reverse(acc_issues)
 
-  defp fetch_issue_comment_bodies_page(issue_id, after_cursor, acc_comments) do
+  defp fetch_issue_comments_page(issue_id, after_cursor, acc_comments) do
     with {:ok, response} <-
            graphql(@issue_comments_query, %{id: issue_id, first: @issue_page_size, after: after_cursor}),
          {:ok, comments, page_info} <- decode_issue_comments_page_response(response) do
@@ -351,7 +364,7 @@ defmodule SymphonyElixir.Linear.Client do
 
     case next_page_cursor(page_info) do
       {:ok, next_cursor} ->
-        fetch_issue_comment_bodies_page(issue_id, next_cursor, updated_acc)
+        fetch_issue_comments_page(issue_id, next_cursor, updated_acc)
 
       :done ->
         {:ok, finalize_paginated_issues(updated_acc)}
@@ -537,7 +550,7 @@ defmodule SymphonyElixir.Linear.Client do
            }
          }
        }) do
-    {:ok, extract_comment_bodies(nodes), %{has_next_page: has_next_page == true, end_cursor: end_cursor}}
+    {:ok, extract_comments(nodes), %{has_next_page: has_next_page == true, end_cursor: end_cursor}}
   end
 
   defp decode_issue_comments_page_response(%{"errors" => errors}) do
@@ -736,13 +749,24 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp extract_labels(_), do: []
 
-  defp extract_comment_bodies(comments) when is_list(comments) do
+  defp extract_comments(comments) when is_list(comments) do
     comments
-    |> Enum.map(& &1["body"])
-    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&normalize_comment/1)
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp extract_comment_bodies(_), do: []
+  defp extract_comments(_), do: []
+
+  defp normalize_comment(%{"body" => body} = comment) when is_binary(body) do
+    %{
+      id: comment["id"],
+      body: body,
+      created_at: parse_datetime(comment["createdAt"]),
+      updated_at: parse_datetime(comment["updatedAt"])
+    }
+  end
+
+  defp normalize_comment(_comment), do: nil
 
   defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
        when is_list(inverse_relations) do

@@ -9,8 +9,10 @@ defmodule SymphonyElixir.AgentRunner do
     AutocommitMessage,
     Codex.AppServer,
     Config,
+    Dialog,
     Linear.Issue,
     PromptBuilder,
+    RuntimePaths,
     Tracker,
     Workflow,
     Workpad,
@@ -75,23 +77,30 @@ defmodule SymphonyElixir.AgentRunner do
         Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
         maybe_clear_review_autocommit_marker_for_existing_workspace(issue, worker_host)
 
+      :dialog ->
+        run_dialog_issue(issue, codex_update_recipient, worker_host)
+
       :proceed ->
-        case Workspace.create_for_issue(issue, worker_host) do
-          {:ok, workspace} ->
-            send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
+        run_regular_issue(issue, codex_update_recipient, opts, worker_host)
 
-            try do
-              with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
-                   :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host),
-                   :ok <- maybe_prepare_workspace_for_issue_run(issue, workspace, worker_host, opts) do
-                run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
-              end
-            after
-              Workspace.run_after_run_hook(workspace, issue, worker_host)
-            end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-          {:error, reason} ->
-            {:error, reason}
+  defp run_regular_issue(issue, codex_update_recipient, opts, worker_host) do
+    case Workspace.create_for_issue(issue, worker_host) do
+      {:ok, workspace} ->
+        send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
+
+        try do
+          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
+               :ok <- maybe_sync_issue_branch_name(issue, workspace, worker_host),
+               :ok <- maybe_prepare_workspace_for_issue_run(issue, workspace, worker_host, opts) do
+            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+          end
+        after
+          Workspace.run_after_run_hook(workspace, issue, worker_host)
         end
 
       {:error, reason} ->
@@ -101,6 +110,9 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher) do
     cond do
+      Dialog.state?(issue.state) ->
+        :dialog
+
       manual_in_progress_issue_state?(issue.state) ->
         {:bootstrap_only, issue}
 
@@ -200,6 +212,66 @@ defmodule SymphonyElixir.AgentRunner do
     }
 
     continue_run_codex_turns(:continue, turn_context, issue)
+  end
+
+  defp run_dialog_issue(%Issue{} = issue, codex_update_recipient, _worker_host) do
+    workspace = RuntimePaths.project_root()
+
+    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
+         {:ok, request} <- Dialog.next_request(issue, comments, workspace) do
+      case request do
+        :noop ->
+          Logger.info("Skipping dialog issue because the latest relevant comment is already a Symphony answer: #{issue_context(issue)}")
+          :ok
+
+        %{prompt: prompt, session_id: session_id, include_session?: include_session?} ->
+          send_worker_runtime_info(codex_update_recipient, issue, nil, workspace)
+          run_dialog_codex_turn(issue, workspace, prompt, session_id, include_session?, codex_update_recipient)
+      end
+    end
+  end
+
+  defp run_dialog_codex_turn(
+         %Issue{} = issue,
+         workspace,
+         prompt,
+         session_id,
+         include_session?,
+         codex_update_recipient
+       ) do
+    with {:ok, app_session} <-
+           AppServer.start_session(workspace,
+             thread_id: session_id,
+             allow_source_repo_cwd: true,
+             launch_cwd: RuntimePaths.project_root()
+           ) do
+      try do
+        message_key = {__MODULE__, :dialog_messages}
+        Process.put(message_key, [])
+
+        on_message = fn message ->
+          Process.put(message_key, [message | Process.get(message_key, [])])
+          send_codex_update(codex_update_recipient, issue, message)
+        end
+
+        with {:ok, turn_session} <- AppServer.run_turn(app_session, prompt, issue, on_message: on_message),
+             messages <- Process.get(message_key, []) |> Enum.reverse(),
+             answer when is_binary(answer) <- Dialog.final_answer_from_messages(messages),
+             :ok <-
+               Tracker.create_comment(
+                 issue.id,
+                 Dialog.format_answer_comment(answer, turn_session[:thread_id], include_session?)
+               ) do
+          :ok
+        else
+          nil -> {:error, :dialog_answer_missing}
+          {:error, reason} -> {:error, reason}
+        end
+      after
+        Process.delete({__MODULE__, :dialog_messages})
+        AppServer.stop_session(app_session)
+      end
+    end
   end
 
   defp continue_run_codex_turns(:continue, turn_context, issue) when is_map(turn_context) do
