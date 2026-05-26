@@ -18,6 +18,29 @@ defmodule SymphonyScriptTest do
     assert File.read_link!(Path.join(home_dir, ".local/bin/sym-watch")) == Path.join(repo_dir, "sym-watch")
   end
 
+  test "symphony runs autoupdate before launching escript" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    File.write!(Path.join(repo_dir, "autoupdate"), """
+    #!/usr/bin/env bash
+    printf 'autoupdate project=%s\\n' "$1"
+    """)
+
+    File.chmod!(Path.join(repo_dir, "autoupdate"), 0o755)
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 0} = run_script(repo_dir, home_dir, bin_dir, ["--port", "4001"])
+
+    assert output ==
+             "autoupdate project=#{repo_dir}\n" <>
+               "symphony-stub args=--port 4001\n"
+  end
+
   test "symphony rejects a non-symlink sym-watch local bin entry" do
     %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
     user_bin_dir = Path.join(home_dir, ".local/bin")
