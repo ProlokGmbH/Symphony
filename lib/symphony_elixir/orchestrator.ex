@@ -410,6 +410,13 @@ defmodule SymphonyElixir.Orchestrator do
     select_worker_host(state, preferred_worker_host)
   end
 
+  @doc false
+  @spec select_worker_host_for_issue_for_test(Issue.t(), term(), String.t() | nil) ::
+          String.t() | nil | :no_worker_capacity
+  def select_worker_host_for_issue_for_test(%Issue{} = issue, %State{} = state, preferred_worker_host) do
+    select_worker_host_for_issue(issue, state, preferred_worker_host)
+  end
+
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -662,7 +669,7 @@ defmodule SymphonyElixir.Orchestrator do
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
       state_slots_available?(issue, running) and
-      worker_slots_available?(state)
+      worker_slots_available?(issue, state, nil)
   end
 
   defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
@@ -828,7 +835,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, run_opts) do
     recipient = self()
 
-    case select_worker_host(state, preferred_worker_host) do
+    case select_worker_host_for_issue(issue, state, preferred_worker_host) do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
         state
@@ -1121,7 +1128,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp handle_active_retry(state, issue, attempt, metadata) do
     if retry_candidate_issue?(issue, terminal_state_set()) and
          dispatch_slots_available?(issue, state) and
-         worker_slots_available?(state, metadata[:worker_host]) do
+         worker_slots_available?(issue, state, metadata[:worker_host]) do
       {:noreply,
        dispatch_issue(
          state,
@@ -1423,6 +1430,19 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  defp select_worker_host_for_issue(%Issue{state: state_name}, %State{} = state, preferred_worker_host)
+       when is_binary(state_name) do
+    if Dialog.state?(state_name) do
+      nil
+    else
+      select_worker_host(state, preferred_worker_host)
+    end
+  end
+
+  defp select_worker_host_for_issue(_issue, %State{} = state, preferred_worker_host) do
+    select_worker_host(state, preferred_worker_host)
+  end
+
   defp preferred_worker_host_available?(preferred_worker_host, hosts)
        when is_binary(preferred_worker_host) and is_list(hosts) do
     preferred_worker_host != "" and preferred_worker_host in hosts
@@ -1446,12 +1466,8 @@ defmodule SymphonyElixir.Orchestrator do
     end)
   end
 
-  defp worker_slots_available?(%State{} = state) do
-    select_worker_host(state, nil) != :no_worker_capacity
-  end
-
-  defp worker_slots_available?(%State{} = state, preferred_worker_host) do
-    select_worker_host(state, preferred_worker_host) != :no_worker_capacity
+  defp worker_slots_available?(issue, %State{} = state, preferred_worker_host) do
+    select_worker_host_for_issue(issue, state, preferred_worker_host) != :no_worker_capacity
   end
 
   defp worker_host_slots_available?(%State{} = state, worker_host) when is_binary(worker_host) do

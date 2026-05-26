@@ -11,6 +11,7 @@ defmodule SymphonyElixir.AgentRunner do
     Config,
     Dialog,
     Linear.Issue,
+    LogFile,
     PromptBuilder,
     RuntimePaths,
     Tracker,
@@ -224,9 +225,9 @@ defmodule SymphonyElixir.AgentRunner do
           Logger.info("Skipping dialog issue because the latest relevant comment is already a Symphony answer: #{issue_context(issue)}")
           :ok
 
-        %{prompt: prompt, session_id: session_id, include_session?: include_session?} ->
+        %{session_id: session_id} = request ->
           send_worker_runtime_info(codex_update_recipient, issue, nil, workspace)
-          run_dialog_codex_turn(issue, workspace, prompt, session_id, include_session?, codex_update_recipient)
+          run_dialog_codex_turn(issue, workspace, request, session_id, codex_update_recipient)
       end
     end
   end
@@ -234,44 +235,276 @@ defmodule SymphonyElixir.AgentRunner do
   defp run_dialog_codex_turn(
          %Issue{} = issue,
          workspace,
-         prompt,
+         request,
          session_id,
-         include_session?,
          codex_update_recipient
        ) do
-    with {:ok, app_session} <-
-           AppServer.start_session(workspace,
-             thread_id: session_id,
-             allow_source_repo_cwd: true,
-             launch_cwd: RuntimePaths.project_root()
-           ) do
-      try do
-        message_key = {__MODULE__, :dialog_messages}
-        Process.put(message_key, [])
+    with {:ok, before_repo_status} <- dialog_repo_status_snapshot(workspace) do
+      workspace
+      |> start_dialog_app_session(session_id)
+      |> handle_dialog_session_start(
+        issue,
+        workspace,
+        request,
+        codex_update_recipient,
+        before_repo_status
+      )
+    end
+  end
 
-        on_message = fn message ->
-          Process.put(message_key, [message | Process.get(message_key, [])])
-          send_codex_update(codex_update_recipient, issue, message)
-        end
+  defp start_dialog_app_session(workspace, session_id) when is_binary(workspace) do
+    AppServer.start_session(workspace,
+      thread_id: session_id,
+      dialog: true,
+      allow_source_repo_cwd: true,
+      launch_cwd: RuntimePaths.project_root()
+    )
+  rescue
+    exception ->
+      {:error, {:dialog_session_start_failed, Exception.format(:error, exception, __STACKTRACE__)}}
+  catch
+    kind, reason ->
+      {:error, {:dialog_session_start_failed, Exception.format(kind, reason, __STACKTRACE__)}}
+  end
 
-        with {:ok, turn_session} <- AppServer.run_turn(app_session, prompt, issue, on_message: on_message),
-             messages <- Process.get(message_key, []) |> Enum.reverse(),
-             answer when is_binary(answer) <- Dialog.final_answer_from_messages(messages),
-             :ok <-
-               Tracker.create_comment(
-                 issue.id,
-                 Dialog.format_answer_comment(answer, turn_session[:thread_id], include_session?)
-               ) do
-          :ok
-        else
-          nil -> {:error, :dialog_answer_missing}
-          {:error, reason} -> {:error, reason}
-        end
-      after
-        Process.delete({__MODULE__, :dialog_messages})
-        AppServer.stop_session(app_session)
+  defp handle_dialog_session_start(
+         {:ok, app_session},
+         issue,
+         workspace,
+         request,
+         codex_update_recipient,
+         before_repo_status
+       ) do
+    run_dialog_app_session_turn(
+      app_session,
+      issue,
+      workspace,
+      request,
+      codex_update_recipient,
+      before_repo_status
+    )
+  end
+
+  defp handle_dialog_session_start(
+         {:error, reason},
+         _issue,
+         workspace,
+         _request,
+         _codex_update_recipient,
+         before_repo_status
+       ) do
+    case ensure_dialog_repo_unchanged(workspace, before_repo_status) do
+      :ok -> {:error, reason}
+      {:error, repo_reason} -> {:error, repo_reason}
+    end
+  end
+
+  defp run_dialog_app_session_turn(
+         app_session,
+         issue,
+         workspace,
+         request,
+         codex_update_recipient,
+         before_repo_status
+       ) do
+    message_key = {__MODULE__, :dialog_messages}
+    Process.put(message_key, [])
+
+    on_message = fn message ->
+      Process.put(message_key, [message | Process.get(message_key, [])])
+      send_codex_update(codex_update_recipient, issue, message)
+    end
+
+    turn_result = run_dialog_app_turn(app_session, request.prompt, issue, on_message)
+    repo_check_result = ensure_dialog_repo_unchanged(workspace, before_repo_status)
+
+    case {repo_check_result, turn_result} do
+      {:ok, {:ok, turn_session}} ->
+        maybe_post_dialog_answer(issue, request, turn_session, message_key)
+
+      {{:error, reason}, _turn_result} ->
+        {:error, reason}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+    end
+  after
+    Process.delete({__MODULE__, :dialog_messages})
+    AppServer.stop_session(app_session)
+  end
+
+  defp maybe_post_dialog_answer(issue, request, turn_session, message_key) do
+    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
+         true <- Dialog.request_current?(request, comments),
+         messages <- Process.get(message_key, []) |> Enum.reverse(),
+         answer when is_binary(answer) <- Dialog.final_answer_from_messages(messages) do
+      Tracker.create_comment(
+        issue.id,
+        Dialog.format_answer_comment(answer, turn_session[:thread_id], request.include_session?)
+      )
+    else
+      false ->
+        Logger.info("Skipping stale dialog answer because a newer user comment exists: #{issue_context(issue)}")
+        :ok
+
+      nil ->
+        {:error, :dialog_answer_missing}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp run_dialog_app_turn(app_session, prompt, issue, on_message) when is_function(on_message, 1) do
+    AppServer.run_turn(app_session, prompt, issue, on_message: on_message)
+  rescue
+    exception ->
+      {:error, {:dialog_turn_failed, Exception.format(:error, exception, __STACKTRACE__)}}
+  catch
+    kind, reason ->
+      {:error, {:dialog_turn_failed, Exception.format(kind, reason, __STACKTRACE__)}}
+  end
+
+  defp dialog_repo_status_snapshot(workspace) when is_binary(workspace) do
+    with {:ok, status} <- dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+         {:ok, unstaged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--binary", "--no-ext-diff", "--no-color"]),
+         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]),
+         {:ok, untracked_paths} <- dialog_untracked_paths(workspace),
+         {:ok, ignored_paths} <- dialog_ignored_paths(workspace),
+         {:ok, untracked_files} <- dialog_file_hashes(workspace, untracked_paths),
+         {:ok, ignored_files} <- dialog_file_hashes(workspace, ignored_paths) do
+      {:ok,
+       %{
+         status: status,
+         unstaged_diff: dialog_snapshot_hash(unstaged_diff),
+         staged_diff: dialog_snapshot_hash(staged_diff),
+         untracked_files: untracked_files,
+         ignored_files: ignored_files
+       }}
+    end
+  end
+
+  defp ensure_dialog_repo_unchanged(workspace, before_repo_status) when is_binary(workspace) do
+    with {:ok, after_repo_status} <- dialog_repo_status_snapshot(workspace) do
+      if after_repo_status == before_repo_status do
+        :ok
+      else
+        {:error, {:dialog_repo_modified, before_repo_status, after_repo_status}}
       end
     end
+  end
+
+  defp dialog_git_snapshot_command(workspace, args) when is_binary(workspace) and is_list(args) do
+    case System.cmd("git", args,
+           cd: workspace,
+           env: Enum.into(RuntimePaths.builtin_env(), []),
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        {:ok, output}
+
+      {output, status} ->
+        {:error, {:dialog_git_snapshot_failed, args, status, output}}
+    end
+  end
+
+  defp dialog_untracked_paths(workspace) when is_binary(workspace) do
+    with {:ok, output} <- dialog_git_snapshot_command(workspace, ["ls-files", "--others", "--exclude-standard", "-z"]) do
+      paths =
+        output
+        |> String.split(<<0>>, trim: true)
+        |> Enum.reject(&dialog_runtime_log_artifact?(workspace, &1))
+        |> Enum.sort()
+
+      {:ok, paths}
+    end
+  end
+
+  defp dialog_ignored_paths(workspace) when is_binary(workspace) do
+    with {:ok, output} <-
+           dialog_git_snapshot_command(workspace, [
+             "ls-files",
+             "--others",
+             "--ignored",
+             "--exclude-standard",
+             "-z"
+           ]) do
+      paths =
+        output
+        |> String.split(<<0>>, trim: true)
+        |> Enum.reject(&dialog_runtime_log_artifact?(workspace, &1))
+        |> Enum.sort()
+
+      {:ok, paths}
+    end
+  end
+
+  defp dialog_file_hashes(workspace, paths) when is_binary(workspace) and is_list(paths) do
+    paths
+    |> Enum.reduce_while({:ok, []}, fn path, {:ok, acc} ->
+      case dialog_path_hash(workspace, path) do
+        {:ok, hash} -> {:cont, {:ok, [{path, hash} | acc]}}
+        :skip -> {:cont, {:ok, acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> then(fn
+      {:ok, hashes} -> {:ok, Enum.reverse(hashes)}
+      {:error, reason} -> {:error, reason}
+    end)
+  end
+
+  defp dialog_path_hash(workspace, path) when is_binary(workspace) and is_binary(path) do
+    absolute_path = Path.join(workspace, path)
+
+    case File.lstat(absolute_path) do
+      {:ok, stat} ->
+        dialog_path_hash_for_type(path, absolute_path, stat)
+
+      {:error, reason} ->
+        {:error, {:dialog_file_stat_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(path, absolute_path, %{type: :regular}) do
+    case File.read(absolute_path) do
+      {:ok, contents} -> {:ok, dialog_snapshot_hash(contents)}
+      {:error, reason} -> {:error, {:dialog_file_read_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(path, absolute_path, %{type: :symlink}) do
+    case File.read_link(absolute_path) do
+      {:ok, target} -> {:ok, dialog_snapshot_hash("symlink:" <> target)}
+      {:error, reason} -> {:error, {:dialog_symlink_read_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(_path, _absolute_path, %{type: :directory}), do: :skip
+
+  defp dialog_path_hash_for_type(_path, _absolute_path, stat) do
+    {:ok, dialog_snapshot_hash(:erlang.term_to_binary({stat.type, stat.size, stat.mtime}))}
+  end
+
+  defp dialog_runtime_log_artifact?(workspace, path) when is_binary(workspace) and is_binary(path) do
+    absolute_path = Path.expand(path, workspace)
+
+    Enum.any?(dialog_runtime_log_files(workspace), fn log_file ->
+      absolute_path == log_file or String.starts_with?(absolute_path, log_file <> ".")
+    end)
+  end
+
+  defp dialog_runtime_log_files(workspace) when is_binary(workspace) do
+    [Application.get_env(:symphony_elixir, :log_file), LogFile.default_log_file(workspace)]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.map(&Path.expand(&1, workspace))
+    |> Enum.uniq()
+  end
+
+  defp dialog_snapshot_hash(contents) when is_binary(contents) do
+    contents
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   defp continue_run_codex_turns(:continue, turn_context, issue) when is_map(turn_context) do

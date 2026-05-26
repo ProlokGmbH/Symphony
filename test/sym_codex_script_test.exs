@@ -111,8 +111,41 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{repo_dir}"
+    assert output =~ "--sandbox read-only"
+    assert output =~ "--ask-for-approval never"
     assert output =~ "resume thread-dialog follow-up-prompt"
     refute output =~ "no existing worktree"
+    refute File.exists?(Path.join(workspace_root, ".dialog"))
+  end
+
+  test "sym-codex inferred from an implementation worktree still runs dialog sessions in the project root" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-351")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    prompt_output = manual_prompt_context_v2("Todo (Dialog-AI)", "thread-dialog", "follow-up-prompt")
+
+    assert {output, 0} =
+             run_script(Path.join(worktree, "sym-codex"), bin_dir, [],
+               cd: worktree,
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"SYMPHONY_TEST_WORKFLOW_STEP_OUTPUT", "Todo (Dialog-AI)"},
+                 {"SYMPHONY_TEST_MANUAL_PROMPT_OUTPUT", prompt_output}
+               ]
+             )
+
+    assert output =~ "codex-stub"
+    assert output =~ "pwd=#{repo_dir}"
+    refute output =~ "pwd=#{worktree}"
+    assert output =~ "--sandbox read-only"
+    assert output =~ "--ask-for-approval never"
+    assert output =~ "resume thread-dialog follow-up-prompt"
     refute File.exists?(Path.join(workspace_root, ".dialog"))
   end
 
@@ -140,6 +173,8 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{repo_dir}"
+    assert output =~ "--sandbox read-only"
+    assert output =~ "--ask-for-approval never"
     assert output =~ "resume thread-dialog"
     refute output =~ "SYM_CODEX_PROMPT_V1"
     refute output =~ "dialog="

@@ -172,7 +172,7 @@ Zusätzliche Review-Hinweise:
 
 - Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
-- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus.
+- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus; `Todo (Dialog-AI)` ist der ausdrücklich definierte isolierte Sonderfall.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
@@ -276,6 +276,7 @@ des Assignees.
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
+| `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot mit read-only Sandbox und veröffentlicht Antworten als Linear-Kommentar. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuem Benutzerkommentar |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
 | `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |
@@ -300,6 +301,7 @@ des Assignees.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
+   - `Todo (Dialog-AI)` -> Dialog-Sonderablauf aus `WORKFLOW_DIALOG.md` ausführen; keinen regulären Worktree erstellen und keinen Statuswechsel vornehmen.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.

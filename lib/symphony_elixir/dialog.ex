@@ -14,7 +14,10 @@ defmodule SymphonyElixir.Dialog do
   @type request :: %{
           prompt: String.t(),
           session_id: String.t() | nil,
-          include_session?: boolean()
+          include_session?: boolean(),
+          source_comment_id: String.t() | nil,
+          source_comment_timestamp: DateTime.t() | nil,
+          source_comment_body: String.t() | nil
         }
 
   @spec state_name() :: String.t()
@@ -73,18 +76,34 @@ defmodule SymphonyElixir.Dialog do
       answer_exists? and answer_comment?(last_comment) ->
         {:ok, :noop}
 
-      not answer_exists? ->
+      not answer_exists? and is_nil(last_comment) ->
         with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root) do
-          {:ok, %{prompt: prompt, session_id: nil, include_session?: true}}
+          {:ok, request(prompt, nil, true, nil)}
+        end
+
+      not answer_exists? ->
+        with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root, comment_body(last_comment)) do
+          {:ok, request(prompt, nil, true, last_comment)}
         end
 
       true ->
         {:ok,
-         %{
-           prompt: comment_body(last_comment),
-           session_id: session_id_from_comments(relevant_comments),
-           include_session?: false
-         }}
+         request(
+           comment_body(last_comment),
+           session_id_from_comments(relevant_comments),
+           false,
+           last_comment
+         )}
+    end
+  end
+
+  @spec request_current?(request(), [comment()]) :: boolean()
+  def request_current?(%{} = request, comments) when is_list(comments) do
+    case {request_source_comment?(request), List.last(relevant_comments(comments))} do
+      {false, nil} -> true
+      {false, _comment} -> false
+      {true, nil} -> false
+      {true, comment} -> not answer_comment?(comment) and source_comment_matches?(request, comment)
     end
   end
 
@@ -161,6 +180,67 @@ defmodule SymphonyElixir.Dialog do
       comments
     end
   end
+
+  defp first_turn_prompt(issue, active_repo_root, request_body)
+       when is_map(issue) and is_binary(active_repo_root) and is_binary(request_body) do
+    with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root) do
+      {:ok, append_linear_comment_request(prompt, request_body)}
+    end
+  end
+
+  defp append_linear_comment_request(prompt, request_body)
+       when is_binary(prompt) and is_binary(request_body) do
+    prompt <>
+      "\n\n## Aktuelle Benutzeranfrage aus Linear-Kommentar\n\n" <> String.trim(request_body)
+  end
+
+  defp request(prompt, session_id, include_session?, source_comment)
+       when is_binary(prompt) and is_boolean(include_session?) do
+    %{
+      prompt: prompt,
+      session_id: session_id,
+      include_session?: include_session?,
+      source_comment_id: comment_id(source_comment),
+      source_comment_timestamp: comment_timestamp(source_comment),
+      source_comment_body: source_comment_body(source_comment)
+    }
+  end
+
+  defp request_source_comment?(request) when is_map(request) do
+    Map.get(request, :source_comment_id) != nil or Map.get(request, :source_comment_timestamp) != nil or
+      Map.get(request, :source_comment_body) != nil
+  end
+
+  defp source_comment_matches?(request, comment) when is_map(request) do
+    request_id = Map.get(request, :source_comment_id)
+    comment_id = comment_id(comment)
+    request_timestamp = Map.get(request, :source_comment_timestamp)
+    comment_timestamp = comment_timestamp(comment)
+
+    cond do
+      is_binary(request_id) and is_binary(comment_id) ->
+        request_id == comment_id
+
+      match?(%DateTime{}, request_timestamp) and match?(%DateTime{}, comment_timestamp) ->
+        DateTime.compare(request_timestamp, comment_timestamp) == :eq and
+          Map.get(request, :source_comment_body) == comment_body(comment)
+
+      true ->
+        Map.get(request, :source_comment_body) == comment_body(comment)
+    end
+  end
+
+  defp comment_id(comment) when is_map(comment) do
+    case map_get(comment, :id) do
+      id when is_binary(id) and id != "" -> id
+      _ -> nil
+    end
+  end
+
+  defp comment_id(_comment), do: nil
+
+  defp source_comment_body(nil), do: nil
+  defp source_comment_body(comment), do: comment_body(comment)
 
   defp comment_body(comment) when is_map(comment) do
     case Map.get(comment, :body) || Map.get(comment, "body") do

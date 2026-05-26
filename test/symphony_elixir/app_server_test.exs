@@ -108,13 +108,104 @@ defmodule SymphonyElixir.AppServerTest do
         assert {:ok, _result} =
                  AppServer.run(source_repo, "Dialog prompt", issue,
                    allow_source_repo_cwd: true,
-                   launch_cwd: source_repo
+                   launch_cwd: source_repo,
+                   dialog: true
                  )
       end)
 
       trace = File.read!(trace_file)
       assert trace =~ "PWD:#{source_repo}"
       assert trace =~ "Dialog prompt"
+
+      trace_lines = String.split(trace, "\n", trim: true)
+
+      assert %{"params" => thread_start_params} =
+               trace_json_payload(trace_lines, "thread/start")
+
+      assert thread_start_params["approvalPolicy"] == "on-request"
+      assert thread_start_params["sandbox"] == "read-only"
+
+      assert %{"params" => turn_start_params} =
+               trace_json_payload(trace_lines, "turn/start")
+
+      assert turn_start_params["approvalPolicy"] == "on-request"
+
+      assert turn_start_params["sandboxPolicy"] == %{
+               "type" => "readOnly",
+               "networkAccess" => true
+             }
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "dialog app server refuses approval requests instead of auto-approving them" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-dialog-approval-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      source_repo = Path.join(test_root, "project")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(source_repo)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-dialog-approval"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-dialog-approval"}}}'
+            printf '%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"touch README.md","cwd":"/tmp","reason":"write file"}}'
+            ;;
+          *)
+            sleep 1
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-dialog-approval",
+        identifier: "MT-DIALOG-APPROVAL",
+        title: "Dialog approval",
+        description: "Dialog turns must not approve write requests",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-DIALOG-APPROVAL",
+        labels: []
+      }
+
+      File.cd!(source_repo, fn ->
+        assert {:error, {:approval_required, payload}} =
+                 AppServer.run(source_repo, "Dialog prompt", issue,
+                   allow_source_repo_cwd: true,
+                   launch_cwd: source_repo,
+                   dialog: true
+                 )
+
+        assert payload["method"] == "item/commandExecution/requestApproval"
+      end)
     after
       File.rm_rf(test_root)
     end
@@ -1802,5 +1893,16 @@ defmodule SymphonyElixir.AppServerTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp trace_json_payload(trace_lines, method) when is_list(trace_lines) and is_binary(method) do
+    Enum.find_value(trace_lines, fn
+      "JSON:" <> raw ->
+        payload = Jason.decode!(raw)
+        if payload["method"] == method, do: payload
+
+      _line ->
+        nil
+    end)
   end
 end

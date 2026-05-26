@@ -26,6 +26,15 @@ defmodule SymphonyElixir.Config do
           turn_sandbox_policy: map()
         }
 
+  @dialog_codex_runtime_settings %{
+    approval_policy: "on-request",
+    thread_sandbox: "read-only",
+    turn_sandbox_policy: %{
+      "type" => "readOnly",
+      "networkAccess" => true
+    }
+  }
+
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
     case Workflow.current() do
@@ -128,16 +137,27 @@ defmodule SymphonyElixir.Config do
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
-    with {:ok, settings} <- settings() do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        {:ok,
-         %{
-           approval_policy: settings.codex.approval_policy,
-           thread_sandbox: settings.codex.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
+    if Keyword.get(opts, :dialog, false) do
+      dialog_codex_runtime_settings()
+    else
+      regular_codex_runtime_settings(workspace, opts)
+    end
+  end
+
+  defp dialog_codex_runtime_settings do
+    {:ok, @dialog_codex_runtime_settings}
+  end
+
+  defp regular_codex_runtime_settings(workspace, opts) do
+    with {:ok, settings} <- settings(),
+         {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      {:ok,
+       %{
+         approval_policy: settings.codex.approval_policy,
+         thread_sandbox: settings.codex.thread_sandbox,
+         turn_sandbox_policy: turn_sandbox_policy
+       }}
     end
   end
 

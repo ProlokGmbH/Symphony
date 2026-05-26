@@ -741,14 +741,11 @@ sym_codex_run() {
   fi
 
   if [[ -n "$issue_identifier" ]]; then
-    if (( issue_identifier_inferred )); then
-      workspace="$(sym_codex_current_workspace_for_issue "$issue_identifier" 2>/dev/null || true)"
+    if (( observer_mode )); then
+      if (( issue_identifier_inferred )); then
+        workspace="$(sym_codex_current_workspace_for_issue "$issue_identifier" 2>/dev/null || true)"
+      fi
     else
-      workflow_step="$(sym_codex_issue_workflow_step "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")" ||
-        sym_codex_die "cannot resolve workflow step for $issue_identifier"
-    fi
-
-    if [[ -z "$workspace" && -z "$workflow_step" ]]; then
       workflow_step="$(sym_codex_issue_workflow_step "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")" ||
         sym_codex_die "cannot resolve workflow step for $issue_identifier"
     fi
@@ -756,6 +753,8 @@ sym_codex_run() {
     if [[ "$workflow_step" == "Todo (Dialog-AI)" ]]; then
       workspace="$(sym_codex_resolve_dialog_workspace "$source_repo" "$workflow_file" "$project_root" "$issue_identifier")" ||
         sym_codex_finish 1
+    elif (( issue_identifier_inferred )) && [[ -z "$workspace" ]]; then
+      workspace="$(sym_codex_current_workspace_for_issue "$issue_identifier" 2>/dev/null || true)"
     fi
 
     if [[ -z "$workspace" ]] &&
@@ -763,7 +762,7 @@ sym_codex_run() {
       sym_codex_finish 1
     fi
 
-    if (( ! issue_identifier_inferred )); then
+    if (( ! issue_identifier_inferred )) || [[ "$workflow_step" == "Todo (Dialog-AI)" ]]; then
       cd "$workspace" || sym_codex_die "cannot change into $workspace"
     fi
   elif (( ! observer_mode )); then
@@ -798,6 +797,10 @@ sym_codex_run() {
   if (( observer_mode )); then
     codex_args+=(app-server)
   else
+    if [[ "$workflow_step" == "Todo (Dialog-AI)" ]]; then
+      codex_args+=(--sandbox read-only --ask-for-approval never)
+    fi
+
     codex_args+=(
       --config "mcp_servers.symphony_linear.command=$(sym_codex_toml_basic_string "$source_repo/sym-codex-mcp")"
       --config "mcp_servers.symphony_linear.env={SYMPHONY_SOURCE_REPO=$(sym_codex_toml_basic_string "$source_repo"),SYMPHONY_PROJECT_ROOT=$(sym_codex_toml_basic_string "$project_root"),SYMPHONY_WORKFLOW_FILE=$(sym_codex_toml_basic_string "$workflow_file")}"
