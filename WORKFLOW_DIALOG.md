@@ -9,6 +9,7 @@ Linear-Issue-ID: {{ issue.id }}
 Titel: {{ issue.title }}
 Aktueller Status: {{ issue.state }}
 Labels: {{ issue.labels }}
+Assignee-ID: {% if issue.assignee_id %}{{ issue.assignee_id }}{% else %}nicht gesetzt{% endif %}
 URL: {{ issue.url }}
 Lokale Systemzeit für diesen Turn: {{ runtime.local_time }} ({{ runtime.timezone }})
 
@@ -49,15 +50,25 @@ starten.
   Antwort einen vollständigen Tickettext mit Titel, Beschreibung und
   Validierungspunkten und frage, ob dieses Ticket so erstellt werden soll.
 - Wenn der Benutzer die Erstellung eines zuvor vorgeschlagenen Umsetzungstickets
-  ausdrücklich bestätigt, erstelle über Linear ein neues Ticket im Status
-  `Backlog` im selben Team und, wenn möglich, im selben Projekt. Lege direkt
-  nach erfolgreichem `issueCreate` eine Linear-Issue-Relation zwischen
-  Dialogticket und neuem Umsetzungsticket an: Verwende
+  ausdrücklich bestätigt, erstelle über Linear ein neues Ticket im selben Team
+  und, wenn möglich, im selben Projekt. Löse vor `issueCreate` die dafür
+  nötigen IDs aus Linear auf: Team/Projekt des Ursprungstickets, die Status-ID
+  für `Todo`, die Label-ID für `symphony-generated` und die Assignee-ID des
+  Ursprungstickets. Falls das Label `symphony-generated` noch nicht existiert,
+  erstelle es im selben Team. Das neue Ticket muss mit `stateId: <Todo-State-ID>`,
+  `labelIds: [<symphony-generated-Label-ID>]` und
+  `assigneeId: "{{ issue.assignee_id }}"` erstellt werden; wenn keine
+  Assignee-ID verfügbar ist, melde diesen Fehler ausdrücklich, statt das Ticket
+  als vollständig erstellt zu berichten. Lege direkt nach erfolgreichem
+  `issueCreate` eine Linear-Issue-Relation zwischen Dialogticket und neuem
+  Umsetzungsticket an: Verwende
   `issueRelationCreate(input: { issueId: "{{ issue.id }}", relatedIssueId:
-  <ID des neu erstellten Umsetzungstickets>, type: related })`. Berichte das
-  Ticket erst dann als vollständig erstellt, wenn auch die
-  Related/relatedTo-Verknüpfung erfolgreich angelegt wurde; wenn die Relation
-  fehlschlägt, melde den Fehler ausdrücklich.
+  <ID des neu erstellten Umsetzungstickets>, type: related })`. Verschiebe
+  danach das ursprüngliche Dialog-AI-Ticket mit `issueUpdate` in den Status
+  `Umsetzungsticket erstellt`. Berichte das Ticket erst dann als vollständig
+  erstellt, wenn `issueCreate`, die Related/relatedTo-Verknüpfung und der
+  Statuswechsel des Ursprungstickets erfolgreich waren; wenn einer dieser
+  Schritte fehlschlägt, melde den Fehler ausdrücklich.
 - Beende die Antwort, sobald die aktuelle Anfrage beantwortet ist. Warte nicht
   aktiv auf weitere Kommentare.
 
