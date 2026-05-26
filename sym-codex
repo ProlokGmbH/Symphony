@@ -797,10 +797,6 @@ sym_codex_run() {
   if (( observer_mode )); then
     codex_args+=(app-server)
   else
-    if [[ "$workflow_step" == "Todo (Dialog-AI)" ]]; then
-      codex_args+=(--sandbox read-only --ask-for-approval never)
-    fi
-
     codex_args+=(
       --config "mcp_servers.symphony_linear.command=$(sym_codex_toml_basic_string "$source_repo/sym-codex-mcp")"
       --config "mcp_servers.symphony_linear.env={SYMPHONY_SOURCE_REPO=$(sym_codex_toml_basic_string "$source_repo"),SYMPHONY_PROJECT_ROOT=$(sym_codex_toml_basic_string "$project_root"),SYMPHONY_WORKFLOW_FILE=$(sym_codex_toml_basic_string "$workflow_file")}"
