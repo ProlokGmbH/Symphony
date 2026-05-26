@@ -276,7 +276,7 @@ des Assignees.
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
-| `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot mit read-only Sandbox und veröffentlicht Antworten als Linear-Kommentar. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuem Benutzerkommentar |
+| `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot und veröffentlicht Antworten als Linear-Kommentar. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuem Benutzerkommentar |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
 | `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |

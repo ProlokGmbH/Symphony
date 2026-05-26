@@ -111,8 +111,8 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{repo_dir}"
-    assert output =~ "--sandbox read-only"
-    assert output =~ "--ask-for-approval never"
+    refute output =~ "--sandbox read-only"
+    refute output =~ "--ask-for-approval never"
     assert output =~ "resume thread-dialog follow-up-prompt"
     refute output =~ "no existing worktree"
     refute File.exists?(Path.join(workspace_root, ".dialog"))
@@ -143,8 +143,8 @@ defmodule SymCodexScriptTest do
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{repo_dir}"
     refute output =~ "pwd=#{worktree}"
-    assert output =~ "--sandbox read-only"
-    assert output =~ "--ask-for-approval never"
+    refute output =~ "--sandbox read-only"
+    refute output =~ "--ask-for-approval never"
     assert output =~ "resume thread-dialog follow-up-prompt"
     refute File.exists?(Path.join(workspace_root, ".dialog"))
   end
@@ -173,8 +173,8 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{repo_dir}"
-    assert output =~ "--sandbox read-only"
-    assert output =~ "--ask-for-approval never"
+    refute output =~ "--sandbox read-only"
+    refute output =~ "--ask-for-approval never"
     assert output =~ "resume thread-dialog"
     refute output =~ "SYM_CODEX_PROMPT_V1"
     refute output =~ "dialog="

@@ -216,18 +216,14 @@ defmodule SymphonyElixir.DialogTest do
         assert %{"params" => thread_start_params} =
                  trace_json_payload(trace_lines, "thread/start")
 
-        assert thread_start_params["approvalPolicy"] == "on-request"
-        assert thread_start_params["sandbox"] == "read-only"
+        assert thread_start_params["approvalPolicy"] == expected_default_approval_policy()
+        assert thread_start_params["sandbox"] == "workspace-write"
 
         assert %{"params" => turn_start_params} =
                  trace_json_payload(trace_lines, "turn/start")
 
-        assert turn_start_params["approvalPolicy"] == "on-request"
-
-        assert turn_start_params["sandboxPolicy"] == %{
-                 "type" => "readOnly",
-                 "networkAccess" => true
-               }
+        assert turn_start_params["approvalPolicy"] == expected_default_approval_policy()
+        assert turn_start_params["sandboxPolicy"] == expected_workspace_write_policy(File.cwd!())
       end)
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -1197,6 +1193,27 @@ defmodule SymphonyElixir.DialogTest do
       _line ->
         nil
     end)
+  end
+
+  defp expected_default_approval_policy do
+    %{
+      "reject" => %{
+        "sandbox_approval" => true,
+        "rules" => true,
+        "mcp_elicitations" => true
+      }
+    }
+  end
+
+  defp expected_workspace_write_policy(workspace) when is_binary(workspace) do
+    %{
+      "type" => "workspaceWrite",
+      "writableRoots" => [Path.expand(workspace)],
+      "readOnlyAccess" => %{"type" => "fullAccess"},
+      "networkAccess" => false,
+      "excludeTmpdirEnvVar" => false,
+      "excludeSlashTmp" => false
+    }
   end
 
   defp git_cmd!(cwd, args) when is_binary(cwd) and is_list(args) do

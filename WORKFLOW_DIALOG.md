@@ -36,8 +36,8 @@ starten.
   Code, Dokumentation oder Konfiguration des aktuellen Repositories vornehmen.
 - Du darfst Dateien im Repository lesen und Befehle zur Analyse ausführen, wenn
   das für die Antwort nötig ist.
-- Symphony startet dich in diesem Status mit read-only Sandbox und prüft nach
-  dem Turn, dass der Git-Status des aktuellen Repositories unverändert blieb.
+- Symphony prüft nach dem Turn, dass der Git-Status des aktuellen Repositories
+  unverändert blieb.
 - Erstelle keinen Git-Worktree, führe keine Hooks aus, ändere keinen
   Issue-Status und pflege kein Symphony Workpad.
 - Schreibe keine Antwortkommentare direkt in Linear. Gib deine Antwort als
