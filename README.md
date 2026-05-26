@@ -29,6 +29,9 @@ Der Sonderstatus `Todo (Dialog-AI)` ist davon ausgenommen: Er nutzt
 `WORKFLOW_DIALOG.md` für dialogische Vorplanung, erstellt keinen Worktree,
 führt keine Hooks aus und startet Codex im Projektroot. Die Dialoganweisung
 untersagt Repository-Änderungen; Symphony prüft nach dem Turn den Git-Status.
+Wenn ein zuvor vorgeschlagenes Umsetzungsticket ausdrücklich bestätigt wird,
+darf der Dialog-AI-Pfad dieses Ticket in Linear erstellen, verknüpfen und das
+Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
 
 ## Installation und Inbetriebnahme
 
@@ -127,7 +130,8 @@ Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Fre
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
 | `Todo` | Mensch | Nicht automatisiertes Benutzer-Todo ausserhalb des Symphony-Scopes. | bleibt offen bis zum naechsten AI-Status |
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
-| `Todo (Dialog-AI)` | AI | Dialogische Vorplanung über `WORKFLOW_DIALOG.md` ohne Worktree, Hooks oder Repository-Änderungen; Antworten laufen als Linear-Kommentare. | bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuer Benutzeranfrage |
+| `Todo (Dialog-AI)` | AI | Dialogische Vorplanung über `WORKFLOW_DIALOG.md` ohne Worktree, Hooks oder Repository-Änderungen; Antworten laufen als Linear-Kommentare. Bei ausdrücklicher Bestätigung darf der Dialog-AI-Pfad ein Umsetzungsticket erstellen, verknüpfen und das Ursprungsticket verschieben. | `Umsetzungsticket erstellt` nach erfolgreicher bestätigter Ticketerstellung; sonst bleibt es bis zu externem Statuswechsel oder neuer Benutzeranfrage |
+| `Umsetzungsticket erstellt` | Abschluss | Ursprungsticket nach erfolgreicher Umsetzungsticket-Erstellung aus `Todo (Dialog-AI)`; keine weitere Automatisierung. | - |
 | `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung vorbereiten und entscheiden, ob autonome Umsetzung möglich ist. | `In Arbeit (AI)` oder `Planung` |
 | `Planung` | Mensch | Manueller Klärungs- und Planschärfungspunkt mit von Codex empfohlenen Lösungsvorschlägen. | `In Arbeit (AI)` oder `Planung (AI)` |
 | `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei nicht-funktionalen Erkenntnissen begründete Plananpassung; produkt-/verhaltensrelevanter Klärungsbedarf geht nach `Planung`. | `PreReview (AI)` oder `Planung` |

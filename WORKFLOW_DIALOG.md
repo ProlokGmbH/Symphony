@@ -39,8 +39,12 @@ starten.
   das für die Antwort nötig ist.
 - Symphony prüft nach dem Turn, dass der Git-Status des aktuellen Repositories
   unverändert blieb.
-- Erstelle keinen Git-Worktree, führe keine Hooks aus, ändere keinen
-  Issue-Status und pflege kein Symphony Workpad.
+- Erstelle keinen Git-Worktree, führe keine Hooks aus und pflege kein Symphony
+  Workpad.
+- Ändere keinen Issue-Status, außer im ausdrücklich bestätigten
+  Umsetzungsticket-Erstellungspfad: Dort darfst du nach erfolgreicher Erstellung
+  und Relation nur das Ursprungsticket nach `Umsetzungsticket erstellt`
+  verschieben.
 - Schreibe keine Antwortkommentare direkt in Linear. Gib deine Antwort als
   finale Antwort an Symphony zurück; Symphony veröffentlicht sie mit dem Header
   `### Antwort Symphony`.
@@ -51,12 +55,13 @@ starten.
   Validierungspunkten und frage, ob dieses Ticket so erstellt werden soll.
 - Wenn der Benutzer die Erstellung eines zuvor vorgeschlagenen Umsetzungstickets
   ausdrücklich bestätigt, erstelle über Linear ein neues Ticket im selben Team
-  und, wenn möglich, im selben Projekt. Löse vor `issueCreate` die dafür
-  nötigen IDs aus Linear auf: Team/Projekt des Ursprungstickets, die Status-ID
-  für `Todo`, die Label-ID für `symphony-generated` und die Assignee-ID des
-  Ursprungstickets. Falls das Label `symphony-generated` noch nicht existiert,
-  erstelle es im selben Team. Das neue Ticket muss mit `stateId: <Todo-State-ID>`,
-  `labelIds: [<symphony-generated-Label-ID>]` und
+  und, wenn möglich, im selben Projekt. Löse vor `issueCreate` und dem
+  anschließenden `issueUpdate` die dafür nötigen IDs aus Linear auf:
+  Team/Projekt des Ursprungstickets, die Status-ID für `Todo`, die Status-ID
+  für `Umsetzungsticket erstellt`, die Label-ID für `symphony-generated` und
+  die Assignee-ID des Ursprungstickets. Falls das Label `symphony-generated`
+  noch nicht existiert, erstelle es im selben Team. Das neue Ticket muss mit
+  `stateId: <Todo-State-ID>`, `labelIds: [<symphony-generated-Label-ID>]` und
   `assigneeId: "{{ issue.assignee_id }}"` erstellt werden; wenn keine
   Assignee-ID verfügbar ist, melde diesen Fehler ausdrücklich, statt das Ticket
   als vollständig erstellt zu berichten. Lege direkt nach erfolgreichem
@@ -64,11 +69,13 @@ starten.
   Umsetzungsticket an: Verwende
   `issueRelationCreate(input: { issueId: "{{ issue.id }}", relatedIssueId:
   <ID des neu erstellten Umsetzungstickets>, type: related })`. Verschiebe
-  danach das ursprüngliche Dialog-AI-Ticket mit `issueUpdate` in den Status
-  `Umsetzungsticket erstellt`. Berichte das Ticket erst dann als vollständig
-  erstellt, wenn `issueCreate`, die Related/relatedTo-Verknüpfung und der
-  Statuswechsel des Ursprungstickets erfolgreich waren; wenn einer dieser
-  Schritte fehlschlägt, melde den Fehler ausdrücklich.
+  danach das ursprüngliche Dialog-AI-Ticket mit
+  `issueUpdate(id: "{{ issue.id }}", input: { stateId:
+  <Umsetzungsticket-erstellt-State-ID> })` in den Status `Umsetzungsticket
+  erstellt`. Berichte das Ticket erst dann als vollständig erstellt, wenn
+  `issueCreate`, die Related/relatedTo-Verknüpfung und der Statuswechsel des
+  Ursprungstickets erfolgreich waren; wenn einer dieser Schritte fehlschlägt,
+  melde den Fehler ausdrücklich.
 - Beende die Antwort, sobald die aktuelle Anfrage beantwortet ist. Warte nicht
   aktiv auf weitere Kommentare.
 

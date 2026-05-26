@@ -149,7 +149,8 @@ defmodule SymphonyElixir.DialogTest do
     refute prompt =~ "`Backlog`"
     assert prompt =~ "Linear-Issue-ID: issue-dialog-relation"
     assert prompt =~ "Assignee-ID: assignee-origin"
-    assert prompt =~ "Status-ID\n  für `Todo`"
+    assert prompt =~ "Status-ID für `Todo`"
+    assert prompt =~ "Status-ID\n  für `Umsetzungsticket erstellt`"
     assert prompt =~ "symphony-generated"
     assert prompt =~ ~s(assigneeId: "assignee-origin")
     assert prompt =~ "labelIds"
@@ -159,6 +160,7 @@ defmodule SymphonyElixir.DialogTest do
     assert prompt =~ "type: related"
     assert prompt =~ "Related/relatedTo-Verknüpfung"
     assert prompt =~ "issueUpdate"
+    assert prompt =~ "stateId:\n  <Umsetzungsticket-erstellt-State-ID>"
     assert prompt =~ "Umsetzungsticket erstellt"
   end
 

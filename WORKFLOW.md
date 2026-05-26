@@ -276,7 +276,8 @@ des Assignees.
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
-| `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot und veröffentlicht Antworten als Linear-Kommentar. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuem Benutzerkommentar |
+| `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot und veröffentlicht Antworten als Linear-Kommentar. Bei ausdrücklich bestätigter Umsetzungsticket-Erstellung darf der Dialog-AI-Prompt zusätzlich das neue Ticket erstellen/verknüpfen und das Ursprungsticket nach `Umsetzungsticket erstellt` verschieben. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel, neuem Benutzerkommentar oder erfolgreicher Erstellung eines bestätigten Umsetzungstickets |
+| `Umsetzungsticket erstellt` | Nein | Abschlussstatus für ein Ursprungsticket nach erfolgreicher bestätigter Umsetzungsticket-Erstellung aus `Todo (Dialog-AI)`; keine weitere Automatisierung. | - |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
 | `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |
@@ -301,7 +302,8 @@ des Assignees.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
    - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
-   - `Todo (Dialog-AI)` -> Dialog-Sonderablauf aus `WORKFLOW_DIALOG.md` ausführen; keinen regulären Worktree erstellen und keinen Statuswechsel vornehmen.
+   - `Todo (Dialog-AI)` -> Dialog-Sonderablauf aus `WORKFLOW_DIALOG.md` ausführen; keinen regulären Worktree erstellen; Statuswechsel nur im bestätigten Umsetzungsticket-Erstellungspfad nach `Umsetzungsticket erstellt` vornehmen.
+   - `Umsetzungsticket erstellt` -> nichts tun und beenden; Umsetzungsticket wurde aus `Todo (Dialog-AI)` heraus erstellt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
