@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR="${1:-}"
+
+if [ -z "$PROJECT_DIR" ]; then
+  SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+  PROJECT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
+else
+  PROJECT_DIR="$(cd -- "$PROJECT_DIR" && pwd)"
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+  exit 0
+fi
+
+if ! git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  exit 0
+fi
+
+if [ -n "$(git -C "$PROJECT_DIR" status --porcelain --untracked-files=normal)" ]; then
+  echo "symphony: Autoupdate übersprungen, weil der Checkout lokale Änderungen enthält." >&2
+  exit 0
+fi
+
+UPSTREAM_REF="$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+
+if [ -z "$UPSTREAM_REF" ]; then
+  exit 0
+fi
+
+REMOTE_NAME="${UPSTREAM_REF%%/*}"
+REMOTE_BRANCH="${UPSTREAM_REF#*/}"
+
+if [ -z "$REMOTE_NAME" ] || [ "$REMOTE_NAME" = "$UPSTREAM_REF" ] || [ -z "$REMOTE_BRANCH" ]; then
+  exit 0
+fi
+
+if ! git -C "$PROJECT_DIR" fetch --quiet "$REMOTE_NAME" "$REMOTE_BRANCH"; then
+  echo "symphony: Autoupdate konnte den Git-Remote nicht prüfen." >&2
+  exit 0
+fi
+
+if ! git -C "$PROJECT_DIR" merge-base --is-ancestor HEAD "$UPSTREAM_REF"; then
+  echo "symphony: Autoupdate übersprungen, weil der Checkout nicht per Fast-Forward aktualisierbar ist." >&2
+  exit 0
+fi
+
+AVAILABLE_COMMITS="$(git -C "$PROJECT_DIR" rev-list --count "HEAD..$UPSTREAM_REF")"
+
+if [ "$AVAILABLE_COMMITS" = "0" ]; then
+  exit 0
+fi
+
+printf "Neue Symphony Version verfügbar. Update ausführen j/n? "
+
+if ! IFS= read -r ANSWER; then
+  exit 0
+fi
+
+case "${ANSWER,,}" in
+  j | ja | y | yes)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+run_update() {
+  cd "$PROJECT_DIR"
+  git pull --ff-only "$REMOTE_NAME" "$REMOTE_BRANCH"
+  make all
+}
+
+echo "Symphony Update läuft…"
+run_update &
+UPDATE_PID="$!"
+wait "$UPDATE_PID"
