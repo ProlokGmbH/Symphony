@@ -2,6 +2,7 @@ defmodule AutoupdateScriptTest do
   use ExUnit.Case, async: true
 
   @script_source Path.expand("../autoupdate", __DIR__)
+  @update_prompt "Neue Symphony Version verfügbar. Update ausführen j/n?"
 
   test "exits quietly when upstream has no new commit" do
     %{root_dir: root_dir, worktree_dir: worktree_dir} = build_git_fixture!()
@@ -24,9 +25,22 @@ defmodule AutoupdateScriptTest do
 
     assert {output, 0} = run_autoupdate(worktree_dir, "n\n", bin_dir, make_log)
 
-    assert output =~ "Neue Symphony Version verfügbar. Update ausführen j/n?"
+    assert output == @update_prompt
     refute output =~ "Symphony Update läuft…"
     assert git_output!(worktree_dir, ["rev-parse", "HEAD"]) == old_head
+    refute File.exists?(make_log)
+  end
+
+  test "detects an update from fetched head when upstream tracking ref is stale" do
+    %{root_dir: root_dir, repo_dir: repo_dir, bin_dir: bin_dir, make_log: make_log} =
+      build_stale_tracking_fixture!()
+
+    on_exit(fn -> File.rm_rf(root_dir) end)
+
+    assert {output, 0} = run_autoupdate(repo_dir, "n\n", bin_dir, make_log)
+
+    assert output == @update_prompt
+    refute output =~ "Symphony Update läuft…"
     refute File.exists?(make_log)
   end
 
@@ -41,7 +55,7 @@ defmodule AutoupdateScriptTest do
 
     assert {output, 0} = run_autoupdate(worktree_dir, "j\n", bin_dir, make_log)
 
-    assert output =~ "Neue Symphony Version verfügbar. Update ausführen j/n?"
+    assert output =~ @update_prompt
     assert output =~ "Symphony Update läuft…"
     assert git_output!(worktree_dir, ["rev-parse", "HEAD"]) == remote_head
     assert File.read!(make_log) == "make args=all\n"
@@ -70,6 +84,69 @@ defmodule AutoupdateScriptTest do
     configure_user!(worktree_dir)
 
     %{root_dir: root_dir, seed_dir: seed_dir, worktree_dir: worktree_dir}
+  end
+
+  defp build_stale_tracking_fixture! do
+    root_dir =
+      Path.join(System.tmp_dir!(), "symphony-autoupdate-stale-#{System.unique_integer([:positive])}")
+
+    repo_dir = Path.join(root_dir, "repo")
+    bin_dir = Path.join(root_dir, "bin")
+    make_log = Path.join(root_dir, "make.log")
+
+    File.mkdir_p!(repo_dir)
+    File.mkdir_p!(bin_dir)
+
+    File.write!(Path.join(bin_dir, "git"), """
+    #!/usr/bin/env bash
+    if [ "$1" = "-C" ]; then
+      shift 2
+    fi
+
+    case "$1" in
+      rev-parse)
+        if [ "$2" = "--is-inside-work-tree" ]; then
+          exit 0
+        fi
+
+        if [ "$2" = "--abbrev-ref" ]; then
+          printf 'origin/main\\n'
+          exit 0
+        fi
+        ;;
+      status)
+        exit 0
+        ;;
+      fetch)
+        exit 0
+        ;;
+      merge-base)
+        exit 0
+        ;;
+      rev-list)
+        if [ "$3" = "HEAD..FETCH_HEAD" ]; then
+          printf '1\\n'
+          exit 0
+        fi
+
+        if [ "$3" = "HEAD..origin/main" ]; then
+          printf '0\\n'
+          exit 0
+        fi
+        ;;
+      pull)
+        printf 'git pull should not run when update is declined\\n' >&2
+        exit 1
+        ;;
+    esac
+
+    printf 'unexpected git args: %s\\n' "$*" >&2
+    exit 1
+    """)
+
+    File.chmod!(Path.join(bin_dir, "git"), 0o755)
+
+    %{root_dir: root_dir, repo_dir: repo_dir, bin_dir: bin_dir, make_log: make_log}
   end
 
   defp build_make_fixture!(root_dir) do

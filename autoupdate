@@ -41,18 +41,20 @@ if ! git -C "$PROJECT_DIR" fetch --quiet "$REMOTE_NAME" "$REMOTE_BRANCH"; then
   exit 0
 fi
 
-if ! git -C "$PROJECT_DIR" merge-base --is-ancestor HEAD "$UPSTREAM_REF"; then
+FETCHED_REF="FETCH_HEAD"
+
+if ! git -C "$PROJECT_DIR" merge-base --is-ancestor HEAD "$FETCHED_REF"; then
   echo "symphony: Autoupdate übersprungen, weil der Checkout nicht per Fast-Forward aktualisierbar ist." >&2
   exit 0
 fi
 
-AVAILABLE_COMMITS="$(git -C "$PROJECT_DIR" rev-list --count "HEAD..$UPSTREAM_REF")"
+AVAILABLE_COMMITS="$(git -C "$PROJECT_DIR" rev-list --count "HEAD..$FETCHED_REF")"
 
 if [ "$AVAILABLE_COMMITS" = "0" ]; then
   exit 0
 fi
 
-printf "Neue Symphony Version verfügbar. Update ausführen j/n? "
+printf "Neue Symphony Version verfügbar. Update ausführen j/n?"
 
 if ! IFS= read -r ANSWER; then
   exit 0
