@@ -389,10 +389,38 @@ defmodule SymphonyElixir.Workspace do
 
     with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
          :ok <- validate_workspace_path(workspace, worker_host) do
-      if workspace_exists?(workspace, worker_host) do
-        clear_review_autocommit_marker(workspace, worker_host)
-      else
-        :ok
+      case workspace_presence(workspace, worker_host) do
+        {:ok, :present} -> clear_review_autocommit_marker(workspace, worker_host)
+        {:ok, :missing} -> :ok
+        {:error, _reason} -> :ok
+      end
+    end
+  end
+
+  @spec git_status_snapshot_for_existing_issue_workspace(
+          map() | String.t() | nil,
+          worker_host()
+        ) :: {:ok, String.t() | :missing | :not_git_repo} | {:error, term()}
+  def git_status_snapshot_for_existing_issue_workspace(
+        issue_or_identifier,
+        worker_host \\ nil
+      ) do
+    issue_context = issue_context(issue_or_identifier)
+    safe_id = safe_identifier(issue_context.issue_identifier)
+
+    with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
+         :ok <- validate_workspace_path(workspace, worker_host) do
+      case workspace_presence(workspace, worker_host) do
+        {:ok, :present} ->
+          workspace
+          |> git_status_snapshot(worker_host)
+          |> normalize_existing_workspace_git_status()
+
+        {:ok, :missing} ->
+          {:ok, :missing}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -412,6 +440,16 @@ defmodule SymphonyElixir.Workspace do
       end
     end
   end
+
+  defp normalize_existing_workspace_git_status({:error, reason}) do
+    if not_git_repository_error?(reason) do
+      {:ok, :not_git_repo}
+    else
+      {:error, reason}
+    end
+  end
+
+  defp normalize_existing_workspace_git_status(result), do: result
 
   defp remote_git_status_snapshot(workspace, worker_host)
        when is_binary(workspace) and is_binary(worker_host) do
@@ -859,11 +897,11 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
-  defp workspace_exists?(workspace, nil) when is_binary(workspace) do
-    File.dir?(workspace)
+  defp workspace_presence(workspace, nil) when is_binary(workspace) do
+    if File.dir?(workspace), do: {:ok, :present}, else: {:ok, :missing}
   end
 
-  defp workspace_exists?(workspace, worker_host)
+  defp workspace_presence(workspace, worker_host)
        when is_binary(workspace) and is_binary(worker_host) do
     script =
       [
@@ -875,13 +913,17 @@ defmodule SymphonyElixir.Workspace do
 
     case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {output, 0}} ->
-        output
-        |> IO.iodata_to_binary()
-        |> String.trim()
-        |> Kernel.==("present")
+        case output |> IO.iodata_to_binary() |> String.trim() do
+          "present" -> {:ok, :present}
+          "missing" -> {:ok, :missing}
+          other -> {:error, {:workspace_presence_unexpected_output, worker_host, other}}
+        end
 
-      _ ->
-        false
+      {:ok, {output, status}} ->
+        {:error, {:workspace_presence_failed, worker_host, status, output}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

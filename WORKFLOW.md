@@ -268,9 +268,11 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 
 Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Implementierung`
 und `Freigabe Review` unabhängig von gesetzten Labels als übersprungen.
-Außerdem bearbeitet Symphony dann alle passenden Tickets unabhängig vom
-konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt
-des Assignees.
+Ausgenommen ist der `Review (AI)`-Handoff nach Findings, Review-Fixes,
+Dirty-Workspace oder uneindeutigem No-Findings-Signal; dieser führt weiterhin
+nach `Freigabe Review`. Außerdem bearbeitet Symphony dann alle passenden Tickets
+unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus
+`--yolo` statt des Assignees.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
@@ -283,7 +285,7 @@ des Assignees.
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen. Nicht-funktionale Plananpassungen begründet im Workpad pflegen; produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Ohne Findings und ohne Review-Fixes direkt nach `Test (AI)`, sonst nach `Freigabe Review`. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Ohne Findings und mit sauberem Workspace direkt nach `Test (AI)`, sonst nach `Freigabe Review`. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
@@ -496,9 +498,12 @@ nach `Freigabe Review` übergeben.
 - Wenn der Review ohne Findings und mit sauberem Workspace endet, verschiebe das
   Issue erst danach direkt nach `Test (AI)`. Dieser No-Findings-Skip gilt
   unabhängig von `--yolo` oder `Skip "Freigabe Review"`-Labels.
-- Wenn der Review Findings geliefert hat, Fixes entstanden sind oder das
-  No-Findings-Signal nicht eindeutig ist, verschiebe das Issue erst danach nach
-  `Freigabe Review`.
+- Wenn der Review Findings geliefert hat, Fixes entstanden sind, diese Evidenz
+  in separaten Review-/Fix-Kommentaren oder im Workpad-Verlauf dokumentiert ist,
+  Workpad- oder Workspace-Evidenz fehlt oder das No-Findings-Signal nicht eindeutig ist,
+  verschiebe das Issue erst danach nach `Freigabe Review`; `--yolo` und
+  `Skip "Freigabe Review"` dürfen diesen Freigabepunkt auch in Folgeläufen nicht
+  überspringen.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
 

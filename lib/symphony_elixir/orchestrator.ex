@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, Dialog, PromptBuilder, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, Dialog, PromptBuilder, StatusDashboard, Tracker, Workpad, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -21,6 +21,7 @@ defmodule SymphonyElixir.Orchestrator do
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
   @yolo_manual_state_names ["freigabe implementierung", "freigabe review"]
+  @review_handoff_state_name "Freigabe Review"
   @review_no_findings_handoff_state_name "Test (AI)"
   @canceled_terminal_state_name "Abgebrochen"
   @empty_codex_totals %{
@@ -1045,6 +1046,10 @@ defmodule SymphonyElixir.Orchestrator do
 
       clean_review_retry_handoff_ready?(issue, metadata) ->
         handle_clean_review_retry_handoff(state, issue_id, issue, attempt, metadata)
+
+      completed_in_current_state?(issue, state.completed_states) ->
+        Logger.info("Issue already completed in current state during retry; stopping continuation: #{issue_context(issue)}")
+        {:noreply, release_issue_claim(state, issue_id)}
 
       retry_candidate_issue?(issue, terminal_states) ->
         handle_active_retry(state, issue, attempt, metadata)
@@ -2954,7 +2959,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_clean_review_retry_handoff(%State{} = state, issue_id, %Issue{} = issue, attempt, metadata)
        when is_binary(issue_id) and is_integer(attempt) and is_map(metadata) do
-    next_state = review_handoff_target_state(issue)
+    next_state = review_handoff_target_state(issue, metadata)
 
     case Tracker.update_issue_state(issue.id, next_state) do
       :ok ->
@@ -2978,7 +2983,60 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp review_handoff_target_state(%Issue{}), do: @review_no_findings_handoff_state_name
+  defp review_handoff_target_state(%Issue{} = issue, metadata) when is_map(metadata) do
+    if review_retry_workpad_no_findings?(issue) and review_retry_workspace_clean?(issue, metadata) do
+      @review_no_findings_handoff_state_name
+    else
+      @review_handoff_state_name
+    end
+  end
+
+  defp review_retry_workpad_no_findings?(%Issue{id: issue_id} = issue) when is_binary(issue_id) do
+    case Tracker.fetch_issue_comment_bodies(issue_id) do
+      {:ok, comments} ->
+        comments
+        |> Workpad.review_handoff_status()
+        |> case do
+          {:ready, :no_findings} ->
+            true
+
+          status ->
+            Logger.info("Recovered review no-findings handoff has incomplete workpad evidence; using review handoff: #{issue_context(issue)} workpad_status=#{inspect(status)}")
+
+            false
+        end
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workpad review checklist before recovered no-findings handoff; using review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        false
+    end
+  end
+
+  defp review_retry_workpad_no_findings?(_issue), do: false
+
+  defp review_retry_workspace_clean?(%Issue{} = issue, metadata) when is_map(metadata) do
+    case Map.get(metadata, :workspace_path) do
+      workspace when is_binary(workspace) ->
+        case Workspace.git_status_snapshot(workspace, Map.get(metadata, :worker_host)) do
+          {:ok, ""} ->
+            true
+
+          {:ok, _status} ->
+            false
+
+          {:error, reason} ->
+            Logger.warning("Failed to inspect recovered review workspace status before no-findings handoff; using regular review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+            false
+        end
+
+      _ ->
+        Logger.warning("Recovered review no-findings handoff has no workspace path; using regular review handoff: #{issue_context(issue)}")
+
+        false
+    end
+  end
 
   defp review_recovered_context_kind(value) when is_binary(value) do
     case PromptBuilder.normalize_recovered_review_context(value) do
