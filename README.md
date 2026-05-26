@@ -70,13 +70,13 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
    `.symphony/.env(.local)`. Unterstützt werden:
    - `SYM_CODEX_MODEL`, Standard `gpt-5.5`
    - `SYM_CODEX_REASONING_EFFORT`, Standard `high`
-   - `SYM_CODEX_FAST`, `0` oder `1`, Standard `0`; interaktive Starts
-     erzwingen nach der Profilvalidierung `1`
+   - `SYM_CODEX_SERVICE_TIER`, Standard `flex`
+   - `SYM_CODEX_HUMAN_SERVICE_TIER`, Standard `priority`
 
    Die Präzedenz ist: explizite Shell-Umgebung vor `.env.local` vor `.env` vor
-   eingebauten Defaults. Für interaktive/manuelle Starts setzt `sym-codex`
-   anschließend `SYM_CODEX_FAST=1`, sodass Codex mit `service_tier=fast`
-   startet. Observer-Starts behalten die aufgelöste Profilkonfiguration.
+   eingebauten Defaults. Observer-Starts übergeben `SYM_CODEX_SERVICE_TIER` als
+   `service_tier`; interaktive/manuelle Starts übergeben stattdessen
+   `SYM_CODEX_HUMAN_SERVICE_TIER`.
 
 3. Symphony starten:
 
