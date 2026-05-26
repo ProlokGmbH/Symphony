@@ -35,12 +35,13 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 
 ## Abschluss
 
-Wenn alle Schritte in einem ununterbrochenen Durchlauf sauber sind und der
-Review-Subagent `Keine Findings.` geliefert hat, direkt nach `Test (AI)`
-verschieben. Diese No-Findings-Regel gilt unabhängig vom Workspace-Status und
-zusätzlich zu den allgemeinen Skip-Regeln. Wenn Findings behandelt wurden,
-Review-Fixes entstanden sind oder das No-Findings-Signal nicht eindeutig ist,
-greift der reguläre Review-Handoff: grundsätzlich `Freigabe Review`, aber
+Wenn alle Schritte in einem ununterbrochenen Durchlauf sauber sind, der
+Review-Subagent `Keine Findings.` geliefert hat und der Workspace nach dem
+Review sauber ist, direkt nach `Test (AI)` verschieben. Wenn Findings behandelt
+wurden, Review-Fixes entstanden sind, Findings-/Fix-Evidenz in separaten
+Review-Kommentaren oder im Workpad-Verlauf dokumentiert ist, der Workspace nach
+dem Review Änderungen enthält, Workpad- oder Workspace-Evidenz fehlt oder das
+No-Findings-Signal nicht eindeutig ist, nach `Freigabe Review` verschieben;
 `--yolo` und das Label `Skip "Freigabe Review"` überspringen diesen
-Freigabepunkt weiterhin auch bei Findings. Bei `agent.max_turns` Abweichungen
-dokumentieren und ohne Statuswechsel stoppen.
+Freigabepunkt in diesem Fall auch in Folgeläufen nicht. Bei `agent.max_turns`
+Abweichungen dokumentieren und ohne Statuswechsel stoppen.

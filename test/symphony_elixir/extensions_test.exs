@@ -285,6 +285,106 @@ defmodule SymphonyElixir.ExtensionsTest do
     refute Workpad.section_has_open_checklist_items?(workpad_body, "Review")
   end
 
+  test "workpad helper classifies review handoff evidence" do
+    no_findings_workpad = """
+    ## Symphony Workpad
+
+    ### Review
+
+    - [x] Review gate completed without findings
+    """
+
+    findings_marker_workpad = """
+    ## Symphony Workpad
+
+    ### Review
+
+    - [x] Review subagent: Keine Findings.
+    - [x] Findings:
+    """
+
+    unknown_result_workpad = """
+    ## Symphony Workpad
+
+    ### Review
+
+    - [x] Review abgeschlossen
+    """
+
+    open_workpad = """
+    ## Symphony Workpad
+
+    ### Review
+
+    - [ ] Review subagent läuft
+    """
+
+    assert Workpad.review_handoff_status(no_findings_workpad) == {:ready, :no_findings}
+    assert Workpad.review_handoff_status(findings_marker_workpad) == {:ready, :unknown}
+    assert Workpad.review_handoff_status(unknown_result_workpad) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status([
+             no_findings_workpad,
+             """
+             Review-Subagent-Findings für MT-123:
+
+             Findings:
+             - P1 `lib/example.ex`: Beispiel.
+             """
+           ]) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status([
+             nil,
+             %{body: no_findings_workpad},
+             %{"body" => "Fix-Einordnung zu Review-Findings"}
+           ]) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status([
+             """
+             ## Symphony Workpad
+
+             ### Review
+
+             - [x] Review subagent: Keine Findings.
+
+             ### Verlauf
+
+             - 2026-05-26 15:49:16 CEST - Fixrunde 3 abgeschlossen; Finding wurde vor Fixes kommentiert.
+             """
+           ]) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status("""
+           ## Symphony Workpad
+
+           ### Review
+
+           - [x] Review subagent: Keine Findings.
+
+           ### Verlauf
+
+           - 2026-05-26 16:08:12 CEST - Review-Fixes entstanden.
+           """) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status([
+             no_findings_workpad,
+             """
+             ## Symphony Workpad
+
+             ### Verlauf
+
+             - 2026-05-26 16:09:04 CEST - Fixes entstanden.
+             """
+           ]) == {:ready, :unknown}
+
+    assert Workpad.review_handoff_status([no_findings_workpad]) == {:ready, :no_findings}
+    assert Workpad.find_comment_body([nil, %{body: no_findings_workpad}]) == no_findings_workpad
+    assert Workpad.find_comment_body([%{"body" => no_findings_workpad}]) == no_findings_workpad
+    assert Workpad.review_handoff_status(open_workpad) == :blocked
+    assert Workpad.review_handoff_status("## Symphony Workpad\n\n### Review\n\nReview fertig.") == :blocked
+    assert Workpad.review_handoff_status("## Symphony Workpad\n\n### Test\n\n- [x] fertig") == :blocked
+    assert Workpad.review_handoff_status(nil) == :blocked
+  end
+
   test "linear adapter delegates reads and validates mutation responses" do
     Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
 

@@ -67,7 +67,7 @@ defmodule SymphonyElixir.AgentRunner do
 
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    case maybe_skip_manual_issue_state(issue, issue_state_fetcher) do
+    case maybe_skip_manual_issue_state(issue, issue_state_fetcher, worker_host) do
       {:ok, %Issue{} = transitioned_issue, :continue} ->
         run_on_worker_host(transitioned_issue, codex_update_recipient, opts, worker_host)
 
@@ -109,7 +109,7 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher) do
+  defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher, worker_host) do
     cond do
       Dialog.state?(issue.state) ->
         :dialog
@@ -121,6 +121,9 @@ defmodule SymphonyElixir.AgentRunner do
         :proceed
 
       not skip_current_manual_state?(issue) ->
+        :manual_noop
+
+      not manual_skip_allowed?(issue, worker_host) ->
         :manual_noop
 
       true ->
@@ -167,6 +170,66 @@ defmodule SymphonyElixir.AgentRunner do
       |> Enum.any?(fn label ->
         label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
       end)
+  end
+
+  defp manual_skip_allowed?(%Issue{} = issue, worker_host) do
+    not review_handoff_approval_required?(issue, worker_host)
+  end
+
+  defp review_handoff_approval_required?(%Issue{state: state} = issue, worker_host)
+       when is_binary(state) do
+    review_handoff_state?(state) and
+      (review_workpad_requires_manual_approval?(issue) or
+         review_workspace_requires_manual_approval?(issue, worker_host))
+  end
+
+  defp review_handoff_approval_required?(_issue, _worker_host), do: false
+
+  defp review_handoff_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == normalize_issue_state(@review_handoff_state_name)
+  end
+
+  defp review_workpad_requires_manual_approval?(%Issue{id: issue_id} = issue)
+       when is_binary(issue_id) do
+    case Tracker.fetch_issue_comment_bodies(issue_id) do
+      {:ok, comments} ->
+        comments
+        |> Workpad.review_handoff_status()
+        |> review_workpad_requires_manual_approval_from_status()
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workpad before skipping review handoff; keeping issue in Freigabe Review: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        true
+    end
+  end
+
+  defp review_workpad_requires_manual_approval?(_issue), do: false
+
+  defp review_workpad_requires_manual_approval_from_status(status) do
+    case status do
+      {:ready, :no_findings} -> false
+      {:ready, :unknown} -> true
+      :blocked -> true
+    end
+  end
+
+  defp review_workspace_requires_manual_approval?(%Issue{} = issue, worker_host) do
+    case Workspace.git_status_snapshot_for_existing_issue_workspace(issue, worker_host) do
+      {:ok, ""} ->
+        false
+
+      {:ok, :missing} ->
+        true
+
+      {:ok, _status_or_marker} ->
+        true
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect existing review workspace before skipping review handoff; keeping issue in Freigabe Review: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        true
+    end
   end
 
   defp codex_message_handler(recipient, issue) do
@@ -937,12 +1000,28 @@ defmodule SymphonyElixir.AgentRunner do
         )
 
       :blocked ->
-        Logger.info("Keeping review issue in place because the workpad still has open review checklist items: #{issue_context(issue)}")
-        {:ok, issue, :stop}
+        Logger.info("Using review handoff because the workpad evidence is missing or incomplete: #{issue_context(issue)}")
+
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          @review_handoff_state_name,
+          :review_handoff_state_update_failed,
+          "completed review issue with incomplete workpad evidence",
+          :stop
+        )
 
       {:error, reason} ->
-        Logger.warning("Failed to inspect workpad review checklist before review handoff; keeping issue in current state: #{issue_context(issue)} reason=#{inspect(reason)}")
-        {:ok, issue, :stop}
+        Logger.warning("Failed to inspect workpad review checklist before review handoff; using review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          @review_handoff_state_name,
+          :review_handoff_state_update_failed,
+          "completed review issue with unavailable workpad evidence",
+          :stop
+        )
     end
   end
 
@@ -1168,64 +1247,39 @@ defmodule SymphonyElixir.AgentRunner do
       default_next_handoff_state(issue.state)
   end
 
-  defp resolve_review_handoff_state(%Issue{}, :no_findings, _workspace, _worker_host),
-    do: @review_no_findings_handoff_state_name
+  defp resolve_review_handoff_state(%Issue{} = issue, :no_findings, workspace, worker_host) do
+    if review_workspace_clean?(issue, workspace, worker_host) do
+      @review_no_findings_handoff_state_name
+    else
+      @review_handoff_state_name
+    end
+  end
 
-  defp resolve_review_handoff_state(%Issue{} = issue, _review_result, _workspace, _worker_host),
-    do: resolve_next_handoff_state(issue)
+  defp resolve_review_handoff_state(%Issue{}, _review_result, _workspace, _worker_host),
+    do: @review_handoff_state_name
+
+  defp review_workspace_clean?(%Issue{} = issue, workspace, worker_host) when is_binary(workspace) do
+    case Workspace.git_status_snapshot(workspace, worker_host) do
+      {:ok, ""} ->
+        true
+
+      {:ok, _status} ->
+        false
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect review workspace status before no-findings handoff; using regular review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+
+        false
+    end
+  end
 
   defp review_workpad_handoff_status(%Issue{id: issue_id}) when is_binary(issue_id) do
     with {:ok, comments} <- Tracker.fetch_issue_comment_bodies(issue_id) do
-      comments
-      |> Workpad.find_comment_body()
-      |> review_workpad_status_from_body()
+      Workpad.review_handoff_status(comments)
     end
   end
 
   defp review_workpad_handoff_status(_issue), do: {:ready, :unknown}
-
-  defp review_workpad_status_from_body(body) when is_binary(body) do
-    case Workpad.section_checklist_status(body, "Review") do
-      :closed -> {:ready, review_workpad_result_from_body(body)}
-      :open -> :blocked
-      :missing -> :blocked
-      :no_checklist -> :blocked
-    end
-  end
-
-  defp review_workpad_status_from_body(_body), do: :blocked
-
-  defp review_workpad_result_from_body(body) when is_binary(body) do
-    case review_section_body(body) do
-      {:ok, section_body} ->
-        if review_section_no_findings?(section_body), do: :no_findings, else: :unknown
-
-      :error ->
-        :unknown
-    end
-  end
-
-  defp review_section_body(body) when is_binary(body) do
-    pattern = ~r/(?:^|\n)###\s+Review\s*\n(?<body>.*?)(?=\n###\s+|\z)/s
-
-    case Regex.named_captures(pattern, body) do
-      %{"body" => section_body} -> {:ok, section_body}
-      _ -> :error
-    end
-  end
-
-  defp review_section_no_findings?(section_body) when is_binary(section_body) do
-    no_findings? =
-      Regex.match?(
-        ~r/\b(?:keine|no)(?:\s+(?:konkreten|concrete))?\s+findings\b/iu,
-        section_body
-      ) or
-        Regex.match?(~r/\b(?:without|ohne)\s+findings\b/iu, section_body)
-
-    findings_marker? = Regex.match?(~r/(?:^|\n)\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:\*\*)?findings(?:\*\*)?\s*:/iu, section_body)
-
-    no_findings? and not findings_marker?
-  end
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
     cond do
