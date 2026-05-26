@@ -36,7 +36,8 @@ SYM_CODEX_WORKFLOW_STEP=""
 SYM_CODEX_SESSION_ID=""
 SYM_CODEX_MODEL_DEFAULT="gpt-5.5"
 SYM_CODEX_REASONING_EFFORT_DEFAULT="high"
-SYM_CODEX_FAST_DEFAULT="0"
+SYM_CODEX_SERVICE_TIER_DEFAULT="flex"
+SYM_CODEX_HUMAN_SERVICE_TIER_DEFAULT="priority"
 
 sym_codex_die() {
   sym_codex_stderr "$@"
@@ -423,7 +424,8 @@ sym_codex_apply_launch_env_file() {
   local env_path="$1"
   local keep_model="$2"
   local keep_reasoning="$3"
-  local keep_fast="$4"
+  local keep_service_tier="$4"
+  local keep_human_service_tier="$5"
   local line
   local assignment
   local key
@@ -461,8 +463,13 @@ sym_codex_apply_launch_env_file() {
           export "$assignment"
         fi
         ;;
-      SYM_CODEX_FAST)
-        if [[ "$keep_fast" != "1" ]]; then
+      SYM_CODEX_SERVICE_TIER)
+        if [[ "$keep_service_tier" != "1" ]]; then
+          export "$assignment"
+        fi
+        ;;
+      SYM_CODEX_HUMAN_SERVICE_TIER)
+        if [[ "$keep_human_service_tier" != "1" ]]; then
           export "$assignment"
         fi
         ;;
@@ -474,14 +481,16 @@ sym_codex_load_launch_env() {
   local project_root="$1"
   local keep_model=0
   local keep_reasoning=0
-  local keep_fast=0
+  local keep_service_tier=0
+  local keep_human_service_tier=0
 
   [[ -n "${SYM_CODEX_MODEL+x}" ]] && keep_model=1
   [[ -n "${SYM_CODEX_REASONING_EFFORT+x}" ]] && keep_reasoning=1
-  [[ -n "${SYM_CODEX_FAST+x}" ]] && keep_fast=1
+  [[ -n "${SYM_CODEX_SERVICE_TIER+x}" ]] && keep_service_tier=1
+  [[ -n "${SYM_CODEX_HUMAN_SERVICE_TIER+x}" ]] && keep_human_service_tier=1
 
-  sym_codex_apply_launch_env_file "$project_root/.env" "$keep_model" "$keep_reasoning" "$keep_fast"
-  sym_codex_apply_launch_env_file "$project_root/.env.local" "$keep_model" "$keep_reasoning" "$keep_fast"
+  sym_codex_apply_launch_env_file "$project_root/.env" "$keep_model" "$keep_reasoning" "$keep_service_tier" "$keep_human_service_tier"
+  sym_codex_apply_launch_env_file "$project_root/.env.local" "$keep_model" "$keep_reasoning" "$keep_service_tier" "$keep_human_service_tier"
 }
 
 sym_codex_set_launch_profile() {
@@ -489,22 +498,17 @@ sym_codex_set_launch_profile() {
 
   : "${SYM_CODEX_MODEL:=$SYM_CODEX_MODEL_DEFAULT}"
   : "${SYM_CODEX_REASONING_EFFORT:=$SYM_CODEX_REASONING_EFFORT_DEFAULT}"
-  : "${SYM_CODEX_FAST:=$SYM_CODEX_FAST_DEFAULT}"
-
-  case "$SYM_CODEX_FAST" in
-    0|1)
-      ;;
-    *)
-      sym_codex_die "SYM_CODEX_FAST must be 0 or 1, got: $SYM_CODEX_FAST"
-      ;;
-  esac
+  : "${SYM_CODEX_SERVICE_TIER:=$SYM_CODEX_SERVICE_TIER_DEFAULT}"
+  : "${SYM_CODEX_HUMAN_SERVICE_TIER:=$SYM_CODEX_HUMAN_SERVICE_TIER_DEFAULT}"
 }
 
-sym_codex_apply_interactive_fast_mode() {
+sym_codex_effective_service_tier() {
   local observer_mode="$1"
 
-  if [[ "$observer_mode" != "1" ]]; then
-    export SYM_CODEX_FAST=1
+  if [[ "$observer_mode" == "1" ]]; then
+    printf '%s\n' "$SYM_CODEX_SERVICE_TIER"
+  else
+    printf '%s\n' "$SYM_CODEX_HUMAN_SERVICE_TIER"
   fi
 }
 
@@ -680,6 +684,7 @@ sym_codex_run() {
   local prompt_context=""
   local prompt=""
   local workflow_step=""
+  local service_tier=""
   local -a codex_args=(--config shell_environment_policy.inherit=all)
 
   while (($# > 0)); do
@@ -780,10 +785,10 @@ sym_codex_run() {
 
   sym_codex_load_launch_env "$source_repo"
   sym_codex_set_launch_profile "$workflow_step"
-  sym_codex_apply_interactive_fast_mode "$observer_mode"
+  service_tier="$(sym_codex_effective_service_tier "$observer_mode")"
 
-  if [[ "$SYM_CODEX_FAST" == "1" ]]; then
-    codex_args+=(--config "service_tier=fast")
+  if [[ -n "$service_tier" ]]; then
+    codex_args+=(--config "service_tier=$service_tier")
   fi
 
   if [[ -n "$SYM_CODEX_REASONING_EFFORT" ]]; then

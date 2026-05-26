@@ -224,7 +224,7 @@ defmodule SymCodexScriptTest do
              )
 
     assert output =~ "--model gpt-5.5"
-    assert output =~ "--config service_tier=fast"
+    assert output =~ "--config service_tier=priority"
     assert output =~ "--config model_reasoning_effort=high"
   end
 
@@ -241,7 +241,8 @@ defmodule SymCodexScriptTest do
     File.write!(Path.join(repo_dir, ".env"), """
     SYM_CODEX_MODEL=gpt-5.4-mini
     SYM_CODEX_REASONING_EFFORT=medium
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=flex
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority
     """)
 
     for workflow_step <- ["In Arbeit (AI)", "Review (AI)"] do
@@ -261,7 +262,7 @@ defmodule SymCodexScriptTest do
     end
   end
 
-  test "sym-codex lets root .env.local override root .env and maps fast mode to service tier" do
+  test "sym-codex lets root .env.local override root .env service tiers" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -274,13 +275,15 @@ defmodule SymCodexScriptTest do
     File.write!(Path.join(repo_dir, ".env"), """
     SYM_CODEX_MODEL=gpt-5.5
     SYM_CODEX_REASONING_EFFORT=high
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=flex
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority
     """)
 
     File.write!(Path.join(repo_dir, ".env.local"), """
     SYM_CODEX_MODEL=gpt-5.4-mini
     SYM_CODEX_REASONING_EFFORT=low
-    SYM_CODEX_FAST=1
+    SYM_CODEX_SERVICE_TIER=standard
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority-plus
     """)
 
     assert {output, 0} =
@@ -290,12 +293,17 @@ defmodule SymCodexScriptTest do
              )
 
     assert output =~ "--model gpt-5.4-mini"
-    assert output =~ "--config service_tier=fast"
+    assert output =~ "--config service_tier=priority-plus"
     assert output =~ "--config model_reasoning_effort=low"
     refute output =~ "--config model_reasoning_effort=minimal"
+
+    assert {observer_output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["--observer"], cd: repo_dir)
+
+    assert observer_output =~ "--config service_tier=standard"
   end
 
-  test "sym-codex forces fast mode for manual starts after validating env files" do
+  test "sym-codex uses the human service tier for manual starts" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -306,11 +314,13 @@ defmodule SymCodexScriptTest do
     end)
 
     File.write!(Path.join(repo_dir, ".env"), """
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=flex
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority
     """)
 
     File.write!(Path.join(repo_dir, ".env.local"), """
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=standard
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority-plus
     """)
 
     assert {output, 0} =
@@ -319,7 +329,8 @@ defmodule SymCodexScriptTest do
                env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
              )
 
-    assert output =~ "--config service_tier=fast"
+    assert output =~ "--config service_tier=priority-plus"
+    refute output =~ "--config service_tier=standard"
   end
 
   test "sym-codex reads launch overrides from the active Symphony worktree" do
@@ -335,7 +346,7 @@ defmodule SymCodexScriptTest do
     File.write!(Path.join(repo_dir, ".env"), """
     SYM_CODEX_MODEL=gpt-5.5
     SYM_CODEX_REASONING_EFFORT=high
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=flex
     """)
 
     File.write!(Path.join(worktree, ".env.local"), """
@@ -346,12 +357,12 @@ defmodule SymCodexScriptTest do
              run_script(Path.join(worktree, "sym-codex"), bin_dir, ["--observer"], cd: worktree)
 
     assert output =~ "--model gpt-5.5"
+    assert output =~ "--config service_tier=flex"
     assert output =~ "--config model_reasoning_effort=xhigh"
-    refute output =~ "--config service_tier=fast"
     refute output =~ "--config model_reasoning_effort=high"
   end
 
-  test "sym-codex preserves explicit shell model and reasoning while manual starts stay fast" do
+  test "sym-codex preserves explicit shell profile while manual starts use the human service tier" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -364,13 +375,15 @@ defmodule SymCodexScriptTest do
     File.write!(Path.join(repo_dir, ".env"), """
     SYM_CODEX_MODEL=gpt-5.5
     SYM_CODEX_REASONING_EFFORT=high
-    SYM_CODEX_FAST=0
+    SYM_CODEX_SERVICE_TIER=flex
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority
     """)
 
     File.write!(Path.join(repo_dir, ".env.local"), """
     SYM_CODEX_MODEL=gpt-5.4-mini
     SYM_CODEX_REASONING_EFFORT=low
-    SYM_CODEX_FAST=1
+    SYM_CODEX_SERVICE_TIER=standard
+    SYM_CODEX_HUMAN_SERVICE_TIER=priority-plus
     """)
 
     assert {output, 0} =
@@ -380,16 +393,18 @@ defmodule SymCodexScriptTest do
                  {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
                  {"SYM_CODEX_MODEL", "gpt-5.2"},
                  {"SYM_CODEX_REASONING_EFFORT", "xhigh"},
-                 {"SYM_CODEX_FAST", "0"}
+                 {"SYM_CODEX_SERVICE_TIER", "shell-standard"},
+                 {"SYM_CODEX_HUMAN_SERVICE_TIER", "shell-priority"}
                ]
              )
 
     assert output =~ "--model gpt-5.2"
     assert output =~ "--config model_reasoning_effort=xhigh"
-    assert output =~ "--config service_tier=fast"
+    assert output =~ "--config service_tier=shell-priority"
+    refute output =~ "--config service_tier=shell-standard"
   end
 
-  test "sym-codex rejects invalid fast flag values" do
+  test "sym-codex accepts service tier strings from env files" do
     %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
       build_script_worktree_fixture!("PRO-49")
 
@@ -399,15 +414,15 @@ defmodule SymCodexScriptTest do
       File.rm_rf(workspace_root)
     end)
 
-    File.write!(Path.join(repo_dir, ".env"), "SYM_CODEX_FAST=yes\n")
+    File.write!(Path.join(repo_dir, ".env"), "SYM_CODEX_HUMAN_SERVICE_TIER=priority-plus\n")
 
-    assert {output, 1} =
+    assert {output, 0} =
              run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"],
                cd: repo_dir,
                env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
              )
 
-    assert output =~ "SYM_CODEX_FAST must be 0 or 1, got: yes"
+    assert output =~ "--config service_tier=priority-plus"
   end
 
   test "sym-codex ignores .symphony env files for launch profile values" do
@@ -801,7 +816,8 @@ defmodule SymCodexScriptTest do
         {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
         {"SYM_CODEX_MODEL", nil},
         {"SYM_CODEX_REASONING_EFFORT", nil},
-        {"SYM_CODEX_FAST", nil}
+        {"SYM_CODEX_SERVICE_TIER", nil},
+        {"SYM_CODEX_HUMAN_SERVICE_TIER", nil}
       ] ++ Keyword.get(opts, :env, [])
 
     system_opts = [env: env, stderr_to_stdout: true]
