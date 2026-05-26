@@ -282,6 +282,7 @@ defmodule SymphonyElixir.CoreTest do
       "Backlog",
       "Todo",
       "Todo (Dialog-AI)",
+      "Umsetzungsticket erstellt",
       "Todo (AI)",
       "Planung (AI)",
       "Planung",
@@ -304,8 +305,10 @@ defmodule SymphonyElixir.CoreTest do
     assert actual_statuses == expected_statuses
 
     in_arbeit_status = Enum.find(status_overview, &(&1.status == "In Arbeit (AI)"))
+    dialog_done_status = Enum.find(status_overview, &(&1.status == "Umsetzungsticket erstellt"))
 
     assert in_arbeit_status.next_regular_status == "PreReview (AI)"
+    assert dialog_done_status.next_regular_status == nil
   end
 
   test "workflow resolves chained skip labels from the status overview order" do

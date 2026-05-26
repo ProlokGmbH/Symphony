@@ -132,11 +132,11 @@ defmodule SymphonyElixir.DialogTest do
     assert is_nil(Dialog.final_answer_from_messages(["not a map"]))
   end
 
-  test "default dialog workflow requires a related Linear relation for created implementation tickets" do
+  test "default dialog workflow requires Linear metadata for created implementation tickets" do
     workflow_path = Path.expand("../../WORKFLOW_DIALOG.md", __DIR__)
     assert {:ok, %{prompt_template: prompt_template}} = Workflow.load(workflow_path)
 
-    issue = dialog_issue("issue-dialog-relation", "MT-DREL")
+    issue = %{dialog_issue("issue-dialog-relation", "MT-DREL") | assignee_id: "assignee-origin"}
 
     prompt =
       PromptBuilder.build_prompt(issue,
@@ -146,12 +146,22 @@ defmodule SymphonyElixir.DialogTest do
         workflow_file: workflow_path
       )
 
+    refute prompt =~ "`Backlog`"
     assert prompt =~ "Linear-Issue-ID: issue-dialog-relation"
+    assert prompt =~ "Assignee-ID: assignee-origin"
+    assert prompt =~ "Status-ID für `Todo`"
+    assert prompt =~ "Status-ID\n  für `Umsetzungsticket erstellt`"
+    assert prompt =~ "symphony-generated"
+    assert prompt =~ ~s(assigneeId: "assignee-origin")
+    assert prompt =~ "labelIds"
     assert prompt =~ "issueRelationCreate"
     assert prompt =~ ~s(issueId: "issue-dialog-relation")
     assert prompt =~ "relatedIssueId"
     assert prompt =~ "type: related"
     assert prompt =~ "Related/relatedTo-Verknüpfung"
+    assert prompt =~ "issueUpdate"
+    assert prompt =~ "stateId:\n  <Umsetzungsticket-erstellt-State-ID>"
+    assert prompt =~ "Umsetzungsticket erstellt"
   end
 
   test "agent runner answers dialog issues without creating a git worktree or running hooks" do
