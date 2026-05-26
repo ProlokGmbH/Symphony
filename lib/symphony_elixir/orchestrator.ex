@@ -87,8 +87,20 @@ defmodule SymphonyElixir.Orchestrator do
       codex_rate_limits: nil
     }
 
-    run_terminal_workspace_cleanup()
-    state = schedule_tick(state, 0)
+    maybe_run_terminal_workspace_cleanup()
+
+    initial_poll_delay_ms =
+      if Keyword.get(
+           opts,
+           :initial_poll?,
+           Application.get_env(:symphony_elixir, :run_initial_orchestrator_poll_on_start, true)
+         ) do
+        0
+      else
+        state.poll_interval_ms
+      end
+
+    state = schedule_tick(state, initial_poll_delay_ms)
 
     {:ok, state}
   end
@@ -1123,6 +1135,12 @@ defmodule SymphonyElixir.Orchestrator do
 
       {:error, reason} ->
         Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+    end
+  end
+
+  defp maybe_run_terminal_workspace_cleanup do
+    if Application.get_env(:symphony_elixir, :run_terminal_workspace_cleanup_on_start, true) do
+      run_terminal_workspace_cleanup()
     end
   end
 
