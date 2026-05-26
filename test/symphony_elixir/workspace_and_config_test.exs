@@ -4,7 +4,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias SymphonyElixir.AutocommitMessage
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.Linear.{Adapter, Client}
 
   test "autocommit messages include issue identifier, workflow state and explanatory body" do
     assert AutocommitMessage.build(%Issue{identifier: "MT-REVIEW"}, "Review (AI)") ==
@@ -978,7 +978,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                       "query" => query,
                       "variables" => %{
                         projectSlug: "project",
-                        stateNames: ["Todo (AI)", "Review (AI)", "In Arbeit"],
+                        stateNames: ["Todo (AI)", "Review (AI)", "In Arbeit", "Todo (Dialog-AI)"],
                         first: 50,
                         relationFirst: 50,
                         after: nil
@@ -1034,7 +1034,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                           "Review (AI)",
                           "In Arbeit",
                           "Freigabe Implementierung",
-                          "Freigabe Review"
+                          "Freigabe Review",
+                          "Todo (Dialog-AI)"
                         ]
                       }
                     }}
@@ -1104,6 +1105,58 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                     %{
                       "query" => ^query,
                       "variables" => %{id: "issue-1", first: 50, after: "cursor-1"}
+                    }}
+  end
+
+  test "linear adapter exposes structured issue comments" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn ->
+      if is_nil(previous_request_fun) do
+        Application.delete_env(:symphony_elixir, :linear_client_request_fun)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_request_fun, previous_request_fun)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:fetch_issue_comments, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issue" => %{
+               "comments" => %{
+                 "nodes" => [
+                   %{
+                     "id" => "comment-1",
+                     "body" => "comment body",
+                     "createdAt" => "2026-05-19T10:00:00Z",
+                     "updatedAt" => "2026-05-19T10:01:00Z"
+                   }
+                 ],
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+               }
+             }
+           }
+         }
+       }}
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path())
+
+    assert {:ok, [%{id: "comment-1", body: "comment body", created_at: %DateTime{}, updated_at: %DateTime{}}]} =
+             Adapter.fetch_issue_comments("issue-1")
+
+    assert_receive {:fetch_issue_comments,
+                    %{
+                      "variables" => %{
+                        id: "issue-1",
+                        first: 50,
+                        after: nil
+                      }
                     }}
   end
 

@@ -9,8 +9,8 @@ Symphony ist ein deutschsprachiger, bewusst vorstrukturierter Fork von OpenAI Sy
 Dieses Repository enthaelt den Elixir-basierten Orchestrator von Symphony. Der Dienst:
 
 - pollt Linear regelmaessig nach Tickets in aktiven Stati,
-- legt pro Ticket einen isolierten Git-Worktree an,
-- startet Codex pro Ticket in einem eigenen Workspace,
+- legt für reguläre Workflow-Tickets einen isolierten Git-Worktree an,
+- startet Codex pro regulärem Ticket in einem eigenen Workspace,
 - steuert den Ablauf ueber eine zentrale, versionierte `WORKFLOW.md`,
 - und stellt Beobachtbarkeit ueber Dashboard, Logs und API bereit.
 
@@ -22,8 +22,14 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
 
 - Deutsche Sprache in Workflow, Skills und Projektdokumentation
 - Eine zentrale `WORKFLOW.md` als verbindlicher Workflow- und Prompt-Vertrag
-- Git-Worktrees als Standard fuer isolierte Ticket-Workspaces
+- Git-Worktrees als Standard für isolierte Ticket-Workspaces
 - Review und Test ueber repository-spezifische Skills statt ueber einen generischen Einheitsablauf
+
+Der Sonderstatus `Todo (Dialog-AI)` ist davon ausgenommen: Er nutzt
+`WORKFLOW_DIALOG.md` für dialogische Vorplanung, erstellt keinen Worktree,
+führt keine Hooks aus und startet Codex im Projektroot mit read-only Sandbox,
+damit keine Code-, Dokumentations- oder Konfigurationsänderungen im Repository
+entstehen.
 
 ## Installation und Inbetriebnahme
 
@@ -122,6 +128,7 @@ Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Fre
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
 | `Todo` | Mensch | Nicht automatisiertes Benutzer-Todo ausserhalb des Symphony-Scopes. | bleibt offen bis zum naechsten AI-Status |
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
+| `Todo (Dialog-AI)` | AI | Dialogische Vorplanung über `WORKFLOW_DIALOG.md` ohne Worktree, Hooks oder Repository-Änderungen; Antworten laufen als Linear-Kommentare. | bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel oder neuer Benutzeranfrage |
 | `Planung (AI)` | AI | Ticketbeschreibung sowie Plan und Validierung vorbereiten und entscheiden, ob autonome Umsetzung möglich ist. | `In Arbeit (AI)` oder `Planung` |
 | `Planung` | Mensch | Manueller Klärungs- und Planschärfungspunkt mit von Codex empfohlenen Lösungsvorschlägen. | `In Arbeit (AI)` oder `Planung (AI)` |
 | `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei nicht-funktionalen Erkenntnissen begründete Plananpassung; produkt-/verhaltensrelevanter Klärungsbedarf geht nach `Planung`. | `PreReview (AI)` oder `Planung` |

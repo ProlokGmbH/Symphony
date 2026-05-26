@@ -281,6 +281,7 @@ defmodule SymphonyElixir.CoreTest do
     expected_statuses = [
       "Backlog",
       "Todo",
+      "Todo (Dialog-AI)",
       "Todo (AI)",
       "Planung (AI)",
       "Planung",
@@ -3862,6 +3863,45 @@ defmodule SymphonyElixir.CoreTest do
     }
 
     assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
+  end
+
+  test "dialog issues bypass ssh worker capacity" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-a", "worker-b"],
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{
+        "issue-1" => %{worker_host: "worker-a", issue: %Issue{id: "issue-1", state: "In Arbeit (AI)"}},
+        "issue-2" => %{worker_host: "worker-b", issue: %Issue{id: "issue-2", state: "Review (AI)"}}
+      },
+      claimed: MapSet.new(),
+      completed_states: %{}
+    }
+
+    dialog_issue = %Issue{
+      id: "issue-dialog-capacity",
+      identifier: "MT-DIALOG-CAPACITY",
+      title: "Dialog capacity",
+      state: "Todo (Dialog-AI)"
+    }
+
+    regular_issue = %Issue{
+      id: "issue-regular-capacity",
+      identifier: "MT-REGULAR-CAPACITY",
+      title: "Regular capacity",
+      state: "In Arbeit (AI)"
+    }
+
+    assert Orchestrator.select_worker_host_for_issue_for_test(dialog_issue, state, nil) == nil
+    assert Orchestrator.should_dispatch_issue_for_test(dialog_issue, state)
+
+    assert Orchestrator.select_worker_host_for_issue_for_test(regular_issue, state, nil) ==
+             :no_worker_capacity
+
+    refute Orchestrator.should_dispatch_issue_for_test(regular_issue, state)
   end
 
   defp assert_due_in_range(due_at_ms, trigger_ms, min_delay_ms, max_delay_ms) do
