@@ -7389,7 +7389,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner skips Freigabe Review after a no-findings review with open workspace changes" do
+  test "agent runner keeps Freigabe Review after a no-findings review with open workspace changes" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -7423,7 +7423,7 @@ defmodule SymphonyElixir.CoreTest do
             printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-dirty"}}}'
             ;;
           4)
-            printf 'review finding\\n' >> README.md
+            printf 'review change\\n' >> README.md
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-dirty"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             ;;
@@ -7474,7 +7474,7 @@ defmodule SymphonyElixir.CoreTest do
              id: "issue-review-dirty-handoff",
              identifier: "MT-REVIEW-DIRTY",
              title: "Review handoff with dirty workspace",
-             description: "Skip manual review approval when review leaves changes behind but has no findings",
+             description: "Keep manual review approval when review leaves changes behind",
              state: current_state
            }
          ]}
@@ -7484,15 +7484,15 @@ defmodule SymphonyElixir.CoreTest do
         id: "issue-review-dirty-handoff",
         identifier: "MT-REVIEW-DIRTY",
         title: "Review handoff with dirty workspace",
-        description: "Skip manual review approval when review leaves changes behind but has no findings",
+        description: "Keep manual review approval when review leaves changes behind",
         state: "Review (AI)",
         url: "https://example.org/issues/MT-REVIEW-DIRTY",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Test (AI)"}
-      assert "Test (AI)" == Agent.get(state_agent, & &1)
+      assert_receive {:memory_tracker_state_update, "issue-review-dirty-handoff", "Freigabe Review"}
+      assert "Freigabe Review" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
