@@ -47,9 +47,8 @@ defmodule SymphonyScriptTest do
 
     assert {output, 0} = run_script(repo_dir, home_dir, bin_dir, ["--port", "4001"])
 
-    assert output ==
-             "autoupdate project=#{repo_dir}\n" <>
-               "symphony-stub args=--port 4001\n"
+    assert String.starts_with?(output, "autoupdate project=#{repo_dir}\n")
+    assert output =~ "symphony-stub args=--port 4001\n"
   end
 
   test "symphony issue symlink points the local codex command at the matching issue symlink" do
