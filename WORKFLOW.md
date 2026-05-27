@@ -268,11 +268,11 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 
 Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Implementierung`
 und `Freigabe Review` unabhängig von gesetzten Labels als übersprungen.
-Ausgenommen ist der `Review (AI)`-Handoff nach Findings, Review-Fixes,
-Dirty-Workspace oder uneindeutigem No-Findings-Signal; dieser führt weiterhin
-nach `Freigabe Review`. Außerdem bearbeitet Symphony dann alle passenden Tickets
-unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus
-`--yolo` statt des Assignees.
+Review-Findings, Review-Fixes, Dirty-Workspace oder uneindeutige
+No-Findings-Signale müssen weiterhin vom Hauptagenten behandelt und dokumentiert
+werden; danach überspringt `--yolo` aber auch `Freigabe Review`. Außerdem
+bearbeitet Symphony dann alle passenden Tickets unabhängig vom konfigurierten
+Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
@@ -503,9 +503,10 @@ nach `Freigabe Review` übergeben.
 - Wenn der Review Findings geliefert hat, Fixes entstanden sind, diese Evidenz
   in separaten Review-/Fix-Kommentaren oder im Workpad-Verlauf dokumentiert ist,
   Workpad- oder Workspace-Evidenz fehlt oder das No-Findings-Signal nicht eindeutig ist,
-  verschiebe das Issue erst danach nach `Freigabe Review`; `--yolo` und
-  `Skip "Freigabe Review"` dürfen diesen Freigabepunkt auch in Folgeläufen nicht
-  überspringen.
+  muss der Hauptagent diese Review-Evidenz zuerst behandeln und dokumentieren.
+  Ohne `--yolo` oder `Skip "Freigabe Review"` verschiebe das Issue danach nach
+  `Freigabe Review`; mit `--yolo` oder `Skip "Freigabe Review"` überspringe
+  diesen Freigabepunkt danach und verschiebe direkt nach `Test (AI)`.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
 

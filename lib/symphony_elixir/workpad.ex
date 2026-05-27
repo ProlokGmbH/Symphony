@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Workpad do
 
   @marker "## Symphony Workpad"
 
-  @type review_handoff_status :: {:ready, :no_findings | :unknown} | :blocked
+  @type review_handoff_status :: {:ready, :no_findings | :unknown} | :open | :blocked
 
   @spec marker() :: String.t()
   def marker, do: @marker
@@ -69,7 +69,7 @@ defmodule SymphonyElixir.Workpad do
         |> classify_review_handoff_with_comment_evidence([body])
 
       :open ->
-        :blocked
+        :open
 
       :missing ->
         :blocked

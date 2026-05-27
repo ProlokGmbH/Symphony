@@ -379,7 +379,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert Workpad.review_handoff_status([no_findings_workpad]) == {:ready, :no_findings}
     assert Workpad.find_comment_body([nil, %{body: no_findings_workpad}]) == no_findings_workpad
     assert Workpad.find_comment_body([%{"body" => no_findings_workpad}]) == no_findings_workpad
-    assert Workpad.review_handoff_status(open_workpad) == :blocked
+    assert Workpad.review_handoff_status(open_workpad) == :open
     assert Workpad.review_handoff_status("## Symphony Workpad\n\n### Review\n\nReview fertig.") == :blocked
     assert Workpad.review_handoff_status("## Symphony Workpad\n\n### Test\n\n- [x] fertig") == :blocked
     assert Workpad.review_handoff_status(nil) == :blocked

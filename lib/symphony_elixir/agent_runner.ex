@@ -109,7 +109,7 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher, worker_host) do
+  defp maybe_skip_manual_issue_state(%Issue{} = issue, issue_state_fetcher, _worker_host) do
     cond do
       Dialog.state?(issue.state) ->
         :dialog
@@ -121,9 +121,6 @@ defmodule SymphonyElixir.AgentRunner do
         :proceed
 
       not skip_current_manual_state?(issue) ->
-        :manual_noop
-
-      not manual_skip_allowed?(issue, worker_host) ->
         :manual_noop
 
       true ->
@@ -170,66 +167,6 @@ defmodule SymphonyElixir.AgentRunner do
       |> Enum.any?(fn label ->
         label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
       end)
-  end
-
-  defp manual_skip_allowed?(%Issue{} = issue, worker_host) do
-    not review_handoff_approval_required?(issue, worker_host)
-  end
-
-  defp review_handoff_approval_required?(%Issue{state: state} = issue, worker_host)
-       when is_binary(state) do
-    review_handoff_state?(state) and
-      (review_workpad_requires_manual_approval?(issue) or
-         review_workspace_requires_manual_approval?(issue, worker_host))
-  end
-
-  defp review_handoff_approval_required?(_issue, _worker_host), do: false
-
-  defp review_handoff_state?(state_name) when is_binary(state_name) do
-    normalize_issue_state(state_name) == normalize_issue_state(@review_handoff_state_name)
-  end
-
-  defp review_workpad_requires_manual_approval?(%Issue{id: issue_id} = issue)
-       when is_binary(issue_id) do
-    case Tracker.fetch_issue_comment_bodies(issue_id) do
-      {:ok, comments} ->
-        comments
-        |> Workpad.review_handoff_status()
-        |> review_workpad_requires_manual_approval_from_status()
-
-      {:error, reason} ->
-        Logger.warning("Failed to inspect workpad before skipping review handoff; keeping issue in Freigabe Review: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-        true
-    end
-  end
-
-  defp review_workpad_requires_manual_approval?(_issue), do: false
-
-  defp review_workpad_requires_manual_approval_from_status(status) do
-    case status do
-      {:ready, :no_findings} -> false
-      {:ready, :unknown} -> true
-      :blocked -> true
-    end
-  end
-
-  defp review_workspace_requires_manual_approval?(%Issue{} = issue, worker_host) do
-    case Workspace.git_status_snapshot_for_existing_issue_workspace(issue, worker_host) do
-      {:ok, ""} ->
-        false
-
-      {:ok, :missing} ->
-        true
-
-      {:ok, _status_or_marker} ->
-        true
-
-      {:error, reason} ->
-        Logger.warning("Failed to inspect existing review workspace before skipping review handoff; keeping issue in Freigabe Review: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-        true
-    end
   end
 
   defp codex_message_handler(recipient, issue) do
@@ -999,6 +936,10 @@ defmodule SymphonyElixir.AgentRunner do
           :stop
         )
 
+      :open ->
+        Logger.info("Keeping review issue active because the workpad review checklist still has open items: #{issue_context(issue)}")
+        {:ok, issue, :normal}
+
       :blocked ->
         Logger.info("Using review handoff because the workpad evidence is missing or incomplete: #{issue_context(issue)}")
 
@@ -1248,15 +1189,36 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp resolve_review_handoff_state(%Issue{} = issue, :no_findings, workspace, worker_host) do
-    if review_workspace_clean?(issue, workspace, worker_host) do
+    cond do
+      review_handoff_skipped?(issue) ->
+        @review_no_findings_handoff_state_name
+
+      review_workspace_clean?(issue, workspace, worker_host) ->
+        @review_no_findings_handoff_state_name
+
+      true ->
+        @review_handoff_state_name
+    end
+  end
+
+  defp resolve_review_handoff_state(%Issue{} = issue, _review_result, _workspace, _worker_host) do
+    if review_handoff_skipped?(issue) do
       @review_no_findings_handoff_state_name
     else
       @review_handoff_state_name
     end
   end
 
-  defp resolve_review_handoff_state(%Issue{}, _review_result, _workspace, _worker_host),
-    do: @review_handoff_state_name
+  defp review_handoff_skipped?(%Issue{} = issue) do
+    Config.yolo?() or
+      issue
+      |> Issue.label_names()
+      |> Enum.map(&normalize_issue_state/1)
+      |> Enum.any?(fn label ->
+        label == ~s(skip "#{normalize_issue_state(@review_handoff_state_name)}") or
+          label == "skip #{normalize_issue_state(@review_handoff_state_name)}"
+      end)
+  end
 
   defp review_workspace_clean?(%Issue{} = issue, workspace, worker_host) when is_binary(workspace) do
     case Workspace.git_status_snapshot(workspace, worker_host) do
