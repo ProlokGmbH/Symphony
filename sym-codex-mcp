@@ -78,7 +78,6 @@ sym_codex_mcp_prepare_mix() {
   local output=""
 
   if output="$(sym_codex_mcp_run_mix "$source_repo" compile 2>&1)"; then
-    printf '%s\n' "$output" >&2
     return 0
   fi
 
@@ -88,8 +87,15 @@ sym_codex_mcp_prepare_mix() {
     return 1
   fi
 
-  sym_codex_mcp_run_mix "$source_repo" deps.get 1>&2
-  sym_codex_mcp_run_mix "$source_repo" compile 1>&2
+  if ! output="$(sym_codex_mcp_run_mix "$source_repo" deps.get 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+
+  if ! output="$(sym_codex_mcp_run_mix "$source_repo" compile 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
 }
 
 main() {
