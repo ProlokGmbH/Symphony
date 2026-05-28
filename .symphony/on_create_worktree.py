@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import shlex
+import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 MANAGED_BINARIES = ("symphony", "sym-codex")
 LINEAR_PROJECT_SLUG = "LINEAR_PROJECT_SLUG"
 LINEAR_TEST_PROJECT_SLUG = "LINEAR_TEST_PROJECT_SLUG"
+ENV_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def copy_env_local(source: Path, target: Path) -> None:
@@ -25,6 +27,8 @@ def read_env_value(path: Path, key: str) -> str | None:
     if not path.is_file():
         return None
 
+    result = None
+
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         parsed = parse_env_assignment(raw_line)
 
@@ -34,28 +38,116 @@ def read_env_value(path: Path, key: str) -> str | None:
         name, value = parsed
 
         if name == key:
-            return value
+            result = value
 
-    return None
+    return result
+
+
+def read_env_value_with_overrides(paths: list[Path], key: str) -> str | None:
+    value = None
+
+    for path in paths:
+        override = read_env_value(path, key)
+
+        if override is not None:
+            value = override
+
+    return value
 
 
 def parse_env_assignment(raw_line: str) -> tuple[str, str] | None:
+    line = raw_line.strip()
+
+    if not line or line.startswith("#"):
+        return None
+
+    export_parts = line.split(None, 1)
+
+    if export_parts[0] == "export":
+        line = export_parts[1].lstrip() if len(export_parts) == 2 else ""
+
+    if "=" not in line:
+        return None
+
+    raw_name, raw_value = line.split("=", 1)
+    name = raw_name.strip()
+
+    if not ENV_KEY_PATTERN.fullmatch(name):
+        return None
+
+    value = parse_env_value(raw_value)
+
+    if value is None:
+        return None
+
+    return name, value
+
+
+def parse_env_value(raw_value: str) -> str | None:
+    value = raw_value.lstrip()
+
+    if value == "":
+        return ""
+
+    if value.startswith('"'):
+        return parse_quoted_env_value(value, '"', decode_json_string)
+
+    if value.startswith("'"):
+        return parse_quoted_env_value(value, "'", lambda quoted: quoted)
+
+    return re.sub(r"\s+#.*$", "", value).strip()
+
+
+def parse_quoted_env_value(
+    value: str,
+    quote: str,
+    decode_value,
+) -> str | None:
+    quoted, rest = take_quoted_segment(value[1:], quote)
+
+    if quoted is None:
+        return None
+
+    trailing = rest.strip()
+
+    if trailing and not trailing.startswith("#"):
+        return None
+
+    return decode_value(quoted)
+
+
+def take_quoted_segment(value: str, quote: str) -> tuple[str | None, str]:
+    escaped = False
+    quoted = []
+
+    for index, char in enumerate(value):
+        if quote == '"' and escaped:
+            quoted.append("\\" + char)
+            escaped = False
+            continue
+
+        if quote == '"' and char == "\\":
+            escaped = True
+            continue
+
+        if char == quote:
+            return "".join(quoted), value[index + 1 :]
+
+        quoted.append(char)
+
+    if escaped:
+        quoted.append("\\")
+
+    return None, ""
+
+
+def decode_json_string(value: str) -> str | None:
     try:
-        tokens = shlex.split(raw_line, comments=True, posix=True)
-    except ValueError:
+        decoded = json.loads(f'"{value}"')
+    except json.JSONDecodeError:
         return None
 
-    if not tokens:
-        return None
-
-    if tokens[0] == "export":
-        tokens = tokens[1:]
-
-    if not tokens or "=" not in tokens[0]:
-        return None
-
-    name, value = tokens[0].split("=", 1)
-    return name.strip(), value
+    return decoded if isinstance(decoded, str) else None
 
 
 def set_env_value(path: Path, key: str, value: str) -> None:
@@ -133,12 +225,15 @@ def main(argv: list[str]) -> int:
         source_repo / ".symphony" / ".env.local",
         workspace / ".symphony" / ".env.local",
     )
-    test_project_slug = read_env_value(
-        source_repo / ".symphony" / ".env",
+    test_project_slug = read_env_value_with_overrides(
+        [
+            source_repo / ".symphony" / ".env",
+            source_repo / ".symphony" / ".env.local",
+        ],
         LINEAR_TEST_PROJECT_SLUG,
     )
 
-    if test_project_slug:
+    if test_project_slug is not None:
         set_env_value(
             workspace / ".symphony" / ".env.local",
             LINEAR_PROJECT_SLUG,

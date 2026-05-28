@@ -151,10 +151,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       env_contents = "LINEAR_TEST_PROJECT_SLUG=\"symphony-test-7d8cc05658e6\"\n"
 
       env_local_contents =
-        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-07f513c4ae64\"\nLINEAR_ASSIGNEE=dev@example.com\n"
+        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-07f513c4ae64\"\nLINEAR_TEST_PROJECT_SLUG=\"symphony-test-stale\"\nLINEAR_ASSIGNEE=dev@example.com\nLINEAR_TEST_PROJECT_SLUG = \"symphony-test-local\"\n"
 
       expected_worktree_env_local =
-        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-test-7d8cc05658e6\"\nLINEAR_ASSIGNEE=dev@example.com\n"
+        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-test-local\"\nLINEAR_TEST_PROJECT_SLUG=\"symphony-test-stale\"\nLINEAR_ASSIGNEE=dev@example.com\nLINEAR_TEST_PROJECT_SLUG = \"symphony-test-local\"\n"
 
       root_env_local_contents = "SYM_CODEX_REASONING_EFFORT=low\n"
       previous_home = System.get_env("HOME")
@@ -206,6 +206,24 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert File.read!(Path.join(workspace, ".env.local")) == root_env_local_contents
       assert File.read_link!(Path.join(fake_home, ".local/bin/symphony-MT-ENV")) == Path.join(workspace, "symphony")
       assert File.read_link!(Path.join(fake_home, ".local/bin/sym-codex-MT-ENV")) == Path.join(workspace, "sym-codex")
+
+      empty_slug_workspace = Path.join(workspace_root, "MT-EMPTY")
+      empty_slug_env_local_contents = "LINEAR_PROJECT_SLUG=\"symphony-07f513c4ae64\"\nLINEAR_TEST_PROJECT_SLUG=\"\"\n"
+      File.write!(Path.join(source_repo, ".symphony/.env.local"), empty_slug_env_local_contents)
+
+      assert {_, 0} =
+               System.cmd(
+                 "python3",
+                 [
+                   Path.join(source_repo, ".symphony/on_create_worktree.py"),
+                   source_repo,
+                   empty_slug_workspace
+                 ],
+                 stderr_to_stdout: true
+               )
+
+      assert File.read!(Path.join(empty_slug_workspace, ".symphony/.env.local")) ==
+               "LINEAR_PROJECT_SLUG=\"\"\nLINEAR_TEST_PROJECT_SLUG=\"\"\n"
 
       File.write!(Path.join(source_repo, ".symphony/.env.local"), "SELF_HOSTED=2\n")
       File.write!(Path.join(source_repo, ".env.local"), "SYM_CODEX_REASONING_EFFORT=medium\n")
