@@ -3794,7 +3794,7 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}, 1_000
-        Process.sleep(100)
+        Process.sleep(500)
 
         state = orchestrator_state(pid)
         refute Map.has_key?(state.running, issue_id)
@@ -3808,7 +3808,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "retry keeps Freigabe Review for recovered no-findings when workpad review evidence is open" do
+  test "retry dispatches recovered no-findings without handoff when workpad review evidence is open" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3825,6 +3825,8 @@ defmodule SymphonyElixir.CoreTest do
       issue_id = "issue-open-workpad-review-retry-handoff"
       issue_identifier = "MT-560J1B"
       workspace = Path.join(workspace_root, issue_identifier)
+      codex_binary = Path.join(test_root, "fake-codex")
+      codex_stamp = Path.join(test_root, "codex-dispatched")
       retry_token = make_ref()
 
       File.mkdir_p!(source_repo)
@@ -3835,11 +3837,13 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
       System.cmd("git", ["-C", workspace, "add", "README.md"])
       System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      write_successful_fake_codex!(codex_binary, codex_stamp)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        codex_command: "sh -lc 'sleep 60'",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1,
         poll_interval_ms: 30_000
       )
 
@@ -3900,12 +3904,11 @@ defmodule SymphonyElixir.CoreTest do
 
         send(pid, {:retry_issue, issue_id, retry_token})
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
-        Process.sleep(100)
-
-        state = orchestrator_state(pid)
-        refute Map.has_key?(state.running, issue_id)
-        refute Map.has_key?(state.retry_attempts, issue_id)
+        assert_receive {:memory_tracker_branch_update, ^issue_id, "main"}, 1_000
+        Process.sleep(500)
+        assert File.exists?(codex_stamp)
+        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 100
+        stop_orchestrator_and_workers(pid)
       end)
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -3915,7 +3918,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "retry keeps Freigabe Review for recovered no-findings when workspace is dirty" do
+  test "retry dispatches recovered no-findings when workspace is dirty" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -3932,6 +3935,8 @@ defmodule SymphonyElixir.CoreTest do
       issue_id = "issue-dirty-review-retry-handoff"
       issue_identifier = "MT-560J2"
       workspace = Path.join(workspace_root, issue_identifier)
+      codex_binary = Path.join(test_root, "fake-codex")
+      codex_stamp = Path.join(test_root, "codex-dispatched")
       retry_token = make_ref()
 
       File.mkdir_p!(source_repo)
@@ -3950,11 +3955,13 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", workspace, "add", "README.md"])
       System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
       File.write!(Path.join(workspace, "README.md"), "# dirty review workspace\nreview change\n")
+      File.write!(review_autocommit_marker_path!(workspace), "true\n")
+      write_successful_fake_codex!(codex_binary, codex_stamp)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        codex_command: "sh -lc 'sleep 60'",
+        codex_command: "#{codex_binary} app-server",
         poll_interval_ms: 30_000
       )
 
@@ -4007,11 +4014,8 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
-        Process.sleep(100)
-
-        state = orchestrator_state(pid)
-        refute Map.has_key?(state.running, issue_id)
-        refute Map.has_key?(state.retry_attempts, issue_id)
+        assert File.exists?(codex_stamp)
+        stop_orchestrator_and_workers(pid)
       end)
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -4021,7 +4025,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "retry keeps Freigabe Review for recovered no-findings when workspace path is missing" do
+  test "retry dispatches recovered no-findings when workspace path is missing" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -4037,14 +4041,17 @@ defmodule SymphonyElixir.CoreTest do
       workspace_root = Path.join(test_root, "worktrees")
       issue_id = "issue-missing-workspace-review-retry-handoff"
       issue_identifier = "MT-560J3"
+      codex_binary = Path.join(test_root, "fake-codex")
+      codex_stamp = Path.join(test_root, "codex-dispatched")
       retry_token = make_ref()
 
       File.mkdir_p!(source_repo)
+      write_successful_fake_codex!(codex_binary, codex_stamp)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        codex_command: "sh -lc 'sleep 60'",
+        codex_command: "#{codex_binary} app-server",
         poll_interval_ms: 30_000
       )
 
@@ -4098,11 +4105,8 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
-        Process.sleep(100)
-
-        state = orchestrator_state(pid)
-        refute Map.has_key?(state.running, issue_id)
-        refute Map.has_key?(state.retry_attempts, issue_id)
+        assert File.exists?(codex_stamp)
+        stop_orchestrator_and_workers(pid)
       end)
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -4255,6 +4259,23 @@ defmodule SymphonyElixir.CoreTest do
     :sys.get_state(pid, 15_000)
   end
 
+  defp stop_orchestrator_and_workers(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      pid
+      |> orchestrator_state()
+      |> Map.get(:running, %{})
+      |> Enum.each(fn
+        {_issue_id, %{pid: worker_pid}} when is_pid(worker_pid) ->
+          Process.exit(worker_pid, :kill)
+
+        _entry ->
+          :ok
+      end)
+
+      GenServer.stop(pid, :normal, 1_000)
+    end
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
 
@@ -4267,6 +4288,38 @@ defmodule SymphonyElixir.CoreTest do
     - [x] Review (AI) `make all`: grün
     - [x] Review (AI) read-only Subagent: Keine Findings.
     """
+  end
+
+  defp write_successful_fake_codex!(codex_binary, stamp_path)
+       when is_binary(codex_binary) and is_binary(stamp_path) do
+    File.mkdir_p!(Path.dirname(codex_binary))
+
+    File.write!(codex_binary, """
+    #!/bin/sh
+    touch #{stamp_path}
+    count=0
+
+    while IFS= read -r _line; do
+      count=$((count + 1))
+      case "$count" in
+        1)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        2)
+          ;;
+        3)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-success"}}}'
+          ;;
+        4)
+          printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-success"}}}'
+          printf '%s\\n' '{"method":"turn/completed"}'
+          exit 0
+          ;;
+      esac
+    done
+    """)
+
+    File.chmod!(codex_binary, 0o755)
   end
 
   defp review_handoff_test_recipient(parent, state_agent)
@@ -4284,6 +4337,50 @@ defmodule SymphonyElixir.CoreTest do
 
   test "fetch issues by states with empty state set is a no-op" do
     assert {:ok, []} = Client.fetch_issues_by_states([])
+  end
+
+  test "linear candidate polling includes manual approval states for skip labels outside yolo" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+    parent = self()
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["Todo (AI)", "Review (AI)"],
+        tracker_assignee: "dev@example.com"
+      )
+
+      Application.put_env(:symphony_elixir, :yolo, false)
+
+      Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, headers ->
+        send(parent, {:linear_request, payload, headers})
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "issues" => %{
+                 "nodes" => [],
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+               }
+             }
+           }
+         }}
+      end)
+
+      assert {:ok, []} = Client.fetch_candidate_issues()
+      assert_receive {:linear_request, %{"variables" => %{stateNames: state_names}}, headers}
+      assert {"Authorization", "token"} in headers
+
+      assert MapSet.subset?(
+               MapSet.new(["Todo (AI)", "Review (AI)", "In Arbeit", "Freigabe Implementierung", "Freigabe Review"]),
+               MapSet.new(state_names)
+             )
+    after
+      restore_app_env(:linear_client_request_fun, previous_request_fun)
+      restore_app_env(:yolo, previous_yolo)
+    end
   end
 
   test "prompt builder renders issue and attempt values from workflow template" do
@@ -6147,7 +6244,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner keeps Freigabe Review when review approval evidence is not safe to skip" do
+  test "agent runner skips Freigabe Review with skip label or yolo despite review approval evidence" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -6161,11 +6258,13 @@ defmodule SymphonyElixir.CoreTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       codex_stamp = Path.join(test_root, "codex-invoked")
+      codex_binary = Path.join(test_root, "fake-codex")
+      write_successful_fake_codex!(codex_binary, codex_stamp)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        codex_command: "sh -lc 'touch #{codex_stamp}'",
+        codex_command: "#{codex_binary} app-server",
         max_turns: 1
       )
 
@@ -6205,7 +6304,6 @@ defmodule SymphonyElixir.CoreTest do
       run_case = fn issue_id, identifier, labels, yolo?, workpad_body, prepare_workspace ->
         File.rm(codex_stamp)
         Application.put_env(:symphony_elixir, :yolo, yolo?)
-        Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
 
         comments =
           if is_binary(workpad_body) do
@@ -6216,20 +6314,47 @@ defmodule SymphonyElixir.CoreTest do
 
         Application.put_env(:symphony_elixir, :memory_tracker_comments, comments)
         prepare_workspace.(identifier)
+        {:ok, state_agent} = Agent.start_link(fn -> "Freigabe Review" end)
+        parent = self()
+
+        recipient =
+          spawn(fn ->
+            review_handoff_test_recipient(parent, state_agent)
+          end)
+
+        Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+
+        state_fetcher = fn [_requested_issue_id] ->
+          current_state = Agent.get(state_agent, & &1)
+
+          {:ok,
+           [
+             %Issue{
+               id: issue_id,
+               identifier: identifier,
+               title: "Review approval skip",
+               description: "Skip manual review approval when explicitly requested",
+               state: current_state,
+               labels: labels
+             }
+           ]}
+        end
 
         issue = %Issue{
           id: issue_id,
           identifier: identifier,
-          title: "Review approval guard",
-          description: "Keep manual review approval when review evidence is not safe to skip",
+          title: "Review approval skip",
+          description: "Skip manual review approval when explicitly requested",
           state: "Freigabe Review",
           url: "https://example.org/issues/#{identifier}",
           labels: labels
         }
 
-        assert :ok = AgentRunner.run(issue)
-        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 100
-        refute File.exists?(codex_stamp)
+        assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}
+        assert File.exists?(codex_stamp)
+
+        Agent.stop(state_agent)
       end
 
       run_case.(
@@ -7037,7 +7162,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "orchestrator stops yolo Freigabe Review no-op after blocked review approval" do
+  test "orchestrator skips yolo Freigabe Review after blocked review approval" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -7053,6 +7178,7 @@ defmodule SymphonyElixir.CoreTest do
       source_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "worktrees")
       codex_stamp = Path.join(test_root, "codex-invoked")
+      codex_binary = Path.join(test_root, "fake-codex")
       issue_id = "issue-review-noop-orchestrator"
       issue_identifier = "MT-REVIEW-NOOP"
       existing_task_supervisor = Process.whereis(SymphonyElixir.TaskSupervisor)
@@ -7064,11 +7190,12 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
       System.cmd("git", ["-C", source_repo, "add", "README.md"])
       System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+      write_successful_fake_codex!(codex_binary, codex_stamp)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
-        codex_command: "sh -lc 'touch #{codex_stamp}'",
+        codex_command: "#{codex_binary} app-server",
         poll_interval_ms: 30_000
       )
 
@@ -7125,15 +7252,102 @@ defmodule SymphonyElixir.CoreTest do
         end)
 
         send(pid, :tick)
-        Process.sleep(1_500)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}, 2_000
+        Process.sleep(350)
 
-        state = :sys.get_state(pid)
-        refute Map.has_key?(state.running, issue_id)
-        refute MapSet.member?(state.claimed, issue_id)
-        refute Map.has_key?(state.retry_attempts, issue_id)
-        assert Map.get(state.completed_states, issue_id) == "freigabe review"
-        refute File.exists?(codex_stamp)
-        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 100
+        assert File.exists?(codex_stamp)
+      end)
+    after
+      restore_app_env(:yolo, previous_yolo)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "orchestrator dispatches Freigabe Review with matching skip label outside yolo" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-orchestrator-review-skip-label-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+      codex_binary = Path.join(test_root, "fake-codex")
+      issue_id = "issue-review-skip-label-orchestrator"
+      issue_identifier = "MT-REVIEW-SKIP-LABEL"
+      existing_task_supervisor = Process.whereis(SymphonyElixir.TaskSupervisor)
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "# manual review skip label\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+      write_successful_fake_codex!(codex_binary, codex_stamp)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        poll_interval_ms: 30_000
+      )
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Skipped review approval",
+        description: "Skip Freigabe Review outside yolo when the skip label is set",
+        state: "Freigabe Review",
+        url: "https://example.org/issues/#{issue_identifier}",
+        labels: [~s(skip "freigabe review")]
+      }
+
+      Application.put_env(:symphony_elixir, :yolo, false)
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{issue_id => []})
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      orchestrator_name = Module.concat(__MODULE__, :FreigabeReviewSkipLabelOrchestrator)
+
+      started_task_supervisor =
+        case existing_task_supervisor do
+          pid when is_pid(pid) ->
+            nil
+
+          nil ->
+            {:ok, pid} = Task.Supervisor.start_link(name: SymphonyElixir.TaskSupervisor)
+            pid
+        end
+
+      File.cd!(source_repo, fn ->
+        {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+        on_exit(fn ->
+          if Process.alive?(pid) do
+            Process.exit(pid, :normal)
+          end
+
+          if is_pid(started_task_supervisor) and Process.alive?(started_task_supervisor) do
+            Process.exit(started_task_supervisor, :normal)
+          end
+        end)
+
+        send(pid, :tick)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}, 2_000
+        Process.sleep(350)
+
+        assert File.exists?(codex_stamp)
       end)
     after
       restore_app_env(:yolo, previous_yolo)
@@ -7739,7 +7953,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner moves to Freigabe Review when the workpad still has open review checklist items" do
+  test "agent runner keeps Review AI active when the workpad still has open review checklist items" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -7793,7 +8007,7 @@ defmodule SymphonyElixir.CoreTest do
         hook_after_create:
           ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
         codex_command: "#{codex_binary} app-server",
-        max_turns: 3
+        max_turns: 1
       )
 
       {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
@@ -7813,8 +8027,8 @@ defmodule SymphonyElixir.CoreTest do
 
           ### Review
 
-          - [x] Dateiname geprueft
-          - [ ] Read-only Review-Subagent gegen `origin/main` ausfuehren: ausstehend
+          - [x] Dateiname geprüft
+          - [ ] Read-only Review-Subagent gegen `origin/main` ausführen: ausstehend
 
           ### Test
 
@@ -7831,8 +8045,8 @@ defmodule SymphonyElixir.CoreTest do
            %Issue{
              id: "issue-review-workpad-open",
              identifier: "MT-REVIEW-OPEN",
-             title: "Review handoff with open workpad items",
-             description: "Use manual review handoff for open review checklist items",
+             title: "Review continuation with open workpad items",
+             description: "Keep Review (AI) active for open review checklist items",
              state: current_state
            }
          ]}
@@ -7841,16 +8055,16 @@ defmodule SymphonyElixir.CoreTest do
       issue = %Issue{
         id: "issue-review-workpad-open",
         identifier: "MT-REVIEW-OPEN",
-        title: "Review handoff with open workpad items",
-        description: "Use manual review handoff for open review checklist items",
+        title: "Review continuation with open workpad items",
+        description: "Keep Review (AI) active for open review checklist items",
         state: "Review (AI)",
         url: "https://example.org/issues/MT-REVIEW-OPEN",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-workpad-open", "Freigabe Review"}
-      assert "Freigabe Review" == Agent.get(state_agent, & &1)
+      refute_receive {:memory_tracker_state_update, "issue-review-workpad-open", _state}, 100
+      assert "Review (AI)" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
@@ -8628,7 +8842,7 @@ defmodule SymphonyElixir.CoreTest do
           ### Review
 
           - [x] Review step one
-          - [ ] Review subagent completed without findings
+          - [x] Review subagent completed without findings
           """
         ]
       })
@@ -9387,7 +9601,7 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner keeps Freigabe Review after a review turn with findings even when review approval is skipped" do
+  test "agent runner skips Freigabe Review after handled review findings when review approval is skipped" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -9496,14 +9710,129 @@ defmodule SymphonyElixir.CoreTest do
         }
 
         assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-        assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}
-        assert "Freigabe Review" == Agent.get(state_agent, & &1)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}
+        assert "Test (AI)" == Agent.get(state_agent, & &1)
 
         Agent.stop(state_agent)
       end
 
       run_case.("issue-review-skip-handoff", "MT-REVIEW-SKIP", [~s(skip "freigabe review")], false)
       run_case.("issue-review-yolo-handoff", "MT-REVIEW-YOLO", [], true)
+    after
+      restore_app_env(:yolo, previous_yolo)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips Freigabe Review after blocked review evidence when approval is skipped" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-blocked-skip-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-blocked-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-blocked-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      run_case = fn issue_id, identifier, labels, yolo? ->
+        Application.put_env(:symphony_elixir, :yolo, yolo?)
+        {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+        parent = self()
+
+        recipient =
+          spawn(fn ->
+            review_handoff_test_recipient(parent, state_agent)
+          end)
+
+        Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+        Application.put_env(:symphony_elixir, :memory_tracker_comments, %{issue_id => []})
+
+        state_fetcher = fn [_issue_id] ->
+          current_state = Agent.get(state_agent, & &1)
+
+          {:ok,
+           [
+             %Issue{
+               id: issue_id,
+               identifier: identifier,
+               title: "Review handoff with blocked evidence and skip",
+               description: "Advance directly to test when review approval is skipped",
+               state: current_state,
+               labels: labels
+             }
+           ]}
+        end
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: identifier,
+          title: "Review handoff with blocked evidence and skip",
+          description: "Advance directly to test when review approval is skipped",
+          state: "Review (AI)",
+          url: "https://example.org/issues/#{identifier}",
+          labels: labels
+        }
+
+        assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}
+        assert "Test (AI)" == Agent.get(state_agent, & &1)
+
+        Agent.stop(state_agent)
+      end
+
+      run_case.(
+        "issue-review-blocked-skip-handoff",
+        "MT-REVIEW-BLOCKED-SKIP",
+        [~s(skip "freigabe review")],
+        false
+      )
+
+      run_case.("issue-review-blocked-yolo-handoff", "MT-REVIEW-BLOCKED-YOLO", [], true)
     after
       restore_app_env(:yolo, previous_yolo)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)

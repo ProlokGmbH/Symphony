@@ -728,12 +728,37 @@ defmodule SymphonyElixir.Orchestrator do
        )
        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
     issue_routable_to_worker?(issue) and
-      active_issue_state?(state_name, active_states) and
+      dispatch_state?(issue, active_states) and
       !cancel_issue_state?(state_name) and
       !terminal_issue_state?(state_name, terminal_states)
   end
 
   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
+
+  defp dispatch_state?(%Issue{state: state_name} = issue, active_states)
+       when is_binary(state_name) do
+    active_issue_state?(state_name, active_states) or skip_manual_issue_state?(issue)
+  end
+
+  defp dispatch_state?(_issue, _active_states), do: false
+
+  defp skip_manual_issue_state?(%Issue{state: state_name} = issue) when is_binary(state_name) do
+    normalized_state = normalize_issue_state(state_name)
+
+    normalized_state in @yolo_manual_state_names and
+      (Config.yolo?() or manual_skip_label?(issue, normalized_state))
+  end
+
+  defp skip_manual_issue_state?(_issue), do: false
+
+  defp manual_skip_label?(%Issue{} = issue, normalized_state) when is_binary(normalized_state) do
+    issue
+    |> Issue.label_names()
+    |> Enum.map(&normalize_issue_state/1)
+    |> Enum.any?(fn label ->
+      label == ~s(skip "#{normalized_state}") or label == "skip #{normalized_state}"
+    end)
+  end
 
   defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
        when is_boolean(assigned_to_worker),
@@ -2967,10 +2992,12 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp log_review_retry_context(_running_entry, _session_id), do: :ok
 
-  defp clean_review_retry_handoff_ready?(%Issue{state: state}, metadata)
+  defp clean_review_retry_handoff_ready?(%Issue{state: state} = issue, metadata)
        when is_binary(state) and is_map(metadata) do
     normalize_issue_state(state) == "review (ai)" and
-      review_recovered_context_kind(metadata[:recovered_turn_context]) == :no_findings
+      review_recovered_context_kind(metadata[:recovered_turn_context]) == :no_findings and
+      review_retry_workpad_no_findings?(issue) and
+      review_retry_workspace_clean?(issue, metadata)
   end
 
   defp clean_review_retry_handoff_ready?(_issue, _metadata), do: false
@@ -3019,13 +3046,13 @@ defmodule SymphonyElixir.Orchestrator do
             true
 
           status ->
-            Logger.info("Recovered review no-findings handoff has incomplete workpad evidence; using review handoff: #{issue_context(issue)} workpad_status=#{inspect(status)}")
+            Logger.info("Recovered review no-findings handoff is not safe because workpad evidence is incomplete: #{issue_context(issue)} workpad_status=#{inspect(status)}")
 
             false
         end
 
       {:error, reason} ->
-        Logger.warning("Failed to inspect workpad review checklist before recovered no-findings handoff; using review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
+        Logger.warning("Failed to inspect workpad review checklist before recovered no-findings handoff; skipping direct no-findings handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
 
         false
     end

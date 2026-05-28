@@ -35,13 +35,15 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 
 ## Abschluss
 
-Wenn alle Schritte in einem ununterbrochenen Durchlauf sauber sind, der
-Review-Subagent `Keine Findings.` geliefert hat und der Workspace nach dem
-Review sauber ist, direkt nach `Test (AI)` verschieben. Wenn Findings behandelt
-wurden, Review-Fixes entstanden sind, Findings-/Fix-Evidenz in separaten
-Review-Kommentaren oder im Workpad-Verlauf dokumentiert ist, der Workspace nach
-dem Review Änderungen enthält, Workpad- oder Workspace-Evidenz fehlt oder das
-No-Findings-Signal nicht eindeutig ist, nach `Freigabe Review` verschieben;
-`--yolo` und das Label `Skip "Freigabe Review"` überspringen diesen
-Freigabepunkt in diesem Fall auch in Folgeläufen nicht. Bei `agent.max_turns`
+Solange die Review-Checkliste im Workpad offene Punkte enthält, keinen
+Statuswechsel vornehmen. Wenn alle Schritte in einem ununterbrochenen Durchlauf
+sauber sind, der Review-Subagent `Keine Findings.` geliefert hat und der
+Workspace nach dem Review sauber ist, direkt nach `Test (AI)` verschieben. Wenn
+Findings behandelt wurden, Review-Fixes entstanden sind, Findings-/Fix-Evidenz
+in separaten Review-Kommentaren oder im Workpad-Verlauf dokumentiert ist, der
+Workspace nach dem Review Änderungen enthält, Workpad- oder Workspace-Evidenz
+fehlt oder das No-Findings-Signal nicht eindeutig ist, zuerst Findings/Fixes
+behandeln und dokumentieren. Danach ohne `--yolo` oder
+`Skip "Freigabe Review"` nach `Freigabe Review` verschieben; mit `--yolo` oder
+`Skip "Freigabe Review"` direkt nach `Test (AI)` weitergeben. Bei `agent.max_turns`
 Abweichungen dokumentieren und ohne Statuswechsel stoppen.

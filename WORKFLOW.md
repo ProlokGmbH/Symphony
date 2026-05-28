@@ -268,11 +268,11 @@ Tabellenstatus als Ziel und läuft von dort weiter.
 
 Wenn Symphony mit `--yolo` gestartet wird, gelten `Freigabe Implementierung`
 und `Freigabe Review` unabhängig von gesetzten Labels als übersprungen.
-Ausgenommen ist der `Review (AI)`-Handoff nach Findings, Review-Fixes,
-Dirty-Workspace oder uneindeutigem No-Findings-Signal; dieser führt weiterhin
-nach `Freigabe Review`. Außerdem bearbeitet Symphony dann alle passenden Tickets
-unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus
-`--yolo` statt des Assignees.
+Review-Findings, Review-Fixes, Dirty-Workspace oder uneindeutige
+No-Findings-Signale müssen weiterhin vom Hauptagenten behandelt und dokumentiert
+werden; danach überspringt `--yolo` aber auch `Freigabe Review`. Außerdem
+bearbeitet Symphony dann alle passenden Tickets unabhängig vom konfigurierten
+Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
 
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
@@ -286,7 +286,7 @@ unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen. Nicht-funktionale Plananpassungen begründet im Workpad pflegen; produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Ohne Findings und mit sauberem Workspace direkt nach `Test (AI)`, sonst nach `Freigabe Review`. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Ohne Findings und mit sauberem Workspace direkt nach `Test (AI)`. Mit Findings, Fixes oder unklarer Evidenz nach Behandlung ohne Skip nach `Freigabe Review`, mit `--yolo` oder `Skip "Freigabe Review"` direkt nach `Test (AI)`. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
@@ -311,9 +311,9 @@ unabhängig vom konfigurierten Assignee; die Hauptmaske zeigt in diesem Modus
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
-   - `Freigabe Implementierung` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
-   - `Freigabe Review` -> nichts tun und beenden; warten, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Review` -> mit `Skip "Freigabe Review"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
@@ -476,8 +476,11 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen. Wenn der
 Review ohne Findings und ohne daraus entstehende Workspace-Änderungen endet,
-`Freigabe Review` überspringen und direkt nach `Test (AI)` übergeben; andernfalls
-nach `Freigabe Review` übergeben.
+`Freigabe Review` überspringen und direkt nach `Test (AI)` übergeben. Wenn der
+Review Findings, Fixes oder unklare Evidenz hinterlässt, diese zuerst behandeln
+und dokumentieren; danach ohne `--yolo` oder `Skip "Freigabe Review"` nach
+`Freigabe Review`, mit `--yolo` oder Skip-Label direkt nach `Test (AI)`
+übergeben.
 
 ### Voraussetzungen
 
@@ -503,9 +506,10 @@ nach `Freigabe Review` übergeben.
 - Wenn der Review Findings geliefert hat, Fixes entstanden sind, diese Evidenz
   in separaten Review-/Fix-Kommentaren oder im Workpad-Verlauf dokumentiert ist,
   Workpad- oder Workspace-Evidenz fehlt oder das No-Findings-Signal nicht eindeutig ist,
-  verschiebe das Issue erst danach nach `Freigabe Review`; `--yolo` und
-  `Skip "Freigabe Review"` dürfen diesen Freigabepunkt auch in Folgeläufen nicht
-  überspringen.
+  muss der Hauptagent diese Review-Evidenz zuerst behandeln und dokumentieren.
+  Ohne `--yolo` oder `Skip "Freigabe Review"` verschiebe das Issue danach nach
+  `Freigabe Review`; mit `--yolo` oder `Skip "Freigabe Review"` überspringe
+  diesen Freigabepunkt danach und verschiebe direkt nach `Test (AI)`.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
 
@@ -515,8 +519,11 @@ nach `Freigabe Review` übergeben.
 
 ## Ablauf für `Freigabe Review`
 
-Manueller Freigabepunkt. Weder coden noch Ticket-Inhalt ändern, kein Polling.
-Der nächste automatische Einstieg erfolgt erst nach externem Statuswechsel. Wenn
+Manueller Freigabepunkt. Symphony darf diesen Status im Candidate-Polling zur
+Erkennung von `Skip "Freigabe Review"` oder `--yolo` mitlesen. Ohne dieses
+Skip-Signal wird das Issue nicht dispatcht: weder coden noch Ticket-Inhalt
+ändern, der nächste automatische Einstieg erfolgt dann erst nach externem
+Statuswechsel. Wenn
 Review-Feedback in `Merge (AI)` trotz Ticketkontext, Plan, Code, Tests und
 lokaler Dokumentation nicht sicher autonom lösbar ist, dokumentiere es im
 Workpad und Review-Thread, verschiebe zurück nach `Freigabe Review` und stoppe.
@@ -558,9 +565,12 @@ Statuswechsel in einen AI-Status.
 
 ## Ablauf für `Freigabe Implementierung`
 
-Manueller Review- und Commit-Schritt nach `PreReview (AI)`. Weder coden noch
-Ticket-Inhalt ändern, kein Polling. Weiterarbeit beginnt erst nach externem
-Statuswechsel in einen AI-Status.
+Manueller Review- und Commit-Schritt nach `PreReview (AI)`. Symphony darf
+diesen Status im Candidate-Polling zur Erkennung von
+`Skip "Freigabe Implementierung"` oder `--yolo` mitlesen. Ohne dieses
+Skip-Signal wird das Issue nicht dispatcht: weder coden noch Ticket-Inhalt
+ändern, Weiterarbeit beginnt dann erst nach externem Statuswechsel in einen
+AI-Status.
 
 ## Ablauf für `Merge (AI)`
 
@@ -674,7 +684,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Temporäre Proof-Änderungen sind nur für lokale Verifikation erlaubt und müssen vor der Übergabe nach `PreReview (AI)` rückgängig gemacht werden.
 - Wenn Verbesserungen außerhalb des Scopes gefunden werden, erstelle ein separates Backlog-Issue, statt den aktuellen Scope zu erweitern, und nimm einen klaren Titel/eine klare Beschreibung/klare Validierungspunkte, dieselbe Projektzuweisung, einen `related`-Link zum aktuellen Issue und `blockedBy` auf, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Verschiebe nicht nach `PreReview (AI)`, solange die Abschlussbedingungen im Abschnitt `Ablauf für In Arbeit (AI)` nicht erfüllt sind.
-- In `Planung`, `Freigabe Implementierung` und `Freigabe Review` keine weiteren Codeänderungen vornehmen; auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling.
+- In `Planung` keine weiteren Codeänderungen vornehmen; auf die Planschärfung warten. In `Freigabe Implementierung` und `Freigabe Review` ohne passendes Skip-Label und ohne `--yolo` keine weiteren Codeänderungen vornehmen und auf den jeweiligen manuellen Schritt warten. Kein regelmäßiges Polling außerhalb der ausdrücklich definierten Skip-/`--yolo`-Weiterläufe.
 - In `BLOCKER` keine weiteren Codeänderungen vornehmen und kein regelmäßiges Polling ausführen; warten, bis ein Mensch den Blocker gelöst und das Ticket weiter verschoben hat.
 - Wenn der Status terminal ist (`Fertig` oder `Abgebrochen`), nichts tun und beenden.
 - Halte den Ticket-Text knapp, spezifisch und reviewer-orientiert.
