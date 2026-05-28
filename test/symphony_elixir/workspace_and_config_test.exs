@@ -148,7 +148,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       workflow_dir = Path.join(test_root, "workflow")
       workflow_file = Path.join(workflow_dir, "WORKFLOW.md")
       fake_home = Path.join(test_root, "home")
-      env_local_contents = "SELF_HOSTED=1\nLINEAR_ASSIGNEE=dev@example.com\n"
+      env_contents = "LINEAR_TEST_PROJECT_SLUG=\"symphony-test-7d8cc05658e6\"\n"
+
+      env_local_contents =
+        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-07f513c4ae64\"\nLINEAR_ASSIGNEE=dev@example.com\n"
+
+      expected_worktree_env_local =
+        "SELF_HOSTED=1\nLINEAR_PROJECT_SLUG=\"symphony-test-7d8cc05658e6\"\nLINEAR_ASSIGNEE=dev@example.com\n"
+
       root_env_local_contents = "SYM_CODEX_REASONING_EFFORT=low\n"
       previous_home = System.get_env("HOME")
 
@@ -169,6 +176,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       File.chmod!(Path.join(source_repo, "sym-codex"), 0o755)
       write_minimal_mix_project!(source_repo, :worktree_env_local)
       install_current_worktree_scripts!(source_repo)
+      File.write!(Path.join(source_repo, ".symphony/.env"), env_contents)
       File.write!(Path.join(source_repo, ".symphony/.env.local"), env_local_contents)
       File.write!(Path.join(source_repo, ".env.local"), root_env_local_contents)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
@@ -194,14 +202,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                  Workspace.create_for_issue("MT-ENV")
                end)
 
-      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
+      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == expected_worktree_env_local
       assert File.read!(Path.join(workspace, ".env.local")) == root_env_local_contents
       assert File.read_link!(Path.join(fake_home, ".local/bin/symphony-MT-ENV")) == Path.join(workspace, "symphony")
       assert File.read_link!(Path.join(fake_home, ".local/bin/sym-codex-MT-ENV")) == Path.join(workspace, "sym-codex")
 
       File.write!(Path.join(source_repo, ".symphony/.env.local"), "SELF_HOSTED=2\n")
       File.write!(Path.join(source_repo, ".env.local"), "SYM_CODEX_REASONING_EFFORT=medium\n")
-      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == env_local_contents
+      assert File.read!(Path.join(workspace, ".symphony/.env.local")) == expected_worktree_env_local
       assert File.read!(Path.join(workspace, ".env.local")) == root_env_local_contents
     after
       File.rm_rf(test_root)
