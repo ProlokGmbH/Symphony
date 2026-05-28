@@ -137,7 +137,7 @@ Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Fre
 | `In Arbeit (AI)` | AI | Umsetzung auf Basis des vorbereiteten Plans, bei nicht-funktionalen Erkenntnissen begründete Plananpassung; produkt-/verhaltensrelevanter Klärungsbedarf geht nach `Planung`. | `PreReview (AI)` oder `Planung` |
 | `PreReview (AI)` | AI | Repository-spezifischer PreReview-/Fix-Zyklus. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Mensch | Manueller Review- und Commit-Schritt nach der Umsetzung. | `Review (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
-| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | ohne Findings und mit sauberem Workspace `Test (AI)`, sonst `Freigabe Review` |
+| `Review (AI)` | AI | Repository-spezifischer Review-/Fix-Zyklus. | ohne Findings und mit sauberem Workspace `Test (AI)`; mit Findings/Fixes/unklarer Evidenz ohne Skip `Freigabe Review`, mit Skip/`--yolo` `Test (AI)` |
 | `Freigabe Review` | Mensch | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | `Test (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
 | `Test (AI)` | AI | Vor den Tests per Pull auf den spaeteren Merge-Stand synchronisieren und den Test-/Fix-Zyklus auf diesem Stand ausfuehren. | `Merge (AI)` |
 | `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen; bei mergebedingten Codeaenderungen zurueck nach `Test (AI)`. | `Review` |

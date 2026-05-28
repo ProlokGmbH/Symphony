@@ -946,7 +946,7 @@ defmodule SymphonyElixir.AgentRunner do
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          @review_handoff_state_name,
+          resolve_review_handoff_state(issue, :incomplete_evidence, workspace, worker_host),
           :review_handoff_state_update_failed,
           "completed review issue with incomplete workpad evidence",
           :stop
@@ -958,7 +958,7 @@ defmodule SymphonyElixir.AgentRunner do
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          @review_handoff_state_name,
+          resolve_review_handoff_state(issue, :unavailable_evidence, workspace, worker_host),
           :review_handoff_state_update_failed,
           "completed review issue with unavailable workpad evidence",
           :stop

@@ -4339,6 +4339,50 @@ defmodule SymphonyElixir.CoreTest do
     assert {:ok, []} = Client.fetch_issues_by_states([])
   end
 
+  test "linear candidate polling includes manual approval states for skip labels outside yolo" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+    parent = self()
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_active_states: ["Todo (AI)", "Review (AI)"],
+        tracker_assignee: "dev@example.com"
+      )
+
+      Application.put_env(:symphony_elixir, :yolo, false)
+
+      Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, headers ->
+        send(parent, {:linear_request, payload, headers})
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "issues" => %{
+                 "nodes" => [],
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+               }
+             }
+           }
+         }}
+      end)
+
+      assert {:ok, []} = Client.fetch_candidate_issues()
+      assert_receive {:linear_request, %{"variables" => %{stateNames: state_names}}, headers}
+      assert {"Authorization", "token"} in headers
+
+      assert MapSet.subset?(
+               MapSet.new(["Todo (AI)", "Review (AI)", "In Arbeit", "Freigabe Implementierung", "Freigabe Review"]),
+               MapSet.new(state_names)
+             )
+    after
+      restore_app_env(:linear_client_request_fun, previous_request_fun)
+      restore_app_env(:yolo, previous_yolo)
+    end
+  end
+
   test "prompt builder renders issue and attempt values from workflow template" do
     workflow_prompt = "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} attempt={{ attempt }}"
 
@@ -9674,6 +9718,121 @@ defmodule SymphonyElixir.CoreTest do
 
       run_case.("issue-review-skip-handoff", "MT-REVIEW-SKIP", [~s(skip "freigabe review")], false)
       run_case.("issue-review-yolo-handoff", "MT-REVIEW-YOLO", [], true)
+    after
+      restore_app_env(:yolo, previous_yolo)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner skips Freigabe Review after blocked review evidence when approval is skipped" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-review-blocked-skip-handoff-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-review-blocked-skip"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-review-blocked-skip"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create:
+          ~s(git init -b main . && git config user.name "Test User" && git config user.email "test@example.com" && cp #{Path.join(template_repo, "README.md")} README.md && git add README.md && git commit -m initial),
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 3
+      )
+
+      run_case = fn issue_id, identifier, labels, yolo? ->
+        Application.put_env(:symphony_elixir, :yolo, yolo?)
+        {:ok, state_agent} = Agent.start_link(fn -> "Review (AI)" end)
+        parent = self()
+
+        recipient =
+          spawn(fn ->
+            review_handoff_test_recipient(parent, state_agent)
+          end)
+
+        Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
+        Application.put_env(:symphony_elixir, :memory_tracker_comments, %{issue_id => []})
+
+        state_fetcher = fn [_issue_id] ->
+          current_state = Agent.get(state_agent, & &1)
+
+          {:ok,
+           [
+             %Issue{
+               id: issue_id,
+               identifier: identifier,
+               title: "Review handoff with blocked evidence and skip",
+               description: "Advance directly to test when review approval is skipped",
+               state: current_state,
+               labels: labels
+             }
+           ]}
+        end
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: identifier,
+          title: "Review handoff with blocked evidence and skip",
+          description: "Advance directly to test when review approval is skipped",
+          state: "Review (AI)",
+          url: "https://example.org/issues/#{identifier}",
+          labels: labels
+        }
+
+        assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+        assert_receive {:memory_tracker_state_update, ^issue_id, "Test (AI)"}
+        assert "Test (AI)" == Agent.get(state_agent, & &1)
+
+        Agent.stop(state_agent)
+      end
+
+      run_case.(
+        "issue-review-blocked-skip-handoff",
+        "MT-REVIEW-BLOCKED-SKIP",
+        [~s(skip "freigabe review")],
+        false
+      )
+
+      run_case.("issue-review-blocked-yolo-handoff", "MT-REVIEW-BLOCKED-YOLO", [], true)
     after
       restore_app_env(:yolo, previous_yolo)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)

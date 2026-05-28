@@ -9,7 +9,7 @@ defmodule SymphonyElixir.Linear.Client do
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
   @manual_in_progress_state_name "In Arbeit"
-  @yolo_manual_state_names ["Freigabe Implementierung", "Freigabe Review"]
+  @manual_approval_state_names ["Freigabe Implementierung", "Freigabe Review"]
 
   @issue_selection """
   id
@@ -310,11 +310,7 @@ defmodule SymphonyElixir.Linear.Client do
     dialog_state_names =
       [Dialog.state_name()]
 
-    if Config.yolo?() do
-      [@manual_in_progress_state_name | @yolo_manual_state_names] ++ dialog_state_names
-    else
-      [@manual_in_progress_state_name | dialog_state_names]
-    end
+    [@manual_in_progress_state_name | @manual_approval_state_names] ++ dialog_state_names
   end
 
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do

@@ -940,7 +940,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   @tag :manual_in_arbeit_client
-  test "linear client includes manual In Arbeit in candidate polling" do
+  test "linear client includes manual handoff states in candidate polling" do
     previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
 
     on_exit(fn ->
@@ -978,7 +978,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                       "query" => query,
                       "variables" => %{
                         projectSlug: "project",
-                        stateNames: ["Todo (AI)", "Review (AI)", "In Arbeit", "Todo (Dialog-AI)"],
+                        stateNames: [
+                          "Todo (AI)",
+                          "Review (AI)",
+                          "In Arbeit",
+                          "Freigabe Implementierung",
+                          "Freigabe Review",
+                          "Todo (Dialog-AI)"
+                        ],
                         first: 50,
                         relationFirst: 50,
                         after: nil
