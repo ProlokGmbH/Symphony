@@ -54,6 +54,8 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
    Typisch benötigt werden:
    - `LINEAR_API_KEY`
    - `LINEAR_PROJECT_SLUG`
+   - `LINEAR_TEST_PROJECT_SLUG` für den Project-Slug, den Worktrees als
+     `LINEAR_PROJECT_SLUG` verwenden
    - `LINEAR_ASSIGNEE`
    - `SYMPHONY_PROJECT_ROOT`
    - `SYMPHONY_PROJECT_WORKTREES_ROOT`
