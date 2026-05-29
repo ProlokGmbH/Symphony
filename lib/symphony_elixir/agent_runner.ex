@@ -68,8 +68,8 @@ defmodule SymphonyElixir.AgentRunner do
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
     case maybe_skip_manual_issue_state(issue, issue_state_fetcher, worker_host) do
-      {:ok, %Issue{} = transitioned_issue, :continue} ->
-        run_on_worker_host(transitioned_issue, codex_update_recipient, opts, worker_host)
+      {:ok, %Issue{}, :stop} ->
+        :ok
 
       {:bootstrap_only, %Issue{} = manual_issue} ->
         bootstrap_manual_in_progress_issue(manual_issue, codex_update_recipient, worker_host)
@@ -132,7 +132,7 @@ defmodule SymphonyElixir.AgentRunner do
               next_state,
               :manual_skip_state_update_failed,
               "skipped manual issue state",
-              :continue
+              :stop
             )
 
           _ ->
@@ -805,13 +805,11 @@ defmodule SymphonyElixir.AgentRunner do
       else
         case codex_issue_finalize_mode(started_issue.state) do
           {:transition, error_event, log_label} ->
-            transition_issue_state(
+            maybe_transition_completed_codex_issue(
               issue,
               issue_state_fetcher,
-              resolve_next_handoff_state(issue),
               error_event,
-              log_label,
-              :stop
+              log_label
             )
 
           :review ->
@@ -923,14 +921,73 @@ defmodule SymphonyElixir.AgentRunner do
          _workspace,
          _worker_host
        ) do
-    transition_issue_state(
+    maybe_transition_after_closed_workpad_sections(
       issue,
       issue_state_fetcher,
-      resolve_next_handoff_state(issue),
+      ["Test", "Validierung"],
       :test_handoff_state_update_failed,
-      "completed test issue",
-      :stop
+      "completed test issue"
     )
+  end
+
+  defp maybe_transition_completed_codex_issue(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         error_tag,
+         reason_label
+       ) do
+    case required_handoff_workpad_sections(issue.state) do
+      [_ | _] = section_titles ->
+        maybe_transition_after_closed_workpad_sections(
+          issue,
+          issue_state_fetcher,
+          section_titles,
+          error_tag,
+          reason_label
+        )
+
+      [] ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          resolve_next_handoff_state(issue),
+          error_tag,
+          reason_label,
+          :stop
+        )
+    end
+  end
+
+  defp maybe_transition_after_closed_workpad_sections(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         section_titles,
+         error_tag,
+         reason_label
+       ) do
+    case workpad_sections_handoff_status(issue, section_titles) do
+      :ready ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          resolve_next_handoff_state(issue),
+          error_tag,
+          reason_label,
+          :stop
+        )
+
+      {:open, section_title} ->
+        Logger.info("Keeping issue active because the workpad #{section_title} checklist still has open items before #{reason_label}: #{issue_context(issue)}")
+        {:ok, issue, :normal}
+
+      {:blocked, section_title} ->
+        Logger.info("Keeping issue active because the workpad #{section_title} checklist evidence is missing or incomplete before #{reason_label}: #{issue_context(issue)}")
+        {:ok, issue, :normal}
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workpad #{format_section_titles(section_titles)} checklist before #{reason_label}; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
+        {:ok, issue, :normal}
+    end
   end
 
   defp maybe_finalize_review_codex_issue(
@@ -955,28 +1012,12 @@ defmodule SymphonyElixir.AgentRunner do
         {:ok, issue, :normal}
 
       :blocked ->
-        Logger.info("Using review handoff because the workpad evidence is missing or incomplete: #{issue_context(issue)}")
-
-        transition_issue_state(
-          issue,
-          issue_state_fetcher,
-          resolve_review_handoff_state(issue, :incomplete_evidence, workspace, worker_host),
-          :review_handoff_state_update_failed,
-          "completed review issue with incomplete workpad evidence",
-          :stop
-        )
+        Logger.info("Keeping review issue active because the workpad review checklist evidence is missing or incomplete: #{issue_context(issue)}")
+        {:ok, issue, :normal}
 
       {:error, reason} ->
-        Logger.warning("Failed to inspect workpad review checklist before review handoff; using review handoff: #{issue_context(issue)} reason=#{inspect(reason)}")
-
-        transition_issue_state(
-          issue,
-          issue_state_fetcher,
-          resolve_review_handoff_state(issue, :unavailable_evidence, workspace, worker_host),
-          :review_handoff_state_update_failed,
-          "completed review issue with unavailable workpad evidence",
-          :stop
-        )
+        Logger.warning("Failed to inspect workpad review checklist before review handoff; keeping review issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
+        {:ok, issue, :normal}
     end
   end
 
@@ -1256,6 +1297,45 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp review_workpad_handoff_status(_issue), do: {:ready, :unknown}
+
+  defp required_handoff_workpad_sections(state_name) when is_binary(state_name) do
+    cond do
+      prereview_codex_state?(state_name) -> ["Review"]
+      test_codex_state?(state_name) -> ["Test", "Validierung"]
+      true -> []
+    end
+  end
+
+  defp required_handoff_workpad_sections(_state_name), do: []
+
+  defp workpad_sections_handoff_status(%Issue{id: issue_id}, section_titles)
+       when is_binary(issue_id) and is_list(section_titles) do
+    with {:ok, comments} <- Tracker.fetch_issue_comment_bodies(issue_id) do
+      comments
+      |> Workpad.find_comment_body()
+      |> workpad_body_sections_handoff_status(section_titles)
+    end
+  end
+
+  defp workpad_sections_handoff_status(_issue, section_titles), do: {:blocked, format_section_titles(section_titles)}
+
+  defp workpad_body_sections_handoff_status(body, section_titles)
+       when is_binary(body) and is_list(section_titles) do
+    Enum.reduce_while(section_titles, :ready, fn section_title, :ready ->
+      case Workpad.section_checklist_status(body, section_title) do
+        :closed -> {:cont, :ready}
+        :open -> {:halt, {:open, section_title}}
+        :missing -> {:halt, {:blocked, section_title}}
+        :no_checklist -> {:halt, {:blocked, section_title}}
+      end
+    end)
+  end
+
+  defp workpad_body_sections_handoff_status(_body, section_titles), do: {:blocked, format_section_titles(section_titles)}
+
+  defp format_section_titles(section_titles) when is_list(section_titles) do
+    Enum.join(section_titles, "/")
+  end
 
   defp default_next_handoff_state(state_name) when is_binary(state_name) do
     cond do

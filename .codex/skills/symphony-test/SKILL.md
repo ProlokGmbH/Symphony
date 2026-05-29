@@ -29,5 +29,7 @@ Workflows.
 
 ## Abschluss
 
-Wenn alle Schritte sauber sind, nach `Merge (AI)` verschieben. Bei
-`agent.max_turns` Abweichungen dokumentieren und ohne Statuswechsel stoppen.
+Wenn alle Schritte sauber sind, `### Test` und die bindenden Punkte in
+`### Validierung` vollständig abhaken, nach `Merge (AI)` verschieben und den
+Turn beenden. Bei `agent.max_turns` Abweichungen dokumentieren und ohne
+Statuswechsel stoppen.

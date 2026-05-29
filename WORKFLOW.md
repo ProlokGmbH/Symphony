@@ -317,9 +317,9 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
-   - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus verschieben und den Turn beenden; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
-   - `Freigabe Review` -> mit `Skip "Freigabe Review"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Review` -> mit `Skip "Freigabe Review"` oder `--yolo` zum nächsten Tabellenstatus verschieben und den Turn beenden; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
