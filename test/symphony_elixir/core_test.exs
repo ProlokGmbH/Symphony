@@ -203,34 +203,45 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "des Assignees."
     assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
     assert prompt =~ "Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`"
-    assert prompt =~ "Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`"
-    assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`"
+    assert prompt =~ "Repo-lokaler Skill-Pfad: `{{ runtime.active_repo_skill_root }}`"
+    assert prompt =~ "Globale Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`"
     assert prompt =~ "den globalen Skill `symphony-review` explizit öffnen"
-    assert prompt =~ "Review-Subagent `Findings:` liefert"
-    assert prompt =~ "als separaten Linear-Issue-Kommentar veröffentlichen"
-    assert prompt =~ "welches Finding welche Änderung ausgelöst hat"
+    assert prompt =~ "Den Skill `symphony-review` vollständig ausführen."
+    assert prompt =~ "Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare"
+    refute prompt =~ "Review-Subagent `Findings:` liefert"
+
+    workflow_source = File.read!(Path.expand("../../WORKFLOW.md", __DIR__))
+
+    assert workflow_source =~
+             "sobald der aktive Workflow oder ein aufgerufener Skill einen Review-Subagenten verlangt"
 
     assert prompt =~
-             "Davon ausgenommen sind ausdrücklich die im `Review (AI)`-Ablauf geforderten separaten Linear-Issue-Kommentare"
+             "Davon ausgenommen sind ausdrücklich von aufgerufenen Skills geforderte Nachvollziehbarkeitskommentare"
 
     assert prompt =~
-             "zulässige Nachvollziehbarkeitskommentare neben dem Workpad"
+             "separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig"
 
     assert prompt =~ "den globalen Skill `symphony-workpad`"
   end
 
-  test "review skills require Linear comments for subagent findings and resulting fixes" do
+  test "review skills keep shared findings flow in symphony-review and local hints compact" do
     global_review_skill = File.read!(Path.expand("../../.codex/skills/symphony-review/SKILL.md", __DIR__))
     local_review_skill = File.read!(Path.expand("../../.codex/skills/sym-review/SKILL.md", __DIR__))
     workpad_skill = File.read!(Path.expand("../../.codex/skills/symphony-workpad/SKILL.md", __DIR__))
 
-    for skill <- [global_review_skill, local_review_skill] do
-      assert skill =~ "Findings:"
-      assert skill =~ "separaten Linear-Issue-Kommentar"
-      assert skill =~ "vor den Fixes"
-      assert skill =~ ~r/nach\s+den Änderungen/
-      assert skill =~ "Finding-zu-Änderung"
-    end
+    assert global_review_skill =~ "Findings:"
+    assert global_review_skill =~ "separaten Linear-Issue-Kommentar"
+    assert global_review_skill =~ "vor den Fixes"
+    assert global_review_skill =~ ~r/nach\s+den Änderungen/
+    assert global_review_skill =~ "Finding-zu-Änderung"
+    assert global_review_skill =~ "Review-/Fix-Schleife"
+    refute global_review_skill =~ "`make all`"
+
+    assert local_review_skill =~ "Zusätzliche Review-Hinweise"
+    assert local_review_skill =~ "Keine zusätzlichen repositoryspezifischen Hinweise"
+    refute local_review_skill =~ "`make all`"
+    refute local_review_skill =~ "Findings:"
+    refute local_review_skill =~ "## Subagent-Auftrag"
 
     assert workpad_skill =~ "Review-Subagent-Findings"
     assert workpad_skill =~ "Zulässige Ausnahmen"
@@ -3867,7 +3878,7 @@ defmodule SymphonyElixir.CoreTest do
 
           ### Review
 
-          - [x] Review (AI) `make all`: grün
+          - [x] Review (AI) Einstieg: Pull und Snapshot geprüft
           - [ ] Review (AI) read-only Subagent: läuft
           """
         ]
@@ -4285,7 +4296,7 @@ defmodule SymphonyElixir.CoreTest do
 
     ### Review
 
-    - [x] Review (AI) `make all`: grün
+    - [x] Review (AI) Einstieg: Pull und Snapshot geprüft
     - [x] Review (AI) read-only Subagent: Keine Findings.
     """
   end
@@ -5679,16 +5690,16 @@ defmodule SymphonyElixir.CoreTest do
 
     assert prompt =~ ~s("next steps for user")
     assert prompt =~ "Pfadkontext für Skills in diesem Turn:"
-    assert prompt =~ "Repo-lokale `sym-*`-Skills:"
-    assert prompt =~ "Globale `symphony-*`-Skill-Wurzeln:"
+    assert prompt =~ "Repo-lokaler Skill-Pfad:"
+    assert prompt =~ "Globale Skill-Wurzeln:"
     assert prompt =~ "globalen Skill `symphony-planning`"
     assert prompt =~ "globalen Skill `symphony-review`"
     assert prompt =~ "globalen Skill `symphony-workpad`"
     assert prompt =~ "globalen Skill `symphony-land`"
     assert prompt =~ "Freigabe Review"
     assert prompt =~ "`<Issue-Key> Review (AI) Autocommit`"
-    assert prompt =~ "Review-Subagent `Findings:` liefert"
-    assert prompt =~ "welches Finding welche Änderung ausgelöst hat"
+    assert prompt =~ "Den Skill `symphony-review` vollständig ausführen."
+    refute prompt =~ "Review-Subagent `Findings:` liefert"
     assert prompt =~ "`gh pr merge`"
     assert prompt =~ "`<Issue-Key> Test (AI) Autocommit`"
     assert prompt =~ "`<Issue-Key> Merge (AI) Autocommit`"

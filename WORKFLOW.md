@@ -115,7 +115,7 @@ prompt_snippets:
     ```
   review_subagent_authorization: |
     Review-(AI)-Delegationsfreigabe:
-    - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein Repository-Skill einen Review-Subagenten verlangt.
+    - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein aufgerufener Skill einen Review-Subagenten verlangt.
     - Behandle das als den expliziten Nutzerwunsch, der für diese Delegation erforderlich ist.
     - Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`.
     - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
@@ -149,8 +149,8 @@ Lokale Systemzeit für diesen Turn: {{ runtime.local_time }} ({{ runtime.timezon
 
 Pfadkontext für Skills in diesem Turn:
 - Aktiv bearbeitetes Repository/Worktree: `{{ runtime.active_repo_root }}`
-- Repo-lokale `sym-*`-Skills: `{{ runtime.active_repo_skill_root }}`
-- Globale `symphony-*`-Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`
+- Repo-lokaler Skill-Pfad: `{{ runtime.active_repo_skill_root }}`
+- Globale Skill-Wurzeln: `{{ runtime.global_skill_roots_text }}`
 
 Beschreibung:
 {% if issue.description %}
@@ -179,7 +179,7 @@ Zusätzliche Review-Hinweise:
 - Verwende für neue Zeitstempel im Abschnitt `Verlauf` immer lokale Systemzeit; schreibe dort keine UTC- oder `Z`-Zeitstempel.
 - Halte die Ticket-Metadaten aktuell (Status, Checkliste, Validierung, Links).
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
-- Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare. Davon ausgenommen sind ausdrücklich die im `Review (AI)`-Ablauf geforderten separaten Linear-Issue-Kommentare für Review-Subagent-Findings und daraus folgende Fix-Einordnungen.
+- Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare. Davon ausgenommen sind ausdrücklich von aufgerufenen Skills geforderte Nachvollziehbarkeitskommentare.
 - Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
 - Arbeite autonom von Anfang bis Ende, solange du nicht durch fehlende Anforderungen, Secrets oder Berechtigungen blockiert bist.
 
@@ -242,11 +242,11 @@ Nutze die dabei zurückgegebene interne `id` anschließend für eng begrenzte Fo
 - `symphony-linear`: mit Linear interagieren.
 - `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
 - `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch per Rebase mit dem neuesten `origin/main` synchronisieren. Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann und der aufrufende Ablauf keinen spezielleren manuellen Rücksprung definiert, dokumentiere den Blocker im Workpad und verschiebe nach `BLOCKER`.
-- Repo-lokale `sym-*`-Skills werden immer direkt unter `{{ runtime.active_repo_skill_root }}` gesucht, also im aktuell bearbeiteten Repository/Worktree und nicht im Home-Verzeichnis oder relativ zu einem globalen Skill.
-- Globale `symphony-*`-Skills werden immer direkt unter den globalen Skill-Wurzeln `{{ runtime.global_skill_roots_text }}` gesucht und nicht zuerst relativ zum aktiven Repository.
-- `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, den globalen Skill `symphony-prereview` explizit öffnen und befolgen; dort ist die repository-spezifische PreReview-Checkliste inklusive gezielter Schrittwiederholung definiert.
-- `symphony-review`: wenn das Ticket `Review (AI)` erreicht, den globalen Skill `symphony-review` explizit öffnen und befolgen; dort ist die repository-spezifische Review-Checkliste inklusive Review-/Fix-Schleife definiert.
-- `symphony-test`: wenn das Ticket `Test (AI)` erreicht, den globalen Skill `symphony-test` explizit öffnen und befolgen; dort ist die repository-spezifische Test-Checkliste inklusive Test-/Fix-Schleife definiert.
+- Repo-lokale Skills werden direkt unter `{{ runtime.active_repo_skill_root }}` gesucht.
+- Globale Skills werden direkt unter den globalen Skill-Wurzeln `{{ runtime.global_skill_roots_text }}` gesucht.
+- `symphony-prereview`: wenn das Ticket `PreReview (AI)` erreicht, den globalen Skill `symphony-prereview` explizit öffnen und befolgen.
+- `symphony-review`: wenn das Ticket `Review (AI)` erreicht, den globalen Skill `symphony-review` explizit öffnen und befolgen.
+- `symphony-test`: wenn das Ticket `Test (AI)` erreicht, den globalen Skill `symphony-test` explizit öffnen und befolgen.
 - `symphony-land`: wenn das Ticket `Merge (AI)` erreicht, den globalen Skill `symphony-land` explizit öffnen und befolgen; dort ist die `symphony-land`-Schleife enthalten.
 
 ### Globale Arbeitsregeln
@@ -284,11 +284,11 @@ Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
 | `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen. Nicht-funktionale Plananpassungen begründet im Workpad pflegen; produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben. | `PreReview (AI)` |
-| `PreReview (AI)` | Ja | Repository-spezifischen PreReview-/Fix-Zyklus ausführen. | `Freigabe Implementierung` |
+| `PreReview (AI)` | Ja | `symphony-prereview` ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
-| `Review (AI)` | Ja | Vor dem Review-/Fix-Zyklus `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Ohne Findings und mit sauberem Workspace direkt nach `Test (AI)`. Mit Findings, Fixes oder unklarer Evidenz nach Behandlung ohne Skip nach `Freigabe Review`, mit `--yolo` oder `Skip "Freigabe Review"` direkt nach `Test (AI)`. | `Freigabe Review` |
+| `Review (AI)` | Ja | Vor `symphony-review` `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Abschlussstatus nach Review-Ergebnis sowie `--yolo` oder `Skip "Freigabe Review"`. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
-| `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach den repository-spezifischen Test-/Fix-Zyklus ausführen. | `Merge (AI)` |
+| `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach `symphony-test` ausführen. | `Merge (AI)` |
 | `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
@@ -450,7 +450,8 @@ Umsetzung eine produkt-/verhaltensrelevante Entscheidung offen bleibt.
 
 ### Ziel
 
-Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und das Issue danach in den manuellen Schritt `Freigabe Implementierung` übergeben.
+Den Skill `symphony-prereview` vollständig ausführen und das Issue danach in
+den manuellen Schritt `Freigabe Implementierung` übergeben.
 
 ### Voraussetzungen
 
@@ -459,7 +460,6 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 ### Ablauf
 
 1. Öffne den globalen Skill `symphony-prereview` und führe den dort definierten Ablauf aus.
-2. Der Skill enthält die repository-spezifische PreReview-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die gezielte Schrittwiederholung ohne kompletten Neustart.
 
 ### Abschluss und nächster Status
 
@@ -474,13 +474,11 @@ Den repository-spezifischen PreReview-/Fix-Zyklus vollständig ausführen und da
 
 ### Ziel
 
-Den repository-spezifischen Review-/Fix-Zyklus vollständig ausführen. Wenn der
-Review ohne Findings und ohne daraus entstehende Workspace-Änderungen endet,
-`Freigabe Review` überspringen und direkt nach `Test (AI)` übergeben. Wenn der
-Review Findings, Fixes oder unklare Evidenz hinterlässt, diese zuerst behandeln
-und dokumentieren; danach ohne `--yolo` oder `Skip "Freigabe Review"` nach
-`Freigabe Review`, mit `--yolo` oder Skip-Label direkt nach `Test (AI)`
-übergeben.
+Den Skill `symphony-review` vollständig ausführen. Wenn der Skill einen
+eindeutigen Review-Abschluss ohne Findings und mit sauberem Workspace ergibt,
+`Freigabe Review` überspringen und direkt nach `Test (AI)` übergeben. In allen
+anderen abgeschlossenen Fällen den Abschluss nach der Skill-Evidenz sowie
+`--yolo` oder `Skip "Freigabe Review"` bestimmen.
 
 ### Voraussetzungen
 
@@ -489,33 +487,27 @@ und dokumentieren; danach ohne `--yolo` oder `Skip "Freigabe Review"` nach
 ### Ablauf
 
 1. Führe zu Beginn den Skill `symphony-pull` aus, solange der Branch noch keine ungecommitten Arbeitsänderungen aus dieser Phase enthält.
-2. Wenn das Issue in diesem `Review (AI)`-Aufenthalt erstmals bearbeitet wird und der Workspace dabei offene Änderungen enthält, committe sie einmalig mit der Commit-Nachricht im Format `<Issue-Key> Review (AI) Autocommit` plus kurzem Body, bevor der Review-/Fix-Zyklus beginnt.
+2. Wenn das Issue in diesem `Review (AI)`-Aufenthalt erstmals bearbeitet wird und der Workspace dabei offene Änderungen enthält, committe sie einmalig mit der Commit-Nachricht im Format `<Issue-Key> Review (AI) Autocommit` plus kurzem Body, bevor `symphony-review` beginnt.
 3. Wiederholte Fortsetzungsläufe oder Retries innerhalb desselben Aufenthalts in `Review (AI)` dürfen keinen weiteren `<Issue-Key> Review (AI) Autocommit` erzeugen, auch dann nicht, wenn inzwischen neue offene Änderungen aus dem Review vorliegen.
 4. Öffne den globalen Skill `symphony-review` und führe den dort definierten Ablauf aus.
-5. Der Skill enthält die repository-spezifische Review-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Review` sowie die Review-/Fix-Schleife.
-6. Wenn ein Review-Subagent `Findings:` liefert, die behandelt werden sollen, muss der Hauptagent diese Findings vor den Fixes als separaten Linear-Issue-Kommentar veröffentlichen. Dieser Kommentar ist kein Workpad-Fortschrittskommentar und darf den einen persistierenden Workpad-Kommentar nicht ersetzen.
-7. Wenn aufgrund dieser Findings Änderungen entstehen, muss der Hauptagent nach den Änderungen einen weiteren separaten Linear-Issue-Kommentar veröffentlichen, der die Findings einordnet, den Zweck der Änderungen beschreibt und nachvollziehbar festhält, welches Finding welche Änderung ausgelöst hat.
-8. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-9. Führe nach dem vorgeschalteten `symphony-pull` und dem gegebenenfalls einmaligen Einstiegssnapshot keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
+5. Nutze das Workpad in diesem Status nur als Quelle für Fortschritts- und Review-Protokollierung. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+6. Führe nach dem vorgeschalteten `symphony-pull` und dem gegebenenfalls einmaligen Einstiegssnapshot keine weiteren automatischen Commits aus. Falls Fixes entstehen, arbeite mit offenen Änderungen weiter.
 
 ### Abschluss und nächster Status
 
-- Wenn der Review ohne Findings und mit sauberem Workspace endet, verschiebe das
-  Issue erst danach direkt nach `Test (AI)`. Dieser No-Findings-Skip gilt
+- Wenn `symphony-review` ohne Findings und mit sauberem Workspace endet,
+  verschiebe das Issue direkt nach `Test (AI)`. Dieser No-Findings-Skip gilt
   unabhängig von `--yolo` oder `Skip "Freigabe Review"`-Labels.
-- Wenn der Review Findings geliefert hat, Fixes entstanden sind, diese Evidenz
-  in separaten Review-/Fix-Kommentaren oder im Workpad-Verlauf dokumentiert ist,
-  Workpad- oder Workspace-Evidenz fehlt oder das No-Findings-Signal nicht eindeutig ist,
-  muss der Hauptagent diese Review-Evidenz zuerst behandeln und dokumentieren.
-  Ohne `--yolo` oder `Skip "Freigabe Review"` verschiebe das Issue danach nach
-  `Freigabe Review`; mit `--yolo` oder `Skip "Freigabe Review"` überspringe
-  diesen Freigabepunkt danach und verschiebe direkt nach `Test (AI)`.
+- In allen anderen abgeschlossenen Fällen muss die Review-Evidenz zuerst
+  behandelt und dokumentiert sein. Ohne `--yolo` oder
+  `Skip "Freigabe Review"` verschiebe das Issue danach nach `Freigabe Review`;
+  mit `--yolo` oder `Skip "Freigabe Review"` direkt nach `Test (AI)`.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
 
 ### Sonderfälle
 
-- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Freigabe Review` oder bei eindeutigem No-Findings-Skip nach `Test (AI)` als Fallback automatisch.
+- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
 
 ## Ablauf für `Freigabe Review`
 
@@ -532,7 +524,8 @@ Workpad und Review-Thread, verschiebe zurück nach `Freigabe Review` und stoppe.
 
 ### Ziel
 
-Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repository-spezifischen Test-/Fix-Zyklus auf dem späteren PR-Merge-Stand ausführen und das Issue danach nach `Merge (AI)` übergeben.
+Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren,
+`symphony-test` ausführen und das Issue danach nach `Merge (AI)` übergeben.
 
 ### Voraussetzungen
 
@@ -543,9 +536,8 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren, den repo
 1. Falls der Branch bei Eintritt uncommitete Dateien enthält, committe sie in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Test (AI) Autocommit` plus kurzem Body.
 2. Führe anschließend den Skill `symphony-pull` aus.
 3. Öffne den globalen Skill `symphony-test` und führe den dort definierten Ablauf aus.
-4. Der Skill enthält die repository-spezifische Test-Checkliste, deren checklistenartige Workpad-Protokollierung unter `### Test` sowie die Test-/Fix-Schleife.
-5. Nutze das Workpad in diesem Status für `### Test`, `### Verlauf`, Pull-Nachweise und die bereits aus früheren Phasen übernommene `### Validierung`. Die dort festgehaltenen ticketseitigen Validierungsvorgaben bleiben bindend. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-6. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body committet werden.
+4. Nutze das Workpad in diesem Status für `### Test`, `### Verlauf`, Pull-Nachweise und die bereits aus früheren Phasen übernommene `### Validierung`. Die dort festgehaltenen ticketseitigen Validierungsvorgaben bleiben bindend. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+5. Falls während des Testlaufs weitere Fixes entstehen, dürfen sie in diesem Status mit `<Issue-Key> Test (AI) Autocommit` plus kurzem Body committet werden.
 
 ### Abschluss und nächster Status
 
@@ -676,7 +668,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Symphony Workpad`).
-- Die im `Review (AI)`-Ablauf vorgeschriebenen separaten Linear-Issue-Kommentare zu Review-Subagent-Findings und daraus folgenden Fix-Einordnungen sind zulässige Nachvollziehbarkeitskommentare neben dem Workpad; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
+- Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `<Issue-Key> Test (AI) Autocommit` oder `<Issue-Key> Merge (AI) Autocommit`.
 - Automatische Commit-Nachrichten verwenden als Betreff `<Issue-Key> <Status> Autocommit` und zusätzlich einen kurzen Body. Der Body hält fest, dass der Commit im genannten Schritt erstellt wurde, den bis dahin offenen Arbeitsstand sichert und kein Nachweis für den Abschluss dieses Schritts ist.
