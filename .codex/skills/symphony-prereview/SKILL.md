@@ -20,6 +20,7 @@ Nur im Status `PreReview (AI)` verwenden.
 
 ## Abschluss
 
-Wenn alle Schritte sauber sind, nach `Freigabe Implementierung` verschieben.
-Keine Commits. Bei `agent.max_turns` verbleibende Abweichungen dokumentieren
-und an den manuellen Schritt übergeben.
+Wenn alle Schritte sauber sind, `### Review` vollständig abhaken, nach
+`Freigabe Implementierung` verschieben und den Turn beenden. Keine Commits. Bei
+`agent.max_turns` verbleibende Abweichungen dokumentieren und ohne Statuswechsel
+stoppen.

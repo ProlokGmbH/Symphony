@@ -84,7 +84,7 @@ prompt_snippets:
     - Folge den Workflow-Anweisungen für den aktuellen Tracker-Status, bevor du das weitere Vorgehen festlegst.
     - Setze im bestehenden Workspace-, Workpad- und Thread-Kontext fort, statt von Grund auf neu zu beginnen.
     - Die ursprünglichen Aufgabenanweisungen und der bisherige Turn-Kontext liegen in diesem Thread bereits vor; wiederhole sie nicht, bevor du handelst.
-    - Konzentriere dich auf die verbleibende Ticket-Arbeit und beende den Turn nicht, solange das Issue aktiv bleibt, außer du bist wirklich blockiert.
+    - Konzentriere dich auf die verbleibende Arbeit im aktuellen Tracker-Status. Sobald du den Status wechselst, beende diesen Turn sauber, damit der Zielstatus in einer neuen Codex-Session startet.
   continuation_intro_cancelled: |
     Der vorherige Codex-Turn wurde unterbrochen, das Linear-Issue befindet sich aber weiterhin in einem aktiven Status.
   continuation_intro_completed: |
@@ -136,7 +136,7 @@ Fortsetzungskontext:
 - Dies ist Wiederholungsversuch Nr. {{ attempt }}, weil sich das Ticket weiterhin in einem aktiven Status befindet.
 - Setze vom aktuellen Workspace-Zustand aus fort, statt von Grund auf neu zu beginnen.
 - Wiederhole bereits abgeschlossene Untersuchung oder Validierung nicht, außer wenn sie für neue Codeänderungen erforderlich ist.
-- Beende den Turn nicht, solange das Issue in einem aktiven Codex-Ausführungsstatus bleibt, außer du bist durch fehlende erforderliche Berechtigungen/Secrets blockiert.
+- Arbeite nur im aktuellen Tracker-Status weiter. Nach einem Statuswechsel endet dieser Turn mit einer knappen Abschlussnachricht.
 {% endif %}
 
 Ticket-Kontext:
@@ -181,6 +181,8 @@ Zusätzliche Review-Hinweise:
 - Betrachte genau einen persistierenden Linear-Kommentar als maßgebliche Quelle für den Fortschritt.
 - Verwende genau diesen einen Workpad-Kommentar für alle Fortschritts- und Übergabenotizen; poste keine separaten "done"/Zusammenfassungs-Kommentare. Davon ausgenommen sind ausdrücklich von aufgerufenen Skills geforderte Nachvollziehbarkeitskommentare.
 - Wechsle den Status nur, wenn die entsprechende Qualitätsschwelle erreicht ist.
+- Jeder Statuswechsel ist eine harte Turn-Grenze: aktualisiere vorher den Workpad-Checklistenstand, führe den Statuswechsel aus, schreibe nur eine knappe Abschlussnachricht und beginne den Zielstatus nicht mehr im selben Turn.
+- Vor jedem regulären Statuswechsel müssen alle für den aktuellen Status relevanten offenen Workpad-Checklistenpunkte erledigt oder als Blocker/Unklarheit dokumentiert sein. Offene Punkte, die ausdrücklich zur nächsten Statusphase gehören, dürfen offen bleiben.
 - Arbeite autonom von Anfang bis Ende, solange du nicht durch fehlende Anforderungen, Secrets oder Berechtigungen blockiert bist.
 
 ## Voraussetzungen und globale Kontrakte
@@ -274,6 +276,10 @@ werden; danach überspringt `--yolo` aber auch `Freigabe Review`. Außerdem
 bearbeitet Symphony dann alle passenden Tickets unabhängig vom konfigurierten
 Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
 
+Jeder automatische Statuswechsel beendet den aktuellen Codex-Turn. Der
+Zielstatus wird erst in einer neuen Codex-Session bearbeitet; Skip-Ketten
+werden dabei weiter in Tabellenreihenfolge aufgelöst.
+
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
@@ -311,9 +317,9 @@ Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
-   - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus verschieben und den Turn beenden; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Review (AI)` -> Ablauf `Review (AI)` ausführen.
-   - `Freigabe Review` -> mit `Skip "Freigabe Review"` oder `--yolo` zum nächsten Tabellenstatus weiterlaufen; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
+   - `Freigabe Review` -> mit `Skip "Freigabe Review"` oder `--yolo` zum nächsten Tabellenstatus verschieben und den Turn beenden; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
    - `Test (AI)` -> Ablauf `Test (AI)` ausführen.
    - `Abbruch (AI)` -> Ablauf `Abbruch (AI)` ausführen.
    - `Merge (AI)` -> Ablauf `Merge (AI)` ausführen.
@@ -324,7 +330,8 @@ Assignee; die Hauptmaske zeigt in diesem Modus `--yolo` statt des Assignees.
 
 ### Ziel
 
-Das Issue aus der Warteschlange in die Planungsphase überführen und den regulären Ausführungsablauf sauber starten.
+Das Issue aus der Warteschlange in die Planungsphase überführen und den
+Workpad-Startpunkt für den nächsten Turn vorbereiten.
 
 ### Voraussetzungen
 
@@ -336,11 +343,13 @@ Das Issue aus der Warteschlange in die Planungsphase überführen und den regul�
    - `update_issue(..., state: "Planung (AI)")`
    - `## Symphony Workpad`-Bootstrap-Kommentar finden/erstellen
    - falls der Kommentar dabei erstmals neu angelegt wird, prüfe die Trigger-Bedingungen des `Erstkontakt-Protokolls für neue Items` und führe es nur bei bestätigtem Erstkontakt aus
-   - erst danach in den Ablauf `Planung (AI)` übergehen.
+   - Workpad-Verlauf mit Statuswechsel und Bootstrap-Ergebnis aktualisieren
+   - Turn danach beenden; nicht in den Ablauf `Planung (AI)` einsteigen.
 
 ### Abschluss und nächster Status
 
-- Nach der unmittelbaren Statusänderung und dem Workpad-Bootstrap geht der Ablauf in `Planung (AI)` über.
+- Nach der unmittelbaren Statusänderung und dem Workpad-Bootstrap endet der
+  Turn. `Planung (AI)` startet in einer neuen Codex-Session.
 
 ### Sonderfälle
 
@@ -374,16 +383,16 @@ offenen Klärungsbedarf so dokumentieren, dass der Benutzer den Plan im Status
 3. Starte in diesem Status keine Implementierung.
 4. Erstelle in diesem Status die initiale inhaltliche Planung. Spätere automatische Schritte dürfen `### Plan` und `### Validierung` bei Bedarf anpassen, wenn neue Erkenntnisse aus der Umsetzung das erforderlich machen; solche Änderungen müssen im Workpad nachvollziehbar begründet werden.
 5. Entscheide am Ende dieses Status selbst, ob die Planung für eine vollständig autonome Umsetzung ausreicht.
-   - Wenn ja, verschiebe das Issue direkt nach `In Arbeit (AI)`.
+   - Wenn ja, markiere die Planungs-Checklistenpunkte als erledigt, halte die Umsetzungsübergabe im Workpad fest, verschiebe das Issue nach `In Arbeit (AI)` und beende den Turn.
    - Wenn mehrere plausible Varianten die Funktionalität, das Verhalten oder eine Produktausgabe verändern würden und das Ticket keine klare Entscheidung enthält, wähle nicht still selbst.
    - Wenn nein, arbeite die vom System empfohlenen Lösungsvorschläge zunächst in `### Plan` und `### Validierung` ein, damit der Plan bei Zustimmung des Benutzers direkt ausführbar ist.
    - Lege anschließend in Linear einen separaten Kommentar an, der die offenen Verständnis- oder Umsetzungsfragen beschreibt, pro Frage einen empfohlenen Lösungsvorschlag nennt und deutlich macht, welche Planannahmen bereits eingearbeitet wurden.
-   - Verschiebe das Issue danach nach `Planung`.
+   - Markiere die Planungs-Checklistenpunkte als erledigt, dokumentiere die offenen Punkte als Unklarheiten, verschiebe das Issue nach `Planung` und beende den Turn.
 
 ### Abschluss und nächster Status
 
-- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend für vollständig autonome Umsetzung vorbereitet sind, verschiebe das Issue direkt nach `In Arbeit (AI)`.
-- Wenn Klärungsbedarf bleibt, kommentiere die offenen Fragen mit empfohlenen Lösungen in Linear und verschiebe das Issue nach `Planung`.
+- Wenn Ticketbeschreibung, `Plan` und `Validierung` ausreichend für vollständig autonome Umsetzung vorbereitet sind, verschiebe das Issue nach `In Arbeit (AI)` und beende den Turn.
+- Wenn Klärungsbedarf bleibt, kommentiere die offenen Fragen mit empfohlenen Lösungen in Linear, verschiebe das Issue nach `Planung` und beende den Turn.
 
 ### Sonderfälle
 
@@ -427,11 +436,12 @@ Umsetzung eine produkt-/verhaltensrelevante Entscheidung offen bleibt.
    - Poste keinen zusätzlichen Abschluss- oder Zusammenfassungs-Kommentar.
 11. Bestätige vor dem Wechsel nach `PreReview (AI)`, dass jeder erforderliche ticketseitige Validierungs-/Test-Plan-Punkt im Workpad explizit als abgeschlossen markiert ist.
 12. Öffne das Workpad vor dem Statuswechsel erneut und aktualisiere es, sodass `Plan` und `Validierung` exakt zur erledigten Arbeit passen.
+13. Verschiebe das Issue erst danach nach `PreReview (AI)` und beende den Turn; führe `PreReview (AI)` nicht im selben Turn aus.
 
 ### Abschluss und nächster Status
 
 - Der reguläre Abschluss dieser Phase ist `PreReview (AI)`, nicht direkt `Freigabe Implementierung`.
-- Erst dann nach `PreReview (AI)` verschieben.
+- Erst nach erfüllten Abschlussbedingungen nach `PreReview (AI)` verschieben und den Turn beenden.
   - Wenn Schritt 4 oder 8 wegen offener Funktionalitäts-, Verhaltens- oder Produktausgabe-Entscheidung greift, ist stattdessen `Planung` der zulässige Abschluss dieser Phase.
   - Ein direkter Übergang von `In Arbeit (AI)` nach `BLOCKER` ist nur über den blocked-access escape hatch zulässig.
   - Ausnahme: Wenn du gemäß blocked-access escape hatch durch fehlende erforderliche Tools/Auth blockiert bist, verschiebe nach `BLOCKER` und füge den Blocker-Hinweis sowie explizite Entblockungsaktionen hinzu.
@@ -463,12 +473,12 @@ den manuellen Schritt `Freigabe Implementierung` übergeben.
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue erst danach nach `Freigabe Implementierung`.
+- Verschiebe das Issue erst danach nach `Freigabe Implementierung` und beende den Turn.
   - Nur dieser Schritt verschiebt regulär von `PreReview (AI)` nach `Freigabe Implementierung`.
 
 ### Sonderfälle
 
-- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Implementierung` als Fallback automatisch.
+- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Implementierung` als Fallback automatisch und beendet den Turn.
 
 ## Ablauf für `Review (AI)`
 
@@ -496,18 +506,20 @@ anderen abgeschlossenen Fällen den Abschluss nach der Skill-Evidenz sowie
 ### Abschluss und nächster Status
 
 - Wenn `symphony-review` ohne Findings und mit sauberem Workspace endet,
-  verschiebe das Issue direkt nach `Test (AI)`. Dieser No-Findings-Skip gilt
-  unabhängig von `--yolo` oder `Skip "Freigabe Review"`-Labels.
+  verschiebe das Issue nach `Test (AI)` und beende den Turn. Dieser
+  No-Findings-Skip gilt unabhängig von `--yolo` oder
+  `Skip "Freigabe Review"`-Labels.
 - In allen anderen abgeschlossenen Fällen muss die Review-Evidenz zuerst
   behandelt und dokumentiert sein. Ohne `--yolo` oder
   `Skip "Freigabe Review"` verschiebe das Issue danach nach `Freigabe Review`;
-  mit `--yolo` oder `Skip "Freigabe Review"` direkt nach `Test (AI)`.
+  mit `--yolo` oder `Skip "Freigabe Review"` nach `Test (AI)`. Beende den Turn
+  direkt nach diesem Statuswechsel.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
 
 ### Sonderfälle
 
-- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch.
+- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch und beendet den Turn.
 
 ## Ablauf für `Freigabe Review`
 
@@ -541,12 +553,12 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren,
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue nach `Merge (AI)`.
+- Verschiebe das Issue nach `Merge (AI)` und beende den Turn.
   - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Merge (AI)`.
 
 ### Sonderfälle
 
-- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch.
+- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch und beendet den Turn.
 
 ## Ablauf für `Planung`
 
@@ -580,11 +592,11 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
 3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-5. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Merge-Lauf, damit die Tests auf dem neuen Stand erneut durchlaufen.
+5. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
-- Nach abgeschlossenem Merge das Issue nach `Review` verschieben.
+- Nach abgeschlossenem Merge das Issue nach `Review` verschieben und den Turn beenden.
 
 ### Sonderfälle
 
@@ -608,7 +620,7 @@ Laufende Arbeit sofort stoppen, den Workspace bereinigen und das Issue sauber ab
 
 ### Abschluss und nächster Status
 
-- Verschiebe das Issue danach nach `Abgebrochen`.
+- Verschiebe das Issue danach nach `Abgebrochen` und beende den Turn.
 
 ### Sonderfälle
 
