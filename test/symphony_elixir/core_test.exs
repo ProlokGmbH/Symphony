@@ -1373,6 +1373,44 @@ defmodule SymphonyElixir.CoreTest do
     assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
   end
 
+  test "normal worker exit records the original dispatch state after running state refreshes" do
+    issue_id = "issue-refreshed-state-completion"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :RefreshedStateCompletionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = orchestrator_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-558B",
+      dispatch_issue: %Issue{id: issue_id, identifier: "MT-558B", state: "Todo (AI)"},
+      issue: %Issue{id: issue_id, identifier: "MT-558B", state: "Planung (AI)"},
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+    Process.sleep(350)
+    state = orchestrator_state(pid)
+
+    assert Map.get(state.completed_states, issue_id) == "todo (ai)"
+    assert %{attempt: 1} = state.retry_attempts[issue_id]
+  end
+
   test "abnormal worker exit increments retry attempt progressively" do
     issue_id = "issue-crash"
     ref = make_ref()

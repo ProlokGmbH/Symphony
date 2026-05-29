@@ -901,6 +901,7 @@ defmodule SymphonyElixir.Orchestrator do
             pid: pid,
             ref: ref,
             identifier: issue.identifier,
+            dispatch_issue: issue,
             issue: issue,
             worker_host: worker_host,
             workspace_path: nil,
@@ -1250,18 +1251,20 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_normal_issue_completion(%State{} = state, issue_id, session_id, running_entry)
        when is_binary(issue_id) and is_map(running_entry) do
-    if manual_in_progress_issue_state?(running_entry.issue.state) or Dialog.state?(running_entry.issue.state) do
+    completed_issue = completed_issue_for_running_entry(running_entry)
+
+    if manual_in_progress_issue_state?(completed_issue.state) or Dialog.state?(completed_issue.state) do
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual in-progress bootstrap finished without continuation")
 
       state
-      |> complete_issue(issue_id, running_entry.issue)
+      |> complete_issue(issue_id, completed_issue)
       |> release_issue_claim(issue_id)
     else
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
       log_review_retry_context(running_entry, session_id)
 
       state
-      |> complete_issue(issue_id, running_entry.issue)
+      |> complete_issue(issue_id, completed_issue)
       |> schedule_issue_retry(issue_id, 1, %{
         identifier: running_entry.identifier,
         delay_type: :continuation,
@@ -1273,6 +1276,9 @@ defmodule SymphonyElixir.Orchestrator do
       })
     end
   end
+
+  defp completed_issue_for_running_entry(%{dispatch_issue: %Issue{} = issue}), do: issue
+  defp completed_issue_for_running_entry(%{issue: %Issue{} = issue}), do: issue
 
   defp completed_in_current_state?(
          %Issue{id: issue_id, state: issue_state, updated_at: updated_at},
