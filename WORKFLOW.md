@@ -84,11 +84,14 @@ prompt_snippets:
     - Folge den Workflow-Anweisungen für den aktuellen Tracker-Status, bevor du das weitere Vorgehen festlegst.
     - Setze im bestehenden Workspace-, Workpad- und Thread-Kontext fort, statt von Grund auf neu zu beginnen.
     - Die ursprünglichen Aufgabenanweisungen und der bisherige Turn-Kontext liegen in diesem Thread bereits vor; wiederhole sie nicht, bevor du handelst.
+    - Wenn der vorherige Turn normal endete, der Tracker-Status aber weiterhin ein aktiver AI-Status ist, behandle das als unvollständigen Phasenabschluss. Prüfe die phasenspezifischen Workpad-Checklisten oder Merge-Evidenz und arbeite weiter, bis ein zulässiger Statuswechsel erfolgt oder ein echter Blocker beziehungsweise `agent.max_turns` dokumentiert ist.
     - Konzentriere dich auf die verbleibende Arbeit im aktuellen Tracker-Status. Sobald du den Status wechselst, beende diesen Turn sauber, damit der Zielstatus in einer neuen Codex-Session startet.
   continuation_intro_cancelled: |
     Der vorherige Codex-Turn wurde unterbrochen, das Linear-Issue befindet sich aber weiterhin in einem aktiven Status.
   continuation_intro_completed: |
     Der vorherige Codex-Turn wurde normal abgeschlossen, das Linear-Issue befindet sich aber weiterhin in einem aktiven Status.
+  continuation_intro_incomplete_phase: |
+    Der vorherige Codex-Turn wurde beendet, obwohl der Abschlussvertrag für den aktuellen aktiven AI-Status noch nicht erfüllt war ({{ reason }}). Behandle das als unvollständigen Phasenabschluss, nicht als regulären Abschluss.
   recovered_turn_context: |
     Wiederhergestellter Fortsetzungskontext:
 
@@ -124,6 +127,7 @@ prompt_snippets:
     - Wenn die erforderliche Isolation des Review-Subagenten in diesem Turn nicht möglich ist, bleibt der Review-Schritt offen; behaupte kein lokales Ersatz-Review und verschiebe das Ticket nicht weiter.
     - Der Hauptagent muss die Findings weiterhin selbst bewerten, die Fixes selbst umsetzen und die Review-Schleife bei Bedarf erneut ausführen.
     - Verwende für den Review-Subagenten `wait_agent` mit langem Timeout. Ein 30-Sekunden-Timeout reicht für einen vollständigen Review-Durchlauf nicht aus.
+    - Wenn `wait_agent` ein finales Ergebnis mit `Findings:` liefert, verarbeite diese Findings sofort im Hauptturn: dokumentieren, fixen, validieren, Workpad aktualisieren und danach die Review-Schleife fortsetzen. Beende den Turn nicht zwischen Findings-Erhalt und dieser Verarbeitung.
     - Wenn `wait_agent` abläuft oder kein finales Ergebnis liefert, ist der Review-Schritt weiterhin unvollständig. Lass den Subagenten weiterlaufen und warte erneut, statt Ergebnisse zu erfinden oder die Checkliste neu zu starten.
     - Rufe `close_agent` nicht auf einem noch laufenden Review-Subagenten auf, nur weil ein Wait-Timeout erreicht wurde.
 ---
@@ -256,6 +260,14 @@ Nutze die dabei zurückgegebene interne `id` anschließend für eng begrenzte Fo
 - Betrachte jeden vom Ticket vorgegebenen Abschnitt `Validation`, `Test Plan` oder `Testing` als nicht verhandelbare Validierungsvorgabe: übernimm ihn als Punkte im Abschnitt `### Validierung` des Workpads und führe ihn aus, bevor du die Arbeit als abgeschlossen betrachtest.
 - Wenn während der Ausführung sinnvolle Verbesserungen außerhalb des Scopes entdeckt werden, erstelle ein separates Linear-Issue, statt den Scope zu erweitern. Das Folge-Issue muss einen klaren Titel, eine Beschreibung und Validierungspunkte enthalten, in `Backlog` eingeordnet sein, demselben Projekt wie das aktuelle Issue zugewiesen werden, das aktuelle Issue als `related` verknüpfen und `blockedBy` verwenden, wenn das Folge-Issue vom aktuellen Issue abhängt.
 - Nutze den blocked-access escape hatch nur für echte externe Blocker (fehlende erforderliche Tools/Auth), nachdem dokumentierte Fallbacks ausgeschöpft wurden.
+
+### Turn-Abschlussvertrag für aktive AI-Status
+
+- Vor einer finalen Antwort in einem aktiven AI-Status öffne den Workpad-Kommentar erneut und prüfe die phasenspezifischen Abschlussbedingungen.
+- Beende den Hauptturn regulär nur nach sauber abgeschlossenem Phasenschritt und zulässigem Statuswechsel. Offene, fehlende oder nicht explizit abgehakte Checklisten sowie fehlende Merge-Evidenz bedeuten: im selben Turn weiterarbeiten.
+- Wenn ein `wait_agent`-Ergebnis mit Review-Findings erst spät im Turn eintrifft, zuerst diese Findings bearbeiten und die Review-Schleife fortsetzen; der Findings-Erhalt allein erfüllt den Abschlussvertrag nicht.
+- Ein finaler Antworttext ohne Statuswechsel ist nur für dokumentierte echte Blocker oder `agent.max_turns` zulässig.
+- Runtime-Fallbacks, die ein Issue nach normalem Turn-Ende weiter aktiv halten oder einen Handoff nachholen, sind Guardrails und kein regulärer Skill-Abschluss.
 
 ## Statusübersicht
 
@@ -475,10 +487,14 @@ den manuellen Schritt `Freigabe Implementierung` übergeben.
 
 - Verschiebe das Issue erst danach nach `Freigabe Implementierung` und beende den Turn.
   - Nur dieser Schritt verschiebt regulär von `PreReview (AI)` nach `Freigabe Implementierung`.
+- Solange die `### Review`-Checkliste im Workpad offen, fehlend oder nicht
+  explizit abgehakt ist, ist kein regulärer Turn-Abschluss zulässig. Arbeite
+  weiter oder dokumentiere einen echten Blocker beziehungsweise
+  `agent.max_turns` ohne Statuswechsel.
 
 ### Sonderfälle
 
-- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Implementierung` als Fallback automatisch und beendet den Turn.
+- Falls ein `PreReview (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `PreReview (AI)` steht, übernimmt Symphony den Statuswechsel nach `Freigabe Implementierung` nur als Guardrail-Fallback, wenn die `### Review`-Checkliste geschlossen und bewertbar ist. Bei offener, fehlender oder nicht explizit abgehakter Checkliste bleibt das Issue aktiv.
 
 ## Ablauf für `Review (AI)`
 
@@ -516,10 +532,14 @@ anderen abgeschlossenen Fällen den Abschluss nach der Skill-Evidenz sowie
   direkt nach diesem Statuswechsel.
   - Nur dieser Schritt verschiebt regulär von `Review (AI)` nach `Freigabe Review`
     oder bei eindeutigem No-Findings-Skip direkt nach `Test (AI)`.
+- Solange die `### Review`-Checkliste im Workpad offen, fehlend oder nicht
+  explizit abgehakt ist, ist kein regulärer Turn-Abschluss zulässig. Arbeite
+  weiter oder dokumentiere einen echten Blocker beziehungsweise
+  `agent.max_turns` ohne Statuswechsel.
 
 ### Sonderfälle
 
-- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel als Fallback automatisch und beendet den Turn.
+- Falls ein `Review (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Review (AI)` steht, übernimmt Symphony den passenden Statuswechsel nur als Guardrail-Fallback, wenn die `### Review`-Checkliste geschlossen und bewertbar ist. Bei offener, fehlender oder nicht explizit abgehakter Checkliste bleibt das Issue aktiv.
 
 ## Ablauf für `Freigabe Review`
 
@@ -555,10 +575,14 @@ Den Branch vor dem Test per Rebase gegen `origin/main` synchronisieren,
 
 - Verschiebe das Issue nach `Merge (AI)` und beende den Turn.
   - Nur dieser Schritt verschiebt regulär von `Test (AI)` nach `Merge (AI)`.
+- Solange die `### Test`- oder `### Validierung`-Checkliste im Workpad offen,
+  fehlend oder nicht explizit abgehakt ist, ist kein regulärer Turn-Abschluss
+  zulässig. Arbeite weiter oder dokumentiere einen echten Blocker
+  beziehungsweise `agent.max_turns` ohne Statuswechsel.
 
 ### Sonderfälle
 
-- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` als Fallback automatisch und beendet den Turn.
+- Falls ein `Test (AI)`-Lauf sauber endet, das Issue aber fälschlich noch in `Test (AI)` steht, übernimmt Symphony den passenden Statuswechsel nach `Merge (AI)` nur als Guardrail-Fallback, wenn `### Test` und `### Validierung` geschlossen und bewertbar sind. Bei offener, fehlender oder nicht explizit abgehakter Checkliste bleibt das Issue aktiv.
 
 ## Ablauf für `Planung`
 
@@ -592,15 +616,28 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
 3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-5. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
+5. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
+   eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
+   gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
+6. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
 - Nach abgeschlossenem Merge das Issue nach `Review` verschieben und den Turn beenden.
+- Ein normal beendeter Hauptturn alleine belegt keinen abgeschlossenen Merge.
+  Falls das Issue nach einem sauber beendeten `Merge (AI)`-Turn noch in
+  `Merge (AI)` steht, darf Symphony nur mit eindeutiger Workpad-`Merge-Evidenz`
+  als Guardrail-Fallback nach `Review` wechseln; ohne diese Evidenz bleibt das
+  Issue aktiv.
+- Bei `agent.max_turns` dokumentiere offene Abweichungen im Workpad und stoppe
+  ohne Statuswechsel; `agent.max_turns` ist kein normaler Phasenabschluss.
 
 ### Sonderfälle
 
-- Keine.
+- Wenn der Skill den Status bereits zulässig nach `Test (AI)` oder `Review`
+  geändert hat, endet der Turn an dieser Statusgrenze. Wenn der Status nicht
+  geändert wurde und keine `Merge-Evidenz` vorhanden ist, weiterarbeiten oder
+  einen echten Blocker dokumentieren.
 
 ## Ablauf für `Abbruch (AI)`
 

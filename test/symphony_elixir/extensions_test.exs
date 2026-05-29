@@ -385,6 +385,47 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert Workpad.review_handoff_status(nil) == :blocked
   end
 
+  test "workpad helper classifies merge handoff evidence" do
+    merge_evidence_workpad = """
+    ## Symphony Workpad
+
+    ### Verlauf
+
+    - 2026-05-29 18:12:00 CEST - Merge-Evidenz: PR #42 gemergt, Merge-Commit `abc1234`.
+    """
+
+    merge_evidence_with_url_workpad = """
+    ## Symphony Workpad
+
+    ### Verlauf
+
+    - 2026-05-29 18:13:00 CEST - Merge evidence: https://github.com/owner/repo/pull/42 merged, merge commit deadbee.
+    """
+
+    reversed_url_merge_evidence_workpad = """
+    ## Symphony Workpad
+
+    ### Verlauf
+
+    - 2026-05-29 18:13:30 CEST - Merge evidence: merged https://github.com/owner/repo/pull/43, merge commit cafebabe.
+    """
+
+    incomplete_workpad = """
+    ## Symphony Workpad
+
+    ### Verlauf
+
+    - 2026-05-29 18:14:00 CEST - PR #42 gemergt.
+    """
+
+    assert Workpad.merge_handoff_status(merge_evidence_workpad) == :ready
+    assert Workpad.merge_handoff_status([%{body: merge_evidence_with_url_workpad}]) == :ready
+    assert Workpad.merge_handoff_status(reversed_url_merge_evidence_workpad) == :ready
+    assert Workpad.merge_handoff_status(incomplete_workpad) == :blocked
+    assert Workpad.merge_handoff_status("Merge-Evidenz: PR #42 gemergt, Merge-Commit `abc1234`.") == :blocked
+    assert Workpad.merge_handoff_status(nil) == :blocked
+  end
+
   test "linear adapter delegates reads and validates mutation responses" do
     Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
 

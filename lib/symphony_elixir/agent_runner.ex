@@ -599,6 +599,39 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp continue_turn(
+         {:continue, refreshed_issue, {:incomplete_phase, reason} = previous_turn_outcome},
+         turn_context,
+         turn_number,
+         _previous_turn_outcome,
+         _continuation_message,
+         _max_turns_message
+       )
+       when turn_number < turn_context.max_turns do
+    reason_label = incomplete_phase_reason_label(reason)
+
+    Logger.warning("Continuing agent run for #{issue_context(refreshed_issue)} after incomplete phase completion contract reason=#{reason_label} turn=#{turn_number}/#{turn_context.max_turns}")
+
+    do_run_codex_turns(turn_context, refreshed_issue, turn_number + 1, previous_turn_outcome)
+  end
+
+  defp continue_turn(
+         {:continue, refreshed_issue, {:incomplete_phase, reason}},
+         turn_context,
+         turn_number,
+         _previous_turn_outcome,
+         _continuation_message,
+         _max_turns_message
+       ) do
+    reason_label = incomplete_phase_reason_label(reason)
+
+    Logger.warning(
+      "Reached agent.max_turns for #{issue_context(refreshed_issue)} with incomplete phase completion contract reason=#{reason_label}; returning control to orchestrator turn=#{turn_number}/#{turn_context.max_turns}"
+    )
+
+    :ok
+  end
+
+  defp continue_turn(
          {:continue, refreshed_issue},
          turn_context,
          turn_number,
@@ -674,8 +707,48 @@ defmodule SymphonyElixir.AgentRunner do
     Workflow.prompt_snippet("continuation_intro_cancelled")
   end
 
+  defp continuation_intro({:incomplete_phase, reason}) do
+    Workflow.prompt_snippet("continuation_intro_incomplete_phase", %{
+      reason: incomplete_phase_reason_text(reason)
+    })
+  end
+
   defp continuation_intro(_previous_turn_outcome) do
     Workflow.prompt_snippet("continuation_intro_completed")
+  end
+
+  defp incomplete_phase_reason_label(reason) do
+    reason
+    |> incomplete_phase_reason_text()
+    |> String.replace(~r/\s+/, "_")
+  end
+
+  defp incomplete_phase_reason_text({:open_workpad_checklist, section_title}) when is_binary(section_title) do
+    "offene Workpad-Checkliste #{section_title}"
+  end
+
+  defp incomplete_phase_reason_text({:missing_workpad_checklist, section_title}) when is_binary(section_title) do
+    "fehlende oder unvollständige Workpad-Checkliste #{section_title}"
+  end
+
+  defp incomplete_phase_reason_text({:workpad_checklist_inspection_failed, section_titles}) when is_list(section_titles) do
+    "Workpad-Checklistenprüfung fehlgeschlagen für #{format_section_titles(section_titles)}"
+  end
+
+  defp incomplete_phase_reason_text(:merge_evidence_missing) do
+    "fehlende oder unvollständige Merge-Evidenz"
+  end
+
+  defp incomplete_phase_reason_text(:merge_evidence_inspection_failed) do
+    "Merge-Evidenzprüfung fehlgeschlagen"
+  end
+
+  defp incomplete_phase_reason_text(:review_checklist_inspection_failed) do
+    "Review-Checklistenprüfung fehlgeschlagen"
+  end
+
+  defp incomplete_phase_reason_text(reason) do
+    inspect(reason)
   end
 
   defp continue_with_issue?(
@@ -781,6 +854,14 @@ defmodule SymphonyElixir.AgentRunner do
     {:done, issue}
   end
 
+  defp continuation_status(%Issue{} = issue, {:incomplete_phase, _reason} = continuation_mode) do
+    if active_issue_state?(issue.state) do
+      {:continue, issue, continuation_mode}
+    else
+      {:done, issue}
+    end
+  end
+
   defp continuation_status(%Issue{} = issue, _continuation_mode) do
     if active_issue_state?(issue.state) do
       {:continue, issue}
@@ -828,6 +909,14 @@ defmodule SymphonyElixir.AgentRunner do
               worker_host
             )
 
+          :merge ->
+            maybe_finalize_merge_codex_issue(
+              issue,
+              issue_state_fetcher,
+              workspace,
+              worker_host
+            )
+
           :normal ->
             {:ok, issue, :normal}
         end
@@ -866,7 +955,7 @@ defmodule SymphonyElixir.AgentRunner do
         :test
 
       merge_codex_state?(state) ->
-        {:transition, :merge_handoff_state_update_failed, "completed merge issue"}
+        :merge
 
       true ->
         :normal
@@ -930,6 +1019,33 @@ defmodule SymphonyElixir.AgentRunner do
     )
   end
 
+  defp maybe_finalize_merge_codex_issue(
+         %Issue{} = issue,
+         issue_state_fetcher,
+         _workspace,
+         _worker_host
+       ) do
+    case merge_workpad_handoff_status(issue) do
+      :ready ->
+        transition_issue_state(
+          issue,
+          issue_state_fetcher,
+          resolve_next_handoff_state(issue),
+          :merge_handoff_state_update_failed,
+          "completed merge issue",
+          :stop
+        )
+
+      :blocked ->
+        Logger.info("Keeping merge issue active because PR merge evidence is missing or incomplete before completed merge issue: #{issue_context(issue)}")
+        {:ok, issue, {:incomplete_phase, :merge_evidence_missing}}
+
+      {:error, reason} ->
+        Logger.warning("Failed to inspect workpad merge evidence before completed merge issue; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
+        {:ok, issue, {:incomplete_phase, :merge_evidence_inspection_failed}}
+    end
+  end
+
   defp maybe_transition_completed_codex_issue(
          %Issue{} = issue,
          issue_state_fetcher,
@@ -978,15 +1094,15 @@ defmodule SymphonyElixir.AgentRunner do
 
       {:open, section_title} ->
         Logger.info("Keeping issue active because the workpad #{section_title} checklist still has open items before #{reason_label}: #{issue_context(issue)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, {:open_workpad_checklist, section_title}}}
 
       {:blocked, section_title} ->
         Logger.info("Keeping issue active because the workpad #{section_title} checklist evidence is missing or incomplete before #{reason_label}: #{issue_context(issue)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, {:missing_workpad_checklist, section_title}}}
 
       {:error, reason} ->
         Logger.warning("Failed to inspect workpad #{format_section_titles(section_titles)} checklist before #{reason_label}; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, {:workpad_checklist_inspection_failed, section_titles}}}
     end
   end
 
@@ -1009,15 +1125,15 @@ defmodule SymphonyElixir.AgentRunner do
 
       :open ->
         Logger.info("Keeping review issue active because the workpad review checklist still has open items: #{issue_context(issue)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, {:open_workpad_checklist, "Review"}}}
 
       :blocked ->
         Logger.info("Keeping review issue active because the workpad review checklist evidence is missing or incomplete: #{issue_context(issue)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, {:missing_workpad_checklist, "Review"}}}
 
       {:error, reason} ->
         Logger.warning("Failed to inspect workpad review checklist before review handoff; keeping review issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
-        {:ok, issue, :normal}
+        {:ok, issue, {:incomplete_phase, :review_checklist_inspection_failed}}
     end
   end
 
@@ -1297,6 +1413,14 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp review_workpad_handoff_status(_issue), do: {:ready, :unknown}
+
+  defp merge_workpad_handoff_status(%Issue{id: issue_id}) when is_binary(issue_id) do
+    with {:ok, comments} <- Tracker.fetch_issue_comment_bodies(issue_id) do
+      Workpad.merge_handoff_status(comments)
+    end
+  end
+
+  defp merge_workpad_handoff_status(_issue), do: :blocked
 
   defp required_handoff_workpad_sections(state_name) when is_binary(state_name) do
     cond do

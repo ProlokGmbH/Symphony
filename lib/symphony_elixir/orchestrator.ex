@@ -573,7 +573,13 @@ defmodule SymphonyElixir.Orchestrator do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = running_entry_session_id(running_entry)
 
-      Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
+      Logger.warning(
+        "Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms} " <>
+          "last_event=#{inspect(Map.get(running_entry, :last_codex_event))} " <>
+          "last_event_at=#{inspect(log_timestamp(Map.get(running_entry, :last_codex_timestamp)))} " <>
+          "last_tool_call=#{log_inspect(Map.get(running_entry, :last_tool_call))} " <>
+          "last_session_event=#{log_inspect(Map.get(running_entry, :last_codex_message))}; restarting with backoff"
+      )
 
       next_attempt = next_retry_attempt_from_running(running_entry)
 
@@ -610,6 +616,13 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp last_activity_timestamp(_running_entry), do: nil
+
+  defp log_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp log_timestamp(_timestamp), do: nil
+
+  defp log_inspect(value) do
+    inspect(value, limit: 20, printable_limit: 500)
+  end
 
   defp terminate_task(pid) when is_pid(pid) do
     case Process.whereis(SymphonyElixir.TaskSupervisor) do
@@ -671,13 +684,19 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp should_dispatch_issue?(
          %Issue{} = issue,
-         %State{running: running, claimed: claimed, completed_states: completed_states} = state,
+         %State{
+           running: running,
+           claimed: claimed,
+           completed_states: completed_states,
+           retry_attempts: retry_attempts
+         } = state,
          active_states,
          terminal_states
        ) do
     candidate_issue?(issue, active_states, terminal_states) and
       !blocked_issue_in_dispatch_state?(issue, terminal_states) and
       dispatchable_after_completion?(issue, completed_states) and
+      !pending_retry?(retry_attempts, issue.id) and
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
@@ -686,6 +705,12 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  defp pending_retry?(retry_attempts, issue_id) when is_map(retry_attempts) and is_binary(issue_id) do
+    Map.has_key?(retry_attempts, issue_id)
+  end
+
+  defp pending_retry?(_retry_attempts, _issue_id), do: false
 
   defp dispatchable_after_completion?(%Issue{state: issue_state} = issue, completed_states)
        when is_binary(issue_state) do
@@ -911,6 +936,7 @@ defmodule SymphonyElixir.Orchestrator do
             recent_codex_events: [],
             last_codex_timestamp: nil,
             last_codex_event: nil,
+            last_tool_call: nil,
             codex_app_server_pid: nil,
             codex_input_tokens: 0,
             codex_output_tokens: 0,
@@ -1735,6 +1761,7 @@ defmodule SymphonyElixir.Orchestrator do
           ),
         session_id: session_id,
         last_codex_event: event,
+        last_tool_call: last_tool_call_for_update(Map.get(running_entry, :last_tool_call), update),
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         codex_input_tokens: codex_input_tokens + token_delta.input_tokens,
         codex_output_tokens: codex_output_tokens + token_delta.output_tokens,
@@ -1797,7 +1824,36 @@ defmodule SymphonyElixir.Orchestrator do
       session_id: session_id,
       timestamp: update[:timestamp]
     }
+    |> put_present(:codex_method, update[:codex_method])
+    |> put_present(:item_type, update[:item_type])
+    |> put_present(:tool_name, update[:tool_name])
+    |> put_present(:call_id, update[:call_id])
+    |> put_present(:jsonrpc_id, update[:jsonrpc_id])
+    |> put_present(:tool_success, update[:tool_success])
   end
+
+  defp last_tool_call_for_update(_existing, %{event: event} = update)
+       when event in [
+              :tool_call_started,
+              :tool_call_completed,
+              :tool_call_failed,
+              :unsupported_tool_call
+            ] do
+    %{
+      event: event,
+      timestamp: update[:timestamp],
+      session_id: update[:session_id]
+    }
+    |> put_present(:tool_name, update[:tool_name])
+    |> put_present(:call_id, update[:call_id])
+    |> put_present(:item_type, update[:item_type])
+    |> put_present(:tool_success, update[:tool_success])
+  end
+
+  defp last_tool_call_for_update(existing, _update), do: existing
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 
   defp update_recent_codex_events(events, event) when is_list(events) and is_map(event) do
     events

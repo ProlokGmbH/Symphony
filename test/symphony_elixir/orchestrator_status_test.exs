@@ -120,6 +120,82 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            ]
   end
 
+  test "orchestrator retains tool call metadata for stall diagnostics" do
+    issue_id = "issue-tool-diagnostics"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-TOOL",
+      title: "Tool diagnostics",
+      description: "Capture tool call metadata",
+      state: "Merge (AI)",
+      url: "https://example.org/issues/MT-TOOL"
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :ToolDiagnosticsOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+    started_at = DateTime.utc_now()
+
+    running_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: issue.identifier,
+      issue: issue,
+      session_id: nil,
+      turn_count: 0,
+      last_codex_message: nil,
+      last_codex_timestamp: nil,
+      last_codex_event: nil,
+      started_at: started_at
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+    end)
+
+    now = DateTime.utc_now()
+
+    send(
+      pid,
+      {:codex_worker_update, issue_id,
+       %{
+         event: :tool_call_started,
+         session_id: "thread-tool-turn-tool",
+         codex_method: "item/tool/call",
+         item_type: "dynamic_tool",
+         tool_name: "linear_graphql",
+         call_id: "call-linear",
+         jsonrpc_id: "99",
+         timestamp: now
+       }}
+    )
+
+    updated_entry = :sys.get_state(pid).running[issue_id]
+
+    assert updated_entry.last_tool_call == %{
+             event: :tool_call_started,
+             timestamp: now,
+             session_id: "thread-tool-turn-tool",
+             tool_name: "linear_graphql",
+             call_id: "call-linear",
+             item_type: "dynamic_tool"
+           }
+
+    assert updated_entry.last_codex_message.tool_name == "linear_graphql"
+    assert updated_entry.last_codex_message.call_id == "call-linear"
+    assert updated_entry.last_codex_message.codex_method == "item/tool/call"
+  end
+
   test "orchestrator keeps original session id on retained codex events" do
     issue_id = "issue-session-switch"
 
