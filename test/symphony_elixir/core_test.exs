@@ -210,6 +210,11 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare"
     refute prompt =~ "Review-Subagent `Findings:` liefert"
 
+    workflow_source = File.read!(Path.expand("../../WORKFLOW.md", __DIR__))
+
+    assert workflow_source =~
+             "sobald der aktive Workflow oder ein aufgerufener Skill einen Review-Subagenten verlangt"
+
     assert prompt =~
              "Davon ausgenommen sind ausdrücklich von aufgerufenen Skills geforderte Nachvollziehbarkeitskommentare"
 
@@ -230,6 +235,7 @@ defmodule SymphonyElixir.CoreTest do
     assert global_review_skill =~ ~r/nach\s+den Änderungen/
     assert global_review_skill =~ "Finding-zu-Änderung"
     assert global_review_skill =~ "Review-/Fix-Schleife"
+    refute global_review_skill =~ "`make all`"
 
     assert local_review_skill =~ "Zusätzliche Review-Hinweise"
     assert local_review_skill =~ "Keine zusätzlichen repositoryspezifischen Hinweise"
@@ -3872,7 +3878,7 @@ defmodule SymphonyElixir.CoreTest do
 
           ### Review
 
-          - [x] Review (AI) `make all`: grün
+          - [x] Review (AI) Einstieg: Pull und Snapshot geprüft
           - [ ] Review (AI) read-only Subagent: läuft
           """
         ]
@@ -4290,7 +4296,7 @@ defmodule SymphonyElixir.CoreTest do
 
     ### Review
 
-    - [x] Review (AI) `make all`: grün
+    - [x] Review (AI) Einstieg: Pull und Snapshot geprüft
     - [x] Review (AI) read-only Subagent: Keine Findings.
     """
   end

@@ -23,7 +23,7 @@ Gegenueber OpenAI Symphony legt dieser Fork den Schwerpunkt auf einen deutschspr
 - Deutsche Sprache in Workflow, Skills und Projektdokumentation
 - Eine zentrale `WORKFLOW.md` als verbindlicher Workflow- und Prompt-Vertrag
 - Git-Worktrees als Standard für isolierte Ticket-Workspaces
-- Review und Test ueber repository-spezifische Skills statt ueber einen generischen Einheitsablauf
+- Gemeinsame Workflow-Skills mit repository-spezifischen Hinweisen und Checklisten
 
 Der Sonderstatus `Todo (Dialog-AI)` ist davon ausgenommen: Er nutzt
 `WORKFLOW_DIALOG.md` für dialogische Vorplanung, erstellt keinen Worktree,
@@ -160,4 +160,4 @@ Wenn `Planung (AI)` oder die spätere Umsetzung Klärungsbedarf erkennt, verläu
 - `WORKFLOW.md`: Workflow, Prompt-Vertrag und Runtime-Konfiguration
 - `AGENTS.md`: Repository-spezifische Regeln fuer Codex
 - `SPEC.md`: uebergeordnete Servicespezifikation
-- `.codex/skills/`: repo-spezifische Skills für Planung, Workpad, Debugging, Review, Test, Push und Merge
+- `.codex/skills/`: mitgelieferte Codex-Skills; `symphony-*`-Skills definieren gemeinsame Workflow-Abläufe, `sym-*`-Skills repositoryspezifische Ergänzungen

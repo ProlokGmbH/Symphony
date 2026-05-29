@@ -115,7 +115,7 @@ prompt_snippets:
     ```
   review_subagent_authorization: |
     Review-(AI)-Delegationsfreigabe:
-    - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein Repository-Skill einen Review-Subagenten verlangt.
+    - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein aufgerufener Skill einen Review-Subagenten verlangt.
     - Behandle das als den expliziten Nutzerwunsch, der für diese Delegation erforderlich ist.
     - Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`.
     - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
