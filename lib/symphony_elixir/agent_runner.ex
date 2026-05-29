@@ -727,7 +727,7 @@ defmodule SymphonyElixir.AgentRunner do
                  workspace,
                  worker_host
                ) do
-          continuation_status(refreshed_issue, :normal)
+          cancelled_turn_continuation_status(started_issue, refreshed_issue)
         end
 
       {:ok, []} ->
@@ -745,6 +745,18 @@ defmodule SymphonyElixir.AgentRunner do
          _worker_host
        ),
        do: {:done, started_issue}
+
+  defp cancelled_turn_continuation_status(%Issue{} = started_issue, %Issue{} = refreshed_issue) do
+    if state_changed_during_turn?(started_issue, refreshed_issue) do
+      Logger.info(
+        "Stopping interrupted agent run after tracker status changed: #{issue_context(refreshed_issue)} previous_state=#{inspect(started_issue.state)} current_state=#{inspect(refreshed_issue.state)}"
+      )
+
+      {:done, refreshed_issue}
+    else
+      continuation_status(refreshed_issue, :normal)
+    end
+  end
 
   defp resolve_issue_continuation(
          %Issue{} = started_issue,
@@ -787,7 +799,9 @@ defmodule SymphonyElixir.AgentRunner do
        when is_binary(issue_id) do
     result =
       if state_changed_during_turn?(started_issue, issue) do
-        {:ok, issue, :normal}
+        Logger.info("Stopping agent run after tracker status changed: #{issue_context(issue)} previous_state=#{inspect(started_issue.state)} current_state=#{inspect(issue.state)}")
+
+        {:ok, issue, :stop}
       else
         case codex_issue_finalize_mode(started_issue.state) do
           {:transition, error_event, log_label} ->
