@@ -135,6 +135,109 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server annotates tool calls with session and issue metadata" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-tool-metadata-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-TOOL")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-tool"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-tool"}}}'
+            printf '%s\\n' '{"method":"item/tool/call","id":99,"params":{"tool":"linear_graphql","callId":"call-linear","item":{"type":"dynamic_tool"},"arguments":{"query":"query Test { viewer { id } }"}}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"turn/completed","params":{}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      parent = self()
+
+      issue = %Issue{
+        id: "issue-tool",
+        identifier: "MT-TOOL",
+        title: "Tool metadata",
+        description: "Expose app-server tool metadata",
+        state: "Merge (AI)",
+        url: "https://example.org/issues/MT-TOOL",
+        labels: []
+      }
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Tool prompt", issue,
+                 on_message: fn message -> send(parent, {:codex_update, message}) end,
+                 tool_executor: fn tool, arguments ->
+                   send(parent, {:tool_executor, tool, arguments})
+                   %{"success" => true, "output" => "ok"}
+                 end
+               )
+
+      assert_receive {:codex_update,
+                      %{
+                        event: :tool_call_started,
+                        issue_id: "issue-tool",
+                        issue_identifier: "MT-TOOL",
+                        session_id: "thread-tool-turn-tool",
+                        thread_id: "thread-tool",
+                        turn_id: "turn-tool",
+                        codex_method: "item/tool/call",
+                        item_type: "dynamic_tool",
+                        tool_name: "linear_graphql",
+                        call_id: "call-linear",
+                        jsonrpc_id: "99"
+                      }}
+
+      assert_receive {:tool_executor, "linear_graphql", %{"query" => "query Test { viewer { id } }"}}
+
+      assert_receive {:codex_update,
+                      %{
+                        event: :tool_call_completed,
+                        session_id: "thread-tool-turn-tool",
+                        tool_name: "linear_graphql",
+                        call_id: "call-linear",
+                        tool_success: true
+                      }}
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "dialog app server refuses approval requests instead of auto-approving them" do
     test_root =
       Path.join(

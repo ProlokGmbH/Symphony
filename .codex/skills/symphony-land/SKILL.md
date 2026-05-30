@@ -33,6 +33,9 @@ Nur im Merge-Schritt des Workflows verwenden.
    pushen und Watch neu starten.
 9. Wenn Checks grün und Feedback erledigt sind, mit Merge-Commit-Betreff
    `<IssueId>: <IssueTitle>` mergen.
+10. Nach erfolgreichem Merge vor jedem Statuswechsel im Workpad-Verlauf eine
+    eindeutige Zeile im Format `Merge-Evidenz: PR #<nummer> gemergt,
+    Merge-Commit <sha>.` dokumentieren.
 
 `gh pr merge` nicht direkt aus dem Workflow heraus aufrufen; nutze diesen Skill
 und bevorzugt den Watch-Helper.
@@ -84,3 +87,14 @@ PR-Titel und Beschreibung müssen den gesamten Änderungsscope abbilden. Nach
 Fix-Batches einen knappen Root-Level-`[codex]`-Kommentar mit Deltas, Commits
 und Tests schreiben, wenn das den Stand klärt. Neues Codex-Review nur anfordern,
 wenn seit der letzten Anfrage neue Commits entstanden sind.
+
+## Abschluss
+
+Den Hauptturn erst final beenden, wenn der PR-Merge nachweislich abgeschlossen
+ist und die `Merge-Evidenz` im Workpad steht, ein zulässiger Statuswechsel nach
+`Test (AI)` oder `Review` erfolgt ist oder ein echter Blocker dokumentiert ist.
+Ohne diese Evidenz keinen normalen Abschluss behaupten und den Hauptturn nicht
+final beenden; im selben Turn die Merge-/Watch-Schleife fortsetzen oder einen
+echten Blocker dokumentieren. Bei `agent.max_turns` Abweichungen dokumentieren
+und ohne Statuswechsel stoppen; `agent.max_turns` ist kein normaler
+Phasenabschluss.

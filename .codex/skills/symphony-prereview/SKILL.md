@@ -22,5 +22,8 @@ Nur im Status `PreReview (AI)` verwenden.
 
 Wenn alle Schritte sauber sind, `### Review` vollständig abhaken, nach
 `Freigabe Implementierung` verschieben und den Turn beenden. Keine Commits. Bei
-`agent.max_turns` verbleibende Abweichungen dokumentieren und ohne Statuswechsel
-stoppen.
+offener, fehlender oder nicht explizit abgehakter `### Review`-Checkliste den
+Hauptturn nicht final beenden: im selben Turn weiterarbeiten oder einen echten
+Blocker im Workpad dokumentieren. Bei `agent.max_turns` verbleibende
+Abweichungen dokumentieren und ohne Statuswechsel stoppen; `agent.max_turns` ist
+kein normaler Phasenabschluss.

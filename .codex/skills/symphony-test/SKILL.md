@@ -31,5 +31,9 @@ Workflows.
 
 Wenn alle Schritte sauber sind, `### Test` und die bindenden Punkte in
 `### Validierung` vollständig abhaken, nach `Merge (AI)` verschieben und den
-Turn beenden. Bei `agent.max_turns` Abweichungen dokumentieren und ohne
-Statuswechsel stoppen.
+Turn beenden. Bei offener, fehlender oder nicht explizit abgehakter `### Test`-
+oder `### Validierung`-Checkliste den Hauptturn nicht final beenden:
+im selben Turn weiterarbeiten oder einen echten Blocker im Workpad
+dokumentieren. Bei
+`agent.max_turns` Abweichungen dokumentieren und ohne Statuswechsel stoppen;
+`agent.max_turns` ist kein normaler Phasenabschluss.

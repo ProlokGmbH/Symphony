@@ -53,6 +53,10 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 1. Mit dem Pflicht-Review-Schritt beginnen.
 2. Nach jedem Schritt den zugehörigen `### Review`-Punkt aktualisieren.
 3. Bei Fehlern oder Findings:
+   - Wenn `wait_agent` ein finales Ergebnis mit `Findings:` liefert, diese
+     Findings sofort im Hauptturn behandeln; nicht final antworten und keinen
+     neuen Review-Durchlauf starten, bevor die Findings dokumentiert, gefixt,
+     validiert und im Workpad eingeordnet sind.
    - Review-Subagent-Findings, die behandelt werden sollen, vor den Fixes als
      separaten Linear-Issue-Kommentar posten.
    - Fixes selbst im aktuellen Workspace umsetzen.
@@ -65,15 +69,17 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 ## Abschluss
 
 Solange die Review-Checkliste im Workpad offen, fehlend oder nicht explizit
-abgehakt ist, keinen Statuswechsel vornehmen. Wenn der Pflicht-Review-Schritt in
-einem ununterbrochenen Durchlauf sauber ist, der Review-Subagent
-`Keine Findings.` geliefert hat und der Workspace nach dem Review sauber ist,
-direkt nach `Test (AI)` verschieben. Wenn Findings behandelt wurden, Review-Fixes
+abgehakt ist, keinen Statuswechsel vornehmen und den Hauptturn nicht final
+beenden. Arbeite im selben Turn in der Review-/Fix-Schleife weiter oder
+dokumentiere einen echten Blocker im Workpad. Wenn der Pflicht-Review-Schritt in
+einem ununterbrochenen Durchlauf sauber ist, der Review-Subagent `Keine
+Findings.` geliefert hat und der Workspace nach dem Review sauber ist, direkt
+nach `Test (AI)` verschieben. Wenn Findings behandelt wurden, Review-Fixes
 entstanden sind, Findings-/Fix-Evidenz in separaten Review-Kommentaren oder im
 Workpad-Verlauf dokumentiert ist, der Workspace nach dem Review Änderungen
 enthält oder das No-Findings-Signal nicht eindeutig ist, zuerst Findings/Fixes
-behandeln und dokumentieren. Danach ohne `--yolo` oder
-`Skip "Freigabe Review"` nach `Freigabe Review` verschieben; mit `--yolo` oder
-`Skip "Freigabe Review"` direkt nach `Test (AI)` weitergeben. Bei jedem
-Statuswechsel den Turn sofort beenden. Bei `agent.max_turns` Abweichungen
-dokumentieren und ohne Statuswechsel stoppen.
+behandeln und dokumentieren. Danach ohne `--yolo` oder `Skip "Freigabe Review"`
+nach `Freigabe Review` verschieben; mit `--yolo` oder `Skip "Freigabe Review"`
+direkt nach `Test (AI)` weitergeben. Bei jedem Statuswechsel den Turn sofort
+beenden. Bei `agent.max_turns` Abweichungen dokumentieren und ohne Statuswechsel
+stoppen; `agent.max_turns` ist kein normaler Phasenabschluss.

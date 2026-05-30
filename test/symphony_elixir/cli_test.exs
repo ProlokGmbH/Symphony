@@ -70,6 +70,21 @@ defmodule SymphonyElixir.CLITest do
     assert :ok = CLI.evaluate([], deps)
   end
 
+  test "default workflow path prefers SYMPHONY_WORKFLOW_FILE" do
+    previous_workflow_file = System.get_env("SYMPHONY_WORKFLOW_FILE")
+
+    on_exit(fn ->
+      case previous_workflow_file do
+        nil -> System.delete_env("SYMPHONY_WORKFLOW_FILE")
+        value -> System.put_env("SYMPHONY_WORKFLOW_FILE", value)
+      end
+    end)
+
+    System.put_env("SYMPHONY_WORKFLOW_FILE", " /tmp/symphony-worktree/WORKFLOW.md ")
+
+    assert CLI.default_workflow_path() == "/tmp/symphony-worktree/WORKFLOW.md"
+  end
+
   test "still accepts the legacy guardrails acknowledgement flag" do
     default_workflow_path = "/tmp/symphony-install/WORKFLOW.md"
 

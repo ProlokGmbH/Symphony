@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Workpad do
   @marker "## Symphony Workpad"
 
   @type review_handoff_status :: {:ready, :no_findings | :unknown} | :open | :blocked
+  @type merge_handoff_status :: :ready | :blocked
 
   @spec marker() :: String.t()
   def marker, do: @marker
@@ -81,6 +82,19 @@ defmodule SymphonyElixir.Workpad do
 
   def review_handoff_status(_body), do: :blocked
 
+  @spec merge_handoff_status(term()) :: merge_handoff_status()
+  def merge_handoff_status(comments) when is_list(comments) do
+    comments
+    |> find_comment_body()
+    |> merge_handoff_status()
+  end
+
+  def merge_handoff_status(body) when is_binary(body) do
+    if comment_matches?(body) and merge_evidence?(body), do: :ready, else: :blocked
+  end
+
+  def merge_handoff_status(_body), do: :blocked
+
   defp classify_review_handoff_with_comment_evidence({:ready, :no_findings}, comments)
        when is_list(comments) do
     if review_findings_or_fix_evidence?(comments), do: {:ready, :unknown}, else: {:ready, :no_findings}
@@ -128,6 +142,33 @@ defmodule SymphonyElixir.Workpad do
 
   defp review_findings_marker?(body) when is_binary(body) do
     Regex.match?(~r/(?:^|\n)\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:\*\*)?findings(?:\*\*)?\s*:/iu, body)
+  end
+
+  defp merge_evidence?(body) when is_binary(body) do
+    merge_evidence_marker?(body) and merged_pull_request_evidence?(body) and
+      merge_commit_evidence?(body)
+  end
+
+  defp merge_evidence_marker?(body) when is_binary(body) do
+    Regex.match?(~r/\bmerge[-\s]?evidenz\s*:/iu, body) or
+      Regex.match?(~r/\bmerge[-\s]?evidence\s*:/iu, body)
+  end
+
+  defp merged_pull_request_evidence?(body) when is_binary(body) do
+    Regex.match?(
+      ~r/\b(?:pr|pull request)\s*#?\d+\b.{0,160}\b(?:gemergt|merged)\b/isu,
+      body
+    ) or
+      Regex.match?(
+        ~r/\b(?:gemergt|merged)\b.{0,160}\b(?:pr|pull request)\s*#?\d+\b/isu,
+        body
+      ) or
+      Regex.match?(~r/\bpull\/\d+\b.{0,160}\b(?:gemergt|merged)\b/isu, body) or
+      Regex.match?(~r/\b(?:gemergt|merged)\b.{0,160}\bpull\/\d+\b/isu, body)
+  end
+
+  defp merge_commit_evidence?(body) when is_binary(body) do
+    Regex.match?(~r/\bmerge[-\s]?commit\s*[:#]?\s*`?[0-9a-f]{7,40}`?\b/iu, body)
   end
 
   defp comment_body(%{body: body}) when is_binary(body), do: body

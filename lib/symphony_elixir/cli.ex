@@ -65,6 +65,22 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
+  @spec default_workflow_path() :: String.t()
+  def default_workflow_path do
+    case System.get_env("SYMPHONY_WORKFLOW_FILE") do
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> case do
+          "" -> Workflow.default_workflow_file_path()
+          path -> path
+        end
+
+      _empty_or_missing ->
+        Workflow.default_workflow_file_path()
+    end
+  end
+
   @spec usage_message() :: String.t()
   defp usage_message do
     "Usage: symphony [--logs-root <path>] [--port <port>] [--yolo]"
@@ -73,7 +89,7 @@ defmodule SymphonyElixir.CLI do
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
-      default_workflow_path: &Workflow.default_workflow_file_path/0,
+      default_workflow_path: &default_workflow_path/0,
       env_files_dir: &File.cwd!/0,
       file_regular?: &File.regular?/1,
       load_env_files: &load_project_env_files/1,
