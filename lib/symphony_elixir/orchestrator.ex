@@ -245,6 +245,24 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
+  def handle_info(
+        {:agent_completion_contract, issue_id, contract},
+        %{running: running} = state
+      )
+      when is_binary(issue_id) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        notify_dashboard()
+
+        {:noreply,
+         %{state | running: Map.put(running, issue_id, Map.put(running_entry, :completion_contract, contract))}
+         |> touch_activity()}
+    end
+  end
+
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
     result =
       case pop_retry_attempt_state(state, issue_id, retry_token) do
@@ -957,6 +975,7 @@ defmodule SymphonyElixir.Orchestrator do
               |> normalize_review_subagent_ids(),
             review_subagent_call_ids: MapSet.new(),
             review_subagent_ids: MapSet.new(),
+            completion_contract: nil,
             started_at: DateTime.utc_now()
           })
 
@@ -1279,6 +1298,22 @@ defmodule SymphonyElixir.Orchestrator do
        when is_binary(issue_id) and is_map(running_entry) do
     completed_issue = completed_issue_for_running_entry(running_entry)
 
+    case Map.get(running_entry, :completion_contract) do
+      {:incomplete_phase_max_turns, reason} ->
+        handle_incomplete_phase_max_turns_completion(state, issue_id, session_id, running_entry, reason)
+
+      _contract ->
+        handle_completed_phase_completion(state, issue_id, session_id, running_entry, completed_issue)
+    end
+  end
+
+  defp handle_completed_phase_completion(
+         %State{} = state,
+         issue_id,
+         session_id,
+         running_entry,
+         completed_issue
+       ) do
     if manual_in_progress_issue_state?(completed_issue.state) or Dialog.state?(completed_issue.state) do
       Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual in-progress bootstrap finished without continuation")
 
@@ -1301,6 +1336,30 @@ defmodule SymphonyElixir.Orchestrator do
         review_subagent_ids: review_subagent_ids_for_retry(running_entry)
       })
     end
+  end
+
+  defp handle_incomplete_phase_max_turns_completion(
+         %State{} = state,
+         issue_id,
+         session_id,
+         running_entry,
+         reason
+       ) do
+    Logger.warning(
+      "Agent task reached agent.max_turns with incomplete phase completion contract for issue_id=#{issue_id} session_id=#{session_id}; scheduling guardrail continuation without recording normal completion reason=#{inspect(reason)}"
+    )
+
+    log_review_retry_context(running_entry, session_id)
+
+    schedule_issue_retry(state, issue_id, 1, %{
+      identifier: running_entry.identifier,
+      delay_type: :continuation,
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path),
+      recovered_turn_context: Map.get(running_entry, :recovered_turn_context),
+      review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+      review_subagent_ids: review_subagent_ids_for_retry(running_entry)
+    })
   end
 
   defp completed_issue_for_running_entry(%{dispatch_issue: %Issue{} = issue}), do: issue

@@ -23,7 +23,10 @@ defmodule SymphonyScriptTest do
     assert output =~ "symphony-stub codex_command=\n"
     assert output =~ "symphony-stub project_root=\n"
     assert output =~ "symphony-stub source_repo=\n"
-    assert output =~ "symphony-stub workflow_file=\n"
+    assert output =~ "symphony-stub workflow_file=#{Path.join(repo_dir, "WORKFLOW.md")}"
+    assert output =~ "symphony-stub workflow_interactive_file=#{Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md")}"
+    assert output =~ "symphony-stub workflow_dialog_file=#{Path.join(repo_dir, "WORKFLOW_DIALOG.md")}"
+    assert output =~ "symphony-stub workflow_dir=#{repo_dir}"
     assert output =~ "symphony-stub worktrees_root=\n"
     assert File.read_link!(Path.join(home_dir, ".local/bin/sym-codex")) == Path.join(repo_dir, "sym-codex")
     assert File.read_link!(Path.join(home_dir, ".local/bin/sym-watch")) == Path.join(repo_dir, "sym-watch")
@@ -74,7 +77,35 @@ defmodule SymphonyScriptTest do
     assert output =~ "symphony-stub cwd=#{project_dir}"
     assert output =~ "symphony-stub codex_command=#{codex_issue_link} --observer"
     assert output =~ "symphony-stub project_root=\n"
-    assert output =~ "symphony-stub workflow_file=\n"
+    assert output =~ "symphony-stub workflow_file=#{Path.join(repo_dir, "WORKFLOW.md")}"
+    assert output =~ "symphony-stub workflow_interactive_file=#{Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md")}"
+    assert output =~ "symphony-stub workflow_dialog_file=#{Path.join(repo_dir, "WORKFLOW_DIALOG.md")}"
+  end
+
+  test "symphony issue symlink binds workflow files to its own checkout from another Symphony cwd" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+    other_repo_dir = Path.join(System.tmp_dir!(), "symphony-script-other-#{System.unique_integer([:positive])}")
+    issue_link = Path.join(bin_dir, "symphony-PRO-456")
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(other_repo_dir)
+    end)
+
+    File.mkdir_p!(other_repo_dir)
+    File.write!(Path.join(other_repo_dir, "WORKFLOW.md"), "---\n---\n")
+    File.write!(Path.join(other_repo_dir, "mix.exs"), "defmodule SymphonyElixir.MixProject do\nend\n")
+    File.ln_s!(Path.join(repo_dir, "symphony"), issue_link)
+
+    assert {output, 0} = run_script_path(issue_link, home_dir, bin_dir, [], cd: other_repo_dir)
+
+    assert output =~ "symphony-stub cwd=#{other_repo_dir}"
+    assert output =~ "symphony-stub workflow_file=#{Path.join(repo_dir, "WORKFLOW.md")}"
+    assert output =~ "symphony-stub workflow_interactive_file=#{Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md")}"
+    assert output =~ "symphony-stub workflow_dialog_file=#{Path.join(repo_dir, "WORKFLOW_DIALOG.md")}"
+    refute output =~ "symphony-stub workflow_file=#{Path.join(other_repo_dir, "WORKFLOW.md")}"
   end
 
   test "symphony runs autoupdate before helper setup and launching escript" do
@@ -140,6 +171,8 @@ defmodule SymphonyScriptTest do
     printf 'symphony-stub project_root=%s\\n' "${SYMPHONY_PROJECT_ROOT:-}"
     printf 'symphony-stub source_repo=%s\\n' "${SYMPHONY_SOURCE_REPO:-}"
     printf 'symphony-stub workflow_file=%s\\n' "${SYMPHONY_WORKFLOW_FILE:-}"
+    printf 'symphony-stub workflow_interactive_file=%s\\n' "${SYMPHONY_WORKFLOW_INTERACTIVE_FILE:-}"
+    printf 'symphony-stub workflow_dialog_file=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE:-}"
     printf 'symphony-stub workflow_dir=%s\\n' "${SYMPHONY_WORKFLOW_DIR:-}"
     printf 'symphony-stub worktrees_root=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
     printf 'symphony-stub args=%s\\n' "$*"

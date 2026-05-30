@@ -199,6 +199,14 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
+  defp send_completion_contract_update(recipient, %Issue{id: issue_id}, contract)
+       when is_binary(issue_id) and is_pid(recipient) do
+    send(recipient, {:agent_completion_contract, issue_id, contract})
+    :ok
+  end
+
+  defp send_completion_contract_update(_recipient, _issue, _contract), do: :ok
+
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
@@ -626,6 +634,12 @@ defmodule SymphonyElixir.AgentRunner do
 
     Logger.warning(
       "Reached agent.max_turns for #{issue_context(refreshed_issue)} with incomplete phase completion contract reason=#{reason_label}; returning control to orchestrator turn=#{turn_number}/#{turn_context.max_turns}"
+    )
+
+    send_completion_contract_update(
+      turn_context.codex_update_recipient,
+      refreshed_issue,
+      {:incomplete_phase_max_turns, reason}
     )
 
     :ok

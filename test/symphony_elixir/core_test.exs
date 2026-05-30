@@ -1456,6 +1456,62 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 1} = state.retry_attempts[issue_id]
   end
 
+  test "incomplete phase max-turn completion schedules guardrail retry without completion marker" do
+    issue_id = "issue-incomplete-max-turns"
+    ref = make_ref()
+    orchestrator_name = Module.concat(__MODULE__, :IncompleteMaxTurnsOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = orchestrator_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: ref,
+      identifier: "MT-560MAX",
+      issue: %Issue{id: issue_id, identifier: "MT-560MAX", state: "Review (AI)"},
+      recovered_turn_context: "Findings:\n- High: Example finding.",
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:retry_attempts, %{})
+    end)
+
+    trigger_ms = System.monotonic_time(:millisecond)
+
+    send(
+      pid,
+      {:agent_completion_contract, issue_id, {:incomplete_phase_max_turns, {:open_workpad_checklist, "Review"}}}
+    )
+
+    send(pid, {:DOWN, ref, :process, self(), :normal})
+    Process.sleep(350)
+    state = orchestrator_state(pid)
+    observed_ms = System.monotonic_time(:millisecond)
+
+    refute MapSet.member?(state.completed, issue_id)
+    refute Map.has_key?(state.completed_states, issue_id)
+    assert MapSet.member?(state.claimed, issue_id)
+
+    assert %{
+             attempt: 1,
+             due_at_ms: due_at_ms,
+             identifier: "MT-560MAX",
+             recovered_turn_context: "Findings:\n- High: Example finding."
+           } = state.retry_attempts[issue_id]
+
+    assert_due_after_observation(due_at_ms, trigger_ms, observed_ms, 1_000, 1_500)
+  end
+
   test "abnormal worker exit increments retry attempt progressively" do
     issue_id = "issue-crash"
     ref = make_ref()
@@ -4453,6 +4509,10 @@ defmodule SymphonyElixir.CoreTest do
     receive do
       {:memory_tracker_state_update, _issue_id, state_name} = message ->
         Agent.update(state_agent, fn _ -> state_name end)
+        send(parent, message)
+        review_handoff_test_recipient(parent, state_agent)
+
+      {:agent_completion_contract, _issue_id, _contract} = message ->
         send(parent, message)
         review_handoff_test_recipient(parent, state_agent)
 
@@ -8659,7 +8719,7 @@ defmodule SymphonyElixir.CoreTest do
 
       log =
         capture_log(fn ->
-          assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+          assert :ok = AgentRunner.run(issue, recipient, issue_state_fetcher: state_fetcher)
         end)
 
       lines = File.read!(trace_file) |> String.split("\n", trim: true)
@@ -8683,6 +8743,8 @@ defmodule SymphonyElixir.CoreTest do
       refute Enum.at(turn_texts, 1) =~ "Normal abgeschlossen."
       assert log =~ "after incomplete phase completion contract"
       assert log =~ "reason=offene_Workpad-Checkliste_Review"
+      assert_receive {:agent_completion_contract, "issue-review-incomplete-continuation", {:incomplete_phase_max_turns, {:open_workpad_checklist, "Review"}}}
+
       refute_receive {:memory_tracker_state_update, "issue-review-incomplete-continuation", _state}, 100
       assert "Review (AI)" == Agent.get(state_agent, & &1)
     after
