@@ -9,8 +9,8 @@ Nur über `symphony-review` verwenden.
 
 Dieser Skill enthält nur repositoryspezifische Zusatzhinweise für den von
 `symphony-review` gestarteten Review-Subagenten. Der Ablauf, der
-Subagent-Start, Findings-Kommentare und die Review-/Fix-Schleife liegen in
-`symphony-review`.
+Subagent-Start, kombinierte Review-Finding-Fix-Kommentare und die
+Review-/Fix-Schleife liegen in `symphony-review`.
 
 ## Zusätzliche Review-Hinweise
 

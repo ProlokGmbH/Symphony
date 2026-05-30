@@ -123,11 +123,13 @@ prompt_snippets:
     - Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`.
     - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
     - Der isolierte Review-Subagent darf keine Workpad-, Linear- oder Statusänderungen vornehmen und keine weiteren Subagenten starten.
+    - Der Review-Subagent muss vor seiner finalen Antwort den vollständigen relevanten Review-Scope prüfen, darf nicht nach den ersten ein oder zwei Findings abbrechen und muss alle klar belegbaren, reviewer-relevanten Findings priorisiert mit Datei-/Zeilenbezug melden.
     - Ersetze einen verpflichtenden Review-Subagenten nicht durch ein rein lokales Review, außer die aktiven Anweisungen erlauben diesen Fallback ausdrücklich.
     - Wenn die erforderliche Isolation des Review-Subagenten in diesem Turn nicht möglich ist, bleibt der Review-Schritt offen; behaupte kein lokales Ersatz-Review und verschiebe das Ticket nicht weiter.
     - Der Hauptagent muss die Findings weiterhin selbst bewerten, die Fixes selbst umsetzen und die Review-Schleife bei Bedarf erneut ausführen.
     - Verwende für den Review-Subagenten `wait_agent` mit langem Timeout. Ein 30-Sekunden-Timeout reicht für einen vollständigen Review-Durchlauf nicht aus.
-    - Wenn `wait_agent` ein finales Ergebnis mit `Findings:` liefert, verarbeite diese Findings sofort im Hauptturn: dokumentieren, fixen, validieren, Workpad aktualisieren und danach die Review-Schleife fortsetzen. Beende den Turn nicht zwischen Findings-Erhalt und dieser Verarbeitung.
+    - Wenn `wait_agent` ein finales Ergebnis mit `Findings:` liefert, verarbeite diese Findings sofort im Hauptturn: im Workpad erfassen, fixen oder begründet anders behandeln, validieren, danach je behandeltem Finding genau einen kombinierten Nach-Fix-Kommentar posten und die Review-Schleife fortsetzen. Beende den Turn nicht zwischen Findings-Erhalt und dieser Verarbeitung.
+    - Poste vor den Fixes keinen separaten Findings-Kommentar. Bei einem behandelten Finding entsteht genau ein kombinierter Nach-Fix-Kommentar; bei zwei behandelten Findings entstehen genau zwei kombinierte Nach-Fix-Kommentare, nicht vier.
     - Wenn `wait_agent` abläuft oder kein finales Ergebnis liefert, ist der Review-Schritt weiterhin unvollständig. Lass den Subagenten weiterlaufen und warte erneut, statt Ergebnisse zu erfinden oder die Checkliste neu zu starten.
     - Rufe `close_agent` nicht auf einem noch laufenden Review-Subagenten auf, nur weil ein Wait-Timeout erreicht wurde.
 ---
@@ -718,7 +720,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 - Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Symphony Workpad`).
-- Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads.
+- Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads. Im Review-Kontext bedeutet das kombinierte Nach-Fix-Kommentare pro behandeltem Finding, keine getrennten Vorab-Finding-Kommentare plus spätere Fix-Kommentare.
 - Wenn Kommentarbearbeitung in der Sitzung nicht verfügbar ist, verwende das Update-Skript. Melde nur dann einen Blocker, wenn sowohl MCP-Bearbeitung als auch skriptbasierte Bearbeitung nicht verfügbar sind.
 - Automatische Commits sind ausschließlich in `Test (AI)` und `Merge (AI)` zulässig. Die einzige zusätzliche Ausnahme ist der einmalige Einstiegssnapshot `<Issue-Key> Review (AI) Autocommit` beim ersten Eintritt in `Review (AI)`. Verwende sonst nur `<Issue-Key> Test (AI) Autocommit` oder `<Issue-Key> Merge (AI) Autocommit`.
 - Automatische Commit-Nachrichten verwenden als Betreff `<Issue-Key> <Status> Autocommit` und zusätzlich einen kurzen Body. Der Body hält fest, dass der Commit im genannten Schritt erstellt wurde, den bis dahin offenen Arbeitsstand sichert und kein Nachweis für den Abschluss dieses Schritts ist.

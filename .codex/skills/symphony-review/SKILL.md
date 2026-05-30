@@ -40,6 +40,10 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 - Er meldet `Findings:` nur für klar belegbare, reviewer-relevante Probleme
   oder Spezifikationsabweichungen. Keine Stil-Nits, Vermutungen oder
   hypothetischen Risiken als Findings.
+- Er prüft vor seiner finalen Antwort den vollständigen relevanten
+  Review-Scope und bricht nicht nach den ersten ein oder zwei Findings ab.
+- Er meldet alle klar belegbaren Findings, die für einen Reviewer relevant
+  sind, priorisiert mit Datei-/Zeilenbezug.
 - Bei Unsicherheit meldet er `Keine Findings.` und nennt Restrisiken höchstens
   knapp nachgelagert.
 - Bei Dokumentationshinweisen prüft er Konsistenz zwischen Code, `WORKFLOW.md`,
@@ -55,14 +59,18 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
 3. Bei Fehlern oder Findings:
    - Wenn `wait_agent` ein finales Ergebnis mit `Findings:` liefert, diese
      Findings sofort im Hauptturn behandeln; nicht final antworten und keinen
-     neuen Review-Durchlauf starten, bevor die Findings dokumentiert, gefixt,
-     validiert und im Workpad eingeordnet sind.
-   - Review-Subagent-Findings, die behandelt werden sollen, vor den Fixes als
-     separaten Linear-Issue-Kommentar posten.
+     neuen Review-Durchlauf starten, bevor die Findings im Workpad erfasst,
+     bewertet, gefixt, validiert und eingeordnet sind.
+   - Vor den Fixes keinen separaten Findings-Kommentar in Linear posten.
    - Fixes selbst im aktuellen Workspace umsetzen.
-   - nach den Änderungen aus Subagent-Findings einen separaten
-     Linear-Issue-Kommentar mit Einordnung, Zweck und
-     Finding-zu-Änderung-Zuordnung posten.
+   - Nach der Behandlung genau einen kombinierten
+     Linear-Issue-Kommentar pro behandeltem Finding posten. Dieser Kommentar
+     beschreibt in einem Stück, welches Finding erkannt wurde, warum es
+     relevant war, welche Änderung es gefixt hat und falls nötig, warum das
+     Finding anders behandelt oder nicht umgesetzt wurde.
+   - Bei einem behandelten Finding entsteht genau ein kombinierter
+     Nach-Fix-Kommentar. Bei zwei behandelten Findings entstehen genau zwei
+     kombinierte Nach-Fix-Kommentare, nicht vier.
    - Workpad aktualisieren und die Checkliste wieder bei Schritt 1 starten.
 4. Lokale Fixes bleiben ungecommittet.
 
@@ -75,8 +83,8 @@ dokumentiere einen echten Blocker im Workpad. Wenn der Pflicht-Review-Schritt in
 einem ununterbrochenen Durchlauf sauber ist, der Review-Subagent `Keine
 Findings.` geliefert hat und der Workspace nach dem Review sauber ist, direkt
 nach `Test (AI)` verschieben. Wenn Findings behandelt wurden, Review-Fixes
-entstanden sind, Findings-/Fix-Evidenz in separaten Review-Kommentaren oder im
-Workpad-Verlauf dokumentiert ist, der Workspace nach dem Review Änderungen
+entstanden sind, kombinierte Finding-/Fix-Evidenz in Review-Kommentaren oder
+im Workpad-Verlauf dokumentiert ist, der Workspace nach dem Review Änderungen
 enthält oder das No-Findings-Signal nicht eindeutig ist, zuerst Findings/Fixes
 behandeln und dokumentieren. Danach ohne `--yolo` oder `Skip "Freigabe Review"`
 nach `Freigabe Review` verschieben; mit `--yolo` oder `Skip "Freigabe Review"`

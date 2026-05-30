@@ -73,5 +73,5 @@ widersprüchlich war.
 - Abweichungen zwischen Status und Inhalt im Workpad notieren.
 - Zulässige Ausnahmen zu separaten Kommentaren sind alle ausdrücklich von
   `WORKFLOW.md` oder aufgerufenen Skills verlangten Nachvollziehbarkeitskommentare,
-  etwa für Originalbeschreibungen, Klärungsfragen, Review-Subagent-Findings oder
-  Fix-Einordnungen; sie ersetzen das Workpad nicht.
+  etwa für Originalbeschreibungen, Klärungsfragen oder kombinierte
+  Review-Finding-Fix-Kommentare; sie ersetzen das Workpad nicht.

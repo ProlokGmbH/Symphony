@@ -326,17 +326,18 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert Workpad.review_handoff_status([
              no_findings_workpad,
              """
-             Review-Subagent-Findings für MT-123:
+             Kombinierter Review-Finding-Fix-Kommentar für MT-123:
 
-             Findings:
-             - P1 `lib/example.ex`: Beispiel.
+             - Finding: P1 `lib/example.ex`: Beispiel.
+             - Relevanz: Das Problem war reviewer-relevant.
+             - Änderung: Der Fix wurde umgesetzt.
              """
            ]) == {:ready, :unknown}
 
     assert Workpad.review_handoff_status([
              nil,
              %{body: no_findings_workpad},
-             %{"body" => "Fix-Einordnung zu Review-Findings"}
+             %{"body" => "Kombinierter Nach-Fix-Kommentar zu einem behandelten Finding"}
            ]) == {:ready, :unknown}
 
     assert Workpad.review_handoff_status([
@@ -349,7 +350,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
              ### Verlauf
 
-             - 2026-05-26 15:49:16 CEST - Fixrunde 3 abgeschlossen; Finding wurde vor Fixes kommentiert.
+             - 2026-05-26 15:49:16 CEST - Fixrunde 3 abgeschlossen; kombinierter Nach-Fix-Kommentar wurde gepostet.
              """
            ]) == {:ready, :unknown}
 
