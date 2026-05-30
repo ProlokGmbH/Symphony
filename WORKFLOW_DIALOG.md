@@ -30,6 +30,9 @@ Keine Beschreibung vorhanden.
 Dies ist ein Dialog- und Vorplanungsmodus. Beantworte die Benutzeranfrage aus
 Ticketbeschreibung oder Linear-Kommentar, ohne den regulären Symphony-Workflow zu
 starten.
+Falls der Skill `insight-query` vorhanden ist, nutze ihn für zusätzliche
+Kontextrecherche; bei Vorplanungen sollen insbesondere frühere Tickets zu
+vergleichbaren Themen und die semantische Suche einbezogen werden.
 
 ## Verbindliche Regeln
 
