@@ -122,6 +122,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
     assert is_map(config)
+    review_authorization = get_in(config, ["prompt_snippets", "review_subagent_authorization"])
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
@@ -224,20 +225,31 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~
              "separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig"
 
+    assert prompt =~ "keine getrennten Vorab-Finding-Kommentare plus spätere Fix-Kommentare"
+    assert review_authorization =~ "vollständigen relevanten Review-Scope"
+    assert review_authorization =~ "nicht nach den ersten ein oder zwei Findings abbrechen"
+    assert review_authorization =~ "alle klar belegbaren, reviewer-relevanten Findings"
+    assert review_authorization =~ "genau einen kombinierten Nach-Fix-Kommentar"
     assert prompt =~ "den globalen Skill `symphony-workpad`"
   end
 
-  test "review skills keep shared findings flow in symphony-review and local hints compact" do
+  test "review skills keep complete review scope and combined finding fix comments in symphony-review" do
     global_review_skill = File.read!(Path.expand("../../.codex/skills/symphony-review/SKILL.md", __DIR__))
     local_review_skill = File.read!(Path.expand("../../.codex/skills/sym-review/SKILL.md", __DIR__))
     workpad_skill = File.read!(Path.expand("../../.codex/skills/symphony-workpad/SKILL.md", __DIR__))
 
     assert global_review_skill =~ "Findings:"
-    assert global_review_skill =~ "separaten Linear-Issue-Kommentar"
-    assert global_review_skill =~ "vor den Fixes"
-    assert global_review_skill =~ ~r/nach\s+den Änderungen/
-    assert global_review_skill =~ "Finding-zu-Änderung"
+    assert global_review_skill =~ "vollständigen relevanten"
+    assert global_review_skill =~ "nicht nach den ersten ein oder zwei Findings"
+    assert global_review_skill =~ "alle klar belegbaren Findings"
+    assert global_review_skill =~ "Vor den Fixes keinen separaten Findings-Kommentar"
+    assert global_review_skill =~ ~r/genau einen kombinierten\s+Linear-Issue-Kommentar pro behandeltem Finding/
+    assert global_review_skill =~ "Bei einem behandelten Finding entsteht genau ein kombinierter"
+    assert global_review_skill =~ "Bei zwei behandelten Findings entstehen genau zwei"
     assert global_review_skill =~ "Review-/Fix-Schleife"
+    refute global_review_skill =~ "vor den Fixes als"
+    refute global_review_skill =~ "nach den Änderungen aus Subagent-Findings"
+    refute global_review_skill =~ "Finding-zu-Änderung"
     refute global_review_skill =~ "`make all`"
 
     assert local_review_skill =~ "Zusätzliche Review-Hinweise"
@@ -246,7 +258,8 @@ defmodule SymphonyElixir.CoreTest do
     refute local_review_skill =~ "Findings:"
     refute local_review_skill =~ "## Subagent-Auftrag"
 
-    assert workpad_skill =~ "Review-Subagent-Findings"
+    assert workpad_skill =~ "kombinierte"
+    assert workpad_skill =~ "Review-Finding-Fix-Kommentare"
     assert workpad_skill =~ "Zulässige Ausnahmen"
     assert workpad_skill =~ "ersetzen das Workpad nicht"
   end
@@ -8347,11 +8360,11 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner keeps Freigabe Review when separate review findings exist" do
+  test "agent runner keeps Freigabe Review when combined review finding fix evidence exists" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-review-comment-findings-#{System.unique_integer([:positive])}"
+        "symphony-elixir-agent-runner-review-combined-finding-fix-#{System.unique_integer([:positive])}"
       )
 
     previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
@@ -8415,17 +8428,13 @@ defmodule SymphonyElixir.CoreTest do
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, recipient)
 
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
-        "issue-review-comment-findings" => [
+        "issue-review-combined-finding-fix" => [
           """
-          Review-Subagent-Findings für MT-REVIEW-COMMENT:
+          Kombinierter Review-Finding-Fix-Kommentar für MT-REVIEW-COMMENT:
 
-          Findings:
-          - P1 `lib/example.ex`: Beispiel.
-          """,
-          """
-          Fix-Einordnung zu den Review-Subagent-Findings für MT-REVIEW-COMMENT:
-
-          - Das Finding wurde behoben.
+          - Finding: P1 `lib/example.ex`: Beispiel.
+          - Relevanz: Das Problem betrifft den Review-Scope.
+          - Änderung: Das Finding wurde behoben.
           """,
           """
           ## Symphony Workpad
@@ -8444,27 +8453,27 @@ defmodule SymphonyElixir.CoreTest do
         {:ok,
          [
            %Issue{
-             id: "issue-review-comment-findings",
+             id: "issue-review-combined-finding-fix",
              identifier: "MT-REVIEW-COMMENT",
-             title: "Review handoff with separate findings comments",
-             description: "Use manual review handoff after separate findings comments",
+             title: "Review handoff with combined finding fix evidence",
+             description: "Use manual review handoff after combined finding fix evidence",
              state: current_state
            }
          ]}
       end
 
       issue = %Issue{
-        id: "issue-review-comment-findings",
+        id: "issue-review-combined-finding-fix",
         identifier: "MT-REVIEW-COMMENT",
-        title: "Review handoff with separate findings comments",
-        description: "Use manual review handoff after separate findings comments",
+        title: "Review handoff with combined finding fix evidence",
+        description: "Use manual review handoff after combined finding fix evidence",
         state: "Review (AI)",
         url: "https://example.org/issues/MT-REVIEW-COMMENT",
         labels: []
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:memory_tracker_state_update, "issue-review-comment-findings", "Freigabe Review"}
+      assert_receive {:memory_tracker_state_update, "issue-review-combined-finding-fix", "Freigabe Review"}
       assert "Freigabe Review" == Agent.get(state_agent, & &1)
     after
       restore_app_env(:memory_tracker_comments, previous_memory_comments)

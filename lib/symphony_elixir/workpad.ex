@@ -4,6 +4,18 @@ defmodule SymphonyElixir.Workpad do
   """
 
   @marker "## Symphony Workpad"
+  @review_evidence_patterns [
+    ~r/\b(?:review-)?subagent-findings?\b/iu,
+    ~r/\breview[-\s]?finding[-\s]?fix(?:es)?\b/iu,
+    ~r/\bkombinierte(?:r|n|s)?\s+nach[-\s]?fix[-\s]?kommentar\b/iu,
+    ~r/\bbehandelte[smn]?\s+finding\b/iu,
+    ~r/\b(?:p\d+|high|medium|low)-finding\b/iu,
+    ~r/\bfinding\s+wurde\b/iu,
+    ~r/\bfix-einordnung\b/iu,
+    ~r/\breview[-\s]?fix(?:es)?\s+(?:entstanden|erstellt|umgesetzt|angewendet|behandelt)\b/iu,
+    ~r/\bfix(?:es)?\s+(?:entstanden|erstellt|umgesetzt|angewendet|behandelt)\b/iu,
+    ~r/\bfixrunde\s+\d+\b/iu
+  ]
 
   @type review_handoff_status :: {:ready, :no_findings | :unknown} | :open | :blocked
   @type merge_handoff_status :: :ready | :blocked
@@ -130,14 +142,7 @@ defmodule SymphonyElixir.Workpad do
   end
 
   defp review_findings_or_fix_evidence?(body) when is_binary(body) do
-    review_findings_marker?(body) or
-      Regex.match?(~r/\b(?:review-)?subagent-findings?\b/iu, body) or
-      Regex.match?(~r/\b(?:p\d+|high|medium|low)-finding\b/iu, body) or
-      Regex.match?(~r/\bfinding\s+wurde\b/iu, body) or
-      Regex.match?(~r/\bfix-einordnung\b/iu, body) or
-      Regex.match?(~r/\breview[-\s]?fix(?:es)?\s+(?:entstanden|erstellt|umgesetzt|angewendet|behandelt)\b/iu, body) or
-      Regex.match?(~r/\bfix(?:es)?\s+(?:entstanden|erstellt|umgesetzt|angewendet|behandelt)\b/iu, body) or
-      Regex.match?(~r/\bfixrunde\s+\d+\b/iu, body)
+    review_findings_marker?(body) or Enum.any?(@review_evidence_patterns, &Regex.match?(&1, body))
   end
 
   defp review_findings_marker?(body) when is_binary(body) do
