@@ -246,6 +246,7 @@ Nutze die dabei zurückgegebene interne `id` anschließend für eng begrenzte Fo
 ### Verwandte Skills
 
 - `symphony-linear`: mit Linear interagieren.
+- `insight-query`: falls dieser Skill vorhanden ist, für zusätzliche Kontextrecherche nutzen; in `Planung (AI)` insbesondere frühere Tickets zu vergleichbaren Themen und die semantische Suche des Skills einbeziehen.
 - `symphony-push`: nach lokalen Commits den Remote-Branch aktualisieren oder erstmals veröffentlichen, PR-Updates veröffentlichen und neu erzeugte PRs am aktiven Linear-Issue anhängen.
 - `symphony-pull`: bei Eintritt in `In Arbeit (AI)`, `Review (AI)` und `Test (AI)` den Branch per Rebase mit dem neuesten `origin/main` synchronisieren. Wenn der Pull/Rebase einen Konflikt nicht autonom auflösen kann und der aufrufende Ablauf keinen spezielleren manuellen Rücksprung definiert, dokumentiere den Blocker im Workpad und verschiebe nach `BLOCKER`.
 - Repo-lokale Skills werden direkt unter `{{ runtime.active_repo_skill_root }}` gesucht.
