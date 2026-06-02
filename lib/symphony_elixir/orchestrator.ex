@@ -19,7 +19,9 @@ defmodule SymphonyElixir.Orchestrator do
   @codex_recent_events_limit 200
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
+  @todo_bootstrap_state_name "todo"
   @manual_in_progress_state_name "in arbeit"
+  @manual_bootstrap_state_names [@todo_bootstrap_state_name, @manual_in_progress_state_name]
   @yolo_manual_state_names ["freigabe implementierung", "freigabe review"]
   @review_handoff_state_name "Freigabe Review"
   @review_no_findings_handoff_state_name "Test (AI)"
@@ -875,17 +877,17 @@ defmodule SymphonyElixir.Orchestrator do
     dialog_state_names = [Dialog.state_name()]
 
     if Config.yolo?() do
-      [@manual_in_progress_state_name | @yolo_manual_state_names] ++ dialog_state_names
+      @manual_bootstrap_state_names ++ @yolo_manual_state_names ++ dialog_state_names
     else
-      [@manual_in_progress_state_name | dialog_state_names]
+      @manual_bootstrap_state_names ++ dialog_state_names
     end
   end
 
-  defp manual_in_progress_issue_state?(state_name) when is_binary(state_name) do
-    normalize_issue_state(state_name) == @manual_in_progress_state_name
+  defp manual_bootstrap_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) in @manual_bootstrap_state_names
   end
 
-  defp manual_in_progress_issue_state?(_state_name), do: false
+  defp manual_bootstrap_issue_state?(_state_name), do: false
 
   defp dispatch_issue(
          %State{} = state,
@@ -1314,8 +1316,8 @@ defmodule SymphonyElixir.Orchestrator do
          running_entry,
          completed_issue
        ) do
-    if manual_in_progress_issue_state?(completed_issue.state) or Dialog.state?(completed_issue.state) do
-      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual in-progress bootstrap finished without continuation")
+    if manual_bootstrap_issue_state?(completed_issue.state) or Dialog.state?(completed_issue.state) do
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; manual bootstrap finished without continuation")
 
       state
       |> complete_issue(issue_id, completed_issue)

@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
+  @todo_bootstrap_state_name "Todo"
   @manual_in_progress_state_name "In Arbeit"
   @manual_approval_state_names ["Freigabe Implementierung", "Freigabe Review"]
 
@@ -310,7 +311,7 @@ defmodule SymphonyElixir.Linear.Client do
     dialog_state_names =
       [Dialog.state_name()]
 
-    [@manual_in_progress_state_name | @manual_approval_state_names] ++ dialog_state_names
+    [@todo_bootstrap_state_name, @manual_in_progress_state_name] ++ @manual_approval_state_names ++ dialog_state_names
   end
 
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do

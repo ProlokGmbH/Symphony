@@ -4573,7 +4573,7 @@ defmodule SymphonyElixir.CoreTest do
       assert {"Authorization", "token"} in headers
 
       assert MapSet.subset?(
-               MapSet.new(["Todo (AI)", "Review (AI)", "In Arbeit", "Freigabe Implementierung", "Freigabe Review"]),
+               MapSet.new(["Todo", "Todo (AI)", "Review (AI)", "In Arbeit", "Freigabe Implementierung", "Freigabe Review"]),
                MapSet.new(state_names)
              )
     after
@@ -6618,32 +6618,41 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "agent runner ignores Todo without creating a workspace" do
+  test "agent runner bootstraps a worktree for Todo without starting Codex" do
     test_root =
       Path.join(
         System.tmp_dir!(),
         "symphony-elixir-agent-runner-todo-#{System.unique_integer([:positive])}"
       )
 
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
     try do
-      remote_repo = Path.join(test_root, "remote.git")
       source_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "worktrees")
       codex_stamp = Path.join(test_root, "codex-invoked")
 
-      assert {_, 0} = System.cmd("git", ["init", "--bare", remote_repo], stderr_to_stdout: true)
-      assert {_, 0} = System.cmd("git", ["clone", remote_repo, source_repo], stderr_to_stdout: true)
-      assert {_, 0} = System.cmd("git", ["-C", source_repo, "checkout", "-b", "main"], stderr_to_stdout: true)
+      File.mkdir_p!(source_repo)
+      assert {_, 0} = System.cmd("git", ["-C", source_repo, "init", "-b", "main"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
       File.write!(Path.join(source_repo, "README.md"), "todo\n")
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "add", "README.md"], stderr_to_stdout: true)
       assert {_, 0} = System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"], stderr_to_stdout: true)
-      assert {_, 0} = System.cmd("git", ["-C", source_repo, "push", "-u", "origin", "main"], stderr_to_stdout: true)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         workspace_root: workspace_root,
+        hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        issue_key="$(basename "$workspace")"
+        branch="symphony/$issue_key"
+        rm -rf "$workspace"
+        git -C "$source_repo" worktree add -b "$branch" "$workspace" HEAD
+        touch "$workspace/.after_create_ran"
+        """,
         codex_command: "sh -lc 'touch #{codex_stamp}'"
       )
 
@@ -6665,16 +6674,23 @@ defmodule SymphonyElixir.CoreTest do
                end)
 
       workspace = Path.join(workspace_root, "MT-TODO")
+      expected_branch = "symphony/MT-TODO"
 
-      refute File.dir?(workspace)
+      assert File.dir?(workspace)
+      assert File.exists?(Path.join(workspace, ".git"))
+      assert File.exists?(Path.join(workspace, ".after_create_ran"))
 
       assert {worktree_list, 0} = System.cmd("git", ["-C", source_repo, "worktree", "list", "--porcelain"], stderr_to_stdout: true)
 
-      refute worktree_list =~ workspace
-      refute_receive {:memory_tracker_branch_update, "issue-todo-1", _branch}, 100
+      assert worktree_list =~ workspace
+      assert {branch_output, 0} = System.cmd("git", ["-C", workspace, "branch", "--show-current"], stderr_to_stdout: true)
+      assert branch_output == "#{expected_branch}\n"
+      assert_receive {:memory_tracker_branch_update, "issue-todo-1", ^expected_branch}
+      refute_receive {:memory_tracker_state_update, "issue-todo-1", _state_name}, 100
       refute_receive {:memory_tracker_comment, "issue-todo-1", _body}, 100
       refute File.exists?(codex_stamp)
     after
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
     end
   end
@@ -7483,6 +7499,112 @@ defmodule SymphonyElixir.CoreTest do
         refute Map.has_key?(state.running, issue_id)
         refute MapSet.member?(state.claimed, issue_id)
         assert Map.get(state.completed_states, issue_id) == "in arbeit"
+        refute Map.has_key?(state.retry_attempts, issue_id)
+      end)
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  @tag :todo_bootstrap_orchestrator
+  test "orchestrator dispatches Todo once for bootstrap without scheduling continuation" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-orchestrator-todo-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      source_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "worktrees")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+      issue_id = "issue-todo-orchestrator"
+      issue_identifier = "MT-TODO-ORCH"
+      existing_task_supervisor = Process.whereis(SymphonyElixir.TaskSupervisor)
+
+      File.mkdir_p!(source_repo)
+      File.write!(Path.join(source_repo, "README.md"), "# todo orchestrator\n")
+      System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", source_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", source_repo, "add", "README.md"])
+      System.cmd("git", ["-C", source_repo, "commit", "-m", "initial"])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        hook_after_create: """
+        set -eu
+        workspace="$PWD"
+        source_repo="$SYMPHONY_PROJECT_ROOT"
+        issue_key="$(basename "$workspace")"
+        branch="symphony/$issue_key"
+        rm -rf "$workspace"
+        git -C "$source_repo" worktree add -b "$branch" "$workspace" HEAD
+        touch "$workspace/.after_create_ran"
+        """,
+        codex_command: "sh -lc 'touch #{codex_stamp}'",
+        poll_interval_ms: 30_000
+      )
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_identifier,
+        title: "Todo bootstrap",
+        description: "Prepare a worktree for a manual Todo issue",
+        state: "Todo",
+        url: "https://example.org/issues/#{issue_identifier}",
+        labels: []
+      }
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      workspace = Path.join(workspace_root, issue_identifier)
+      expected_branch = "symphony/#{issue_identifier}"
+      orchestrator_name = Module.concat(__MODULE__, :TodoBootstrapOrchestrator)
+
+      started_task_supervisor =
+        case existing_task_supervisor do
+          pid when is_pid(pid) ->
+            nil
+
+          nil ->
+            {:ok, pid} = Task.Supervisor.start_link(name: SymphonyElixir.TaskSupervisor)
+            pid
+        end
+
+      File.cd!(source_repo, fn ->
+        {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+        on_exit(fn ->
+          if Process.alive?(pid) do
+            Process.exit(pid, :normal)
+          end
+
+          if is_pid(started_task_supervisor) and Process.alive?(started_task_supervisor) do
+            Process.exit(started_task_supervisor, :normal)
+          end
+        end)
+
+        send(pid, :tick)
+
+        assert_receive {:memory_tracker_branch_update, ^issue_id, ^expected_branch}, 1_000
+        Process.sleep(350)
+
+        assert File.dir?(workspace)
+        assert File.exists?(Path.join(workspace, ".after_create_ran"))
+        refute File.exists?(codex_stamp)
+
+        state = :sys.get_state(pid)
+        refute Map.has_key?(state.running, issue_id)
+        refute MapSet.member?(state.claimed, issue_id)
+        assert Map.get(state.completed_states, issue_id) == "todo"
         refute Map.has_key?(state.retry_attempts, issue_id)
       end)
     after
