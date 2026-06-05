@@ -11,6 +11,7 @@ defmodule SymphonyElixir.AgentRunner do
     Config,
     Dialog,
     Linear.Issue,
+    LogFile,
     PromptBuilder,
     RuntimePaths,
     Tracker,
@@ -43,6 +44,16 @@ defmodule SymphonyElixir.AgentRunner do
   @yolo_skip_state_names [
     "freigabe implementierung",
     "freigabe review"
+  ]
+  @dialog_allowed_artifact_dirs [
+    "log",
+    "_build",
+    "deps",
+    "node_modules",
+    ".elixir_ls",
+    ".mix",
+    ".cache",
+    "tmp"
   ]
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
@@ -308,15 +319,15 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp handle_dialog_session_start(
          {:error, reason},
-         _issue,
+         issue,
          workspace,
-         _request,
+         request,
          _codex_update_recipient,
          before_repo_status
        ) do
     case ensure_dialog_repo_unchanged(workspace, before_repo_status) do
-      :ok -> {:error, reason}
-      {:error, repo_reason} -> {:error, repo_reason}
+      :ok -> maybe_finalize_dialog_session_start_error(issue, request, reason)
+      {:error, repo_reason} -> maybe_finalize_dirty_dialog_session_start_error(issue, request, reason, repo_reason)
     end
   end
 
@@ -344,12 +355,10 @@ defmodule SymphonyElixir.AgentRunner do
         maybe_post_dialog_answer(issue, request, turn_session, message_key)
 
       {{:error, reason}, {:ok, turn_session}} ->
-        with :ok <- maybe_post_dialog_answer(issue, request, turn_session, message_key) do
-          {:error, reason}
-        end
+        maybe_post_dialog_repo_error_answer(issue, request, turn_session, reason)
 
       {{:error, reason}, {:error, _turn_reason}} ->
-        {:error, reason}
+        maybe_post_dialog_repo_error_answer(issue, request, app_session, reason)
 
       {:ok, {:error, reason}} ->
         maybe_finalize_dialog_turn_error(issue, request, app_session, reason)
@@ -381,6 +390,127 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
+  defp maybe_post_dialog_repo_error_answer(issue, request, turn_session, reason) do
+    maybe_post_dialog_repo_error_answer(issue, request, turn_session, reason, [])
+  end
+
+  defp maybe_post_dialog_repo_error_answer(issue, request, turn_session, reason, opts) do
+    session_id = dialog_session_id(turn_session)
+    reset_session? = Keyword.get(opts, :reset_session?, false)
+    source_key = Dialog.request_source_key(request)
+
+    Logger.warning("Finalizing dialog issue after repository guard error for #{issue_context(issue)} session_id=#{session_id_for_log(session_id)} reason=#{inspect(reason)}")
+
+    answer_comment =
+      case dialog_request_freshness(issue, request, "repository error answer") do
+        :current ->
+          dialog_repo_error_answer_comment(turn_session, request, reset_session?, false, nil)
+
+        :stale ->
+          Logger.info("Posting nonblocking stale dialog repository error answer because a newer user comment exists: #{issue_context(issue)}")
+          dialog_repo_error_answer_comment(turn_session, request, reset_session?, true, source_key)
+
+        :unknown ->
+          Logger.info("Posting source-scoped nonblocking dialog repository error answer because comment freshness could not be verified: #{issue_context(issue)}")
+          dialog_repo_error_answer_comment(turn_session, request, reset_session?, true, source_key)
+      end
+
+    Tracker.create_comment(issue.id, answer_comment)
+  end
+
+  defp dialog_repo_error_answer_comment(_turn_session, _request, true, false, _source_key) do
+    Dialog.format_session_reset_answer_comment(dialog_repo_error_answer())
+  end
+
+  defp dialog_repo_error_answer_comment(_turn_session, _request, true, true, source_key) do
+    Dialog.format_nonblocking_session_reset_answer_comment(dialog_repo_error_answer(), source_key)
+  end
+
+  defp dialog_repo_error_answer_comment(turn_session, request, false, false, _source_key) do
+    Dialog.format_answer_comment(dialog_repo_error_answer(), turn_session[:thread_id], request.include_session?)
+  end
+
+  defp dialog_repo_error_answer_comment(turn_session, request, false, true, source_key) do
+    Dialog.format_nonblocking_answer_comment(
+      dialog_repo_error_answer(),
+      turn_session[:thread_id],
+      request.include_session?,
+      source_key
+    )
+  end
+
+  defp dialog_request_freshness(issue, request, answer_context) do
+    case Tracker.fetch_issue_comments(issue.id) do
+      {:ok, comments} ->
+        if Dialog.request_current?(request, comments), do: :current, else: :stale
+
+      {:error, reason} ->
+        Logger.warning("Could not refresh dialog comments before #{answer_context} for #{issue_context(issue)} reason=#{inspect(reason)}")
+        :unknown
+    end
+  end
+
+  defp maybe_finalize_dirty_dialog_session_start_error(issue, request, {:thread_resume_failed, session_id, _reason}, repo_reason)
+       when is_binary(session_id) do
+    case Map.get(request, :session_id) do
+      ^session_id ->
+        maybe_post_dialog_repo_error_answer(
+          issue,
+          request,
+          %{thread_id: session_id},
+          repo_reason,
+          reset_session?: true
+        )
+
+      _other ->
+        {:error, {:dialog_session_start_failed_after_repo_modified, {:thread_resume_failed, session_id}, repo_reason}}
+    end
+  end
+
+  defp maybe_finalize_dirty_dialog_session_start_error(_issue, _request, reason, repo_reason) do
+    {:error, {:dialog_session_start_failed_after_repo_modified, reason, repo_reason}}
+  end
+
+  defp maybe_finalize_dialog_session_start_error(issue, request, {:thread_resume_failed, session_id, reason})
+       when is_binary(session_id) do
+    case Map.get(request, :session_id) do
+      ^session_id -> maybe_post_dialog_session_error_answer(issue, request, session_id, reason)
+      _other -> {:error, {:thread_resume_failed, session_id, reason}}
+    end
+  end
+
+  defp maybe_finalize_dialog_session_start_error(_issue, _request, reason), do: {:error, reason}
+
+  defp maybe_post_dialog_session_error_answer(issue, request, session_id, reason) do
+    source_key = Dialog.request_source_key(request)
+
+    case dialog_request_freshness(issue, request, "dialog session error answer") do
+      :current ->
+        Logger.warning("Finalizing dialog issue after dialog session error for #{issue_context(issue)} session_id=#{session_id_for_log(session_id)} reason=#{inspect(reason)}")
+
+        Tracker.create_comment(
+          issue.id,
+          Dialog.format_session_reset_answer_comment(dialog_session_error_answer())
+        )
+
+      freshness when freshness in [:stale, :unknown] ->
+        Logger.info("Posting source-scoped nonblocking dialog session error answer for #{issue_context(issue)} freshness=#{freshness}")
+
+        Tracker.create_comment(
+          issue.id,
+          Dialog.format_nonblocking_session_reset_answer_comment(dialog_session_error_answer(), source_key)
+        )
+    end
+  end
+
+  defp dialog_repo_error_answer do
+    "Ich konnte die Dialoganfrage nicht abschließen, weil der Codex-Lauf Änderungen am Repository hinterlassen hat. Code-, Dokumentations- und Konfigurationsänderungen sind in `Todo (Dialog-AI)` nicht erlaubt. Bitte stelle die Anfrage so, dass sie ohne Repository-Änderungen beantwortet werden kann."
+  end
+
+  defp dialog_session_error_answer do
+    "Ich konnte die bestehende Dialogsitzung nicht fortsetzen, weil der Codex-Lauf die gespeicherte Session nicht öffnen konnte. Bitte stelle die Anfrage erneut als neuen Linear-Kommentar."
+  end
+
   defp maybe_finalize_dialog_turn_error(issue, request, app_session, reason) do
     if finalizable_dialog_turn_error?(reason) do
       maybe_post_dialog_turn_error_answer(issue, request, app_session, reason)
@@ -395,25 +525,37 @@ defmodule SymphonyElixir.AgentRunner do
   defp finalizable_dialog_turn_error?(_reason), do: false
 
   defp maybe_post_dialog_turn_error_answer(issue, request, app_session, reason) do
-    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
-         true <- Dialog.request_current?(request, comments) do
-      Logger.warning("Finalizing dialog issue after non-interactive turn error for #{issue_context(issue)} reason=#{inspect(reason)}")
+    session_id = dialog_session_id(app_session)
 
-      Tracker.create_comment(
-        issue.id,
-        Dialog.format_answer_comment(
-          dialog_turn_error_answer(reason),
-          Map.get(app_session, :thread_id),
-          Map.get(request, :include_session?, false)
+    case dialog_request_freshness(issue, request, "non-interactive dialog error answer") do
+      :current ->
+        Logger.warning("Finalizing dialog issue after non-interactive turn error for #{issue_context(issue)} session_id=#{session_id_for_log(session_id)} reason=#{inspect(reason)}")
+
+        Tracker.create_comment(
+          issue.id,
+          Dialog.format_answer_comment(
+            dialog_turn_error_answer(reason),
+            Map.get(app_session, :thread_id),
+            Map.get(request, :include_session?, false)
+          )
         )
-      )
-    else
-      false ->
+
+      :stale ->
         Logger.info("Skipping stale dialog error answer because a newer user comment exists: #{issue_context(issue)}")
         :ok
 
-      {:error, reason} ->
-        {:error, reason}
+      :unknown ->
+        Logger.info("Posting source-scoped nonblocking dialog error answer because comment freshness could not be verified: #{issue_context(issue)}")
+
+        Tracker.create_comment(
+          issue.id,
+          Dialog.format_nonblocking_answer_comment(
+            dialog_turn_error_answer(reason),
+            Map.get(app_session, :thread_id),
+            Map.get(request, :include_session?, false),
+            Dialog.request_source_key(request)
+          )
+        )
     end
   end
 
@@ -429,6 +571,24 @@ defmodule SymphonyElixir.AgentRunner do
     "Ich konnte die Dialoganfrage nicht abschließen, weil der Codex-Turn fehlgeschlagen ist. Bitte ergänze den Kontext oder stelle die Anfrage erneut als neuen Linear-Kommentar."
   end
 
+  defp dialog_session_id(session) when is_map(session) do
+    thread_id = session |> Map.get(:thread_id) |> non_empty_string_or(Map.get(session, "thread_id"))
+    turn_id = session |> Map.get(:turn_id) |> non_empty_string_or(Map.get(session, "turn_id"))
+
+    combine_dialog_session_id(thread_id, turn_id)
+  end
+
+  defp non_empty_string_or(value, _fallback) when is_binary(value) and value != "", do: value
+  defp non_empty_string_or(_value, fallback) when is_binary(fallback) and fallback != "", do: fallback
+  defp non_empty_string_or(_value, _fallback), do: nil
+
+  defp combine_dialog_session_id(nil, _turn_id), do: nil
+  defp combine_dialog_session_id(thread_id, nil), do: thread_id
+  defp combine_dialog_session_id(thread_id, turn_id), do: "#{thread_id}-#{turn_id}"
+
+  defp session_id_for_log(session_id) when is_binary(session_id) and session_id != "", do: session_id
+  defp session_id_for_log(_session_id), do: "unknown"
+
   defp run_dialog_app_turn(app_session, prompt, issue, on_message) when is_function(on_message, 1) do
     AppServer.run_turn(app_session, prompt, issue, on_message: on_message)
   rescue
@@ -442,12 +602,18 @@ defmodule SymphonyElixir.AgentRunner do
   defp dialog_repo_status_snapshot(workspace) when is_binary(workspace) do
     with {:ok, status} <- dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z", "--untracked-files=no"]),
          {:ok, unstaged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--binary", "--no-ext-diff", "--no-color"]),
-         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]) do
+         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]),
+         {:ok, untracked_paths} <- dialog_untracked_paths(workspace),
+         {:ok, ignored_paths} <- dialog_ignored_paths(workspace),
+         {:ok, untracked_files} <- dialog_file_hashes(workspace, untracked_paths),
+         {:ok, ignored_files} <- dialog_file_hashes(workspace, ignored_paths) do
       {:ok,
        %{
          status: status,
          unstaged_diff: dialog_snapshot_hash(unstaged_diff),
-         staged_diff: dialog_snapshot_hash(staged_diff)
+         staged_diff: dialog_snapshot_hash(staged_diff),
+         untracked_files: untracked_files,
+         ignored_files: ignored_files
        }}
     end
   end
@@ -474,6 +640,136 @@ defmodule SymphonyElixir.AgentRunner do
       {output, status} ->
         {:error, {:dialog_git_snapshot_failed, args, status, output}}
     end
+  end
+
+  defp dialog_untracked_paths(workspace) when is_binary(workspace) do
+    with {:ok, output} <- dialog_git_snapshot_command(workspace, ["ls-files", "--others", "--exclude-standard", "-z"]) do
+      paths =
+        output
+        |> String.split(<<0>>, trim: true)
+        |> Enum.reject(&dialog_allowed_artifact_path?(workspace, &1))
+        |> Enum.sort()
+
+      {:ok, paths}
+    end
+  end
+
+  defp dialog_ignored_paths(workspace) when is_binary(workspace) do
+    with {:ok, output} <-
+           dialog_git_snapshot_command(workspace, [
+             "ls-files",
+             "--others",
+             "--ignored",
+             "--exclude-standard",
+             "-z"
+           ]) do
+      paths =
+        output
+        |> String.split(<<0>>, trim: true)
+        |> Enum.reject(&dialog_allowed_artifact_path?(workspace, &1))
+        |> Enum.sort()
+
+      {:ok, paths}
+    end
+  end
+
+  defp dialog_file_hashes(workspace, paths) when is_binary(workspace) and is_list(paths) do
+    paths
+    |> Enum.reduce_while({:ok, []}, fn path, {:ok, acc} ->
+      case dialog_path_hash(workspace, path) do
+        {:ok, hash} -> {:cont, {:ok, [{path, hash} | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> then(fn
+      {:ok, hashes} -> {:ok, Enum.reverse(hashes)}
+      {:error, reason} -> {:error, reason}
+    end)
+  end
+
+  defp dialog_path_hash(workspace, path) when is_binary(workspace) and is_binary(path) do
+    absolute_path = Path.join(workspace, path)
+
+    case File.lstat(absolute_path) do
+      {:ok, stat} ->
+        dialog_path_hash_for_type(workspace, path, absolute_path, stat)
+
+      {:error, reason} ->
+        {:error, {:dialog_file_stat_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(_workspace, path, absolute_path, %{type: :regular}) do
+    case File.read(absolute_path) do
+      {:ok, contents} -> {:ok, dialog_snapshot_hash(contents)}
+      {:error, reason} -> {:error, {:dialog_file_read_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(_workspace, path, absolute_path, %{type: :symlink}) do
+    case File.read_link(absolute_path) do
+      {:ok, target} -> {:ok, dialog_snapshot_hash("symlink:" <> target)}
+      {:error, reason} -> {:error, {:dialog_symlink_read_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(workspace, path, absolute_path, %{type: :directory}) do
+    case File.ls(absolute_path) do
+      {:ok, entries} -> dialog_directory_hash(workspace, path, entries)
+      {:error, reason} -> {:error, {:dialog_directory_read_failed, path, reason}}
+    end
+  end
+
+  defp dialog_path_hash_for_type(_workspace, _path, _absolute_path, stat) do
+    {:ok, dialog_snapshot_hash(:erlang.term_to_binary({stat.type, stat.size, stat.mtime}))}
+  end
+
+  defp dialog_directory_hash(workspace, path, entries) when is_list(entries) do
+    entries
+    |> Enum.sort()
+    |> Enum.reduce_while({:ok, []}, &dialog_directory_entry_hash(workspace, path, &1, &2))
+    |> dialog_directory_hash_result()
+  end
+
+  defp dialog_directory_entry_hash(workspace, path, entry, {:ok, acc}) do
+    child_path = Path.join(path, entry)
+
+    case dialog_path_hash(workspace, child_path) do
+      {:ok, hash} -> {:cont, {:ok, [{entry, hash} | acc]}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp dialog_directory_hash_result({:ok, hashes}) do
+    {:ok, dialog_snapshot_hash(:erlang.term_to_binary(Enum.reverse(hashes)))}
+  end
+
+  defp dialog_directory_hash_result({:error, reason}), do: {:error, reason}
+
+  defp dialog_allowed_artifact_path?(workspace, path) when is_binary(workspace) and is_binary(path) do
+    dialog_runtime_log_artifact?(workspace, path) or dialog_allowed_artifact_dir?(path)
+  end
+
+  defp dialog_allowed_artifact_dir?(path) when is_binary(path) do
+    case Path.split(path) do
+      [first_segment, _child | _rest] -> first_segment in @dialog_allowed_artifact_dirs
+      _other -> false
+    end
+  end
+
+  defp dialog_runtime_log_artifact?(workspace, path) when is_binary(workspace) and is_binary(path) do
+    absolute_path = Path.expand(path, workspace)
+
+    Enum.any?(dialog_runtime_log_files(workspace), fn log_file ->
+      absolute_path == log_file or String.starts_with?(absolute_path, log_file <> ".")
+    end)
+  end
+
+  defp dialog_runtime_log_files(workspace) when is_binary(workspace) do
+    [Application.get_env(:symphony_elixir, :log_file), LogFile.default_log_file(workspace)]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.map(&Path.expand(&1, workspace))
+    |> Enum.uniq()
   end
 
   defp dialog_snapshot_hash(contents) when is_binary(contents) do

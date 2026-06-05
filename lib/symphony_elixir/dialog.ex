@@ -8,7 +8,13 @@ defmodule SymphonyElixir.Dialog do
   @state_name "Todo (Dialog-AI)"
   @workflow_file_name "WORKFLOW_DIALOG.md"
   @answer_header "### Antwort Symphony"
+  @nonblocking_answer_line "[Antwort nicht abgeschlossen]"
+  @session_reset_line "[Session zurückgesetzt]"
   @session_pattern ~r/^\[Session\s+([^\]\s]+)\]/m
+  @nonblocking_answer_pattern ~r/^\[Antwort\s+nicht\s+abgeschlossen\]/m
+  @session_reset_pattern ~r/^\[Session\s+zurückgesetzt\]/m
+  @source_pattern ~r/^\[Quelle\s+([^\]\s]+)\]/m
+  @first_turn_source_key "first-turn"
 
   @type comment :: %{optional(atom() | String.t()) => term()}
   @type request :: %{
@@ -70,50 +76,54 @@ defmodule SymphonyElixir.Dialog do
       when is_map(issue) and is_list(comments) and is_binary(active_repo_root) do
     relevant_comments = relevant_comments(comments)
     answer_exists? = Enum.any?(relevant_comments, &answer_comment?/1)
-    last_comment = List.last(relevant_comments)
+    open_comment = latest_open_request_comment(relevant_comments)
 
     cond do
-      answer_exists? and answer_comment?(last_comment) ->
+      answer_exists? and not is_nil(open_comment) ->
+        follow_up_request(issue, active_repo_root, relevant_comments, open_comment)
+
+      not is_nil(open_comment) ->
+        with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root, comment_body(open_comment)) do
+          {:ok, request(prompt, nil, true, open_comment)}
+        end
+
+      answer_exists? or source_scoped_nonblocking_answer_exists?(relevant_comments) ->
         {:ok, :noop}
 
-      not answer_exists? and is_nil(last_comment) ->
+      true ->
         with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root) do
           {:ok, request(prompt, nil, true, nil)}
         end
-
-      not answer_exists? ->
-        with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root, comment_body(last_comment)) do
-          {:ok, request(prompt, nil, true, last_comment)}
-        end
-
-      true ->
-        {:ok,
-         request(
-           comment_body(last_comment),
-           session_id_from_comments(relevant_comments),
-           false,
-           last_comment
-         )}
     end
   end
 
   @spec request_current?(request(), [comment()]) :: boolean()
   def request_current?(%{} = request, comments) when is_list(comments) do
-    case {request_source_comment?(request), List.last(relevant_comments(comments))} do
-      {false, nil} -> true
-      {false, _comment} -> false
-      {true, nil} -> false
-      {true, comment} -> not answer_comment?(comment) and source_comment_matches?(request, comment)
+    relevant_comments = relevant_comments(comments)
+
+    if request_source_covered?(request, relevant_comments) do
+      false
+    else
+      case {request_source_comment?(request), relevant_comments |> actionable_comments() |> List.last()} do
+        {false, nil} -> true
+        {false, _comment} -> false
+        {true, nil} -> false
+        {true, comment} -> not answer_comment?(comment) and source_comment_matches?(request, comment)
+      end
     end
   end
 
   @spec answer_comment?(term()) :: boolean()
   def answer_comment?(comment) do
-    comment
-    |> comment_body()
+    body = comment_body(comment)
+
+    body
     |> String.trim_leading()
-    |> String.starts_with?(@answer_header)
+    |> String.starts_with?(@answer_header) and not nonblocking_answer_body?(body)
   end
+
+  @spec nonblocking_answer_comment?(term()) :: boolean()
+  def nonblocking_answer_comment?(comment), do: nonblocking_answer_body?(comment_body(comment))
 
   @spec session_id_from_comments([comment()]) :: String.t() | nil
   def session_id_from_comments(comments) when is_list(comments) do
@@ -121,11 +131,27 @@ defmodule SymphonyElixir.Dialog do
     |> order_comments()
     |> Enum.reverse()
     |> Enum.find_value(fn comment ->
-      case Regex.run(@session_pattern, comment_body(comment)) do
-        [_, session_id] -> session_id
-        _ -> nil
+      body = comment_body(comment)
+
+      cond do
+        Regex.match?(@session_reset_pattern, body) ->
+          :session_reset
+
+        nonblocking_answer_body?(body) ->
+          nil
+
+        match = Regex.run(@session_pattern, body) ->
+          [_, session_id] = match
+          session_id
+
+        true ->
+          nil
       end
     end)
+    |> case do
+      :session_reset -> nil
+      session_id -> session_id
+    end
   end
 
   @spec format_answer_comment(String.t(), String.t() | nil, boolean()) :: String.t()
@@ -134,7 +160,60 @@ defmodule SymphonyElixir.Dialog do
     body = strip_answer_header(answer)
     session_line = session_line(session_id, include_session?)
 
-    [@answer_header, session_line, body]
+    format_answer_parts([@answer_header, session_line, body])
+  end
+
+  @spec format_nonblocking_answer_comment(String.t(), String.t() | nil, boolean()) :: String.t()
+  def format_nonblocking_answer_comment(answer, session_id, include_session?)
+      when is_binary(answer) and is_boolean(include_session?) do
+    format_nonblocking_answer_comment(answer, session_id, include_session?, nil)
+  end
+
+  @spec format_nonblocking_answer_comment(String.t(), String.t() | nil, boolean(), String.t() | nil) :: String.t()
+  def format_nonblocking_answer_comment(answer, session_id, include_session?, source_key)
+      when is_binary(answer) and is_boolean(include_session?) do
+    body = strip_answer_header(answer)
+    session_line = session_line(session_id, include_session?)
+
+    format_answer_parts([@answer_header, @nonblocking_answer_line, source_line(source_key), session_line, body])
+  end
+
+  @spec format_session_reset_answer_comment(String.t()) :: String.t()
+  def format_session_reset_answer_comment(answer) when is_binary(answer) do
+    body = strip_answer_header(answer)
+    format_answer_parts([@answer_header, @session_reset_line, body])
+  end
+
+  @spec format_nonblocking_session_reset_answer_comment(String.t()) :: String.t()
+  def format_nonblocking_session_reset_answer_comment(answer) when is_binary(answer) do
+    format_nonblocking_session_reset_answer_comment(answer, nil)
+  end
+
+  @spec format_nonblocking_session_reset_answer_comment(String.t(), String.t() | nil) :: String.t()
+  def format_nonblocking_session_reset_answer_comment(answer, source_key) when is_binary(answer) do
+    body = strip_answer_header(answer)
+    format_answer_parts([@answer_header, @nonblocking_answer_line, source_line(source_key), @session_reset_line, body])
+  end
+
+  @spec request_source_key(request()) :: String.t()
+  def request_source_key(%{} = request) do
+    cond do
+      is_binary(Map.get(request, :source_comment_id)) and Map.get(request, :source_comment_id) != "" ->
+        "id:#{Map.get(request, :source_comment_id)}"
+
+      match?(%DateTime{}, Map.get(request, :source_comment_timestamp)) and is_binary(Map.get(request, :source_comment_body)) ->
+        source_hash([DateTime.to_iso8601(Map.get(request, :source_comment_timestamp)), Map.get(request, :source_comment_body)])
+
+      is_binary(Map.get(request, :source_comment_body)) ->
+        source_hash([Map.get(request, :source_comment_body)])
+
+      true ->
+        @first_turn_source_key
+    end
+  end
+
+  defp format_answer_parts(parts) when is_list(parts) do
+    parts
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n\n")
     |> Kernel.<>("\n")
@@ -167,6 +246,104 @@ defmodule SymphonyElixir.Dialog do
       body = comment_body(comment)
       String.trim(body) == "" or Workpad.comment_matches?(body)
     end)
+  end
+
+  defp actionable_comments(comments) when is_list(comments) do
+    Enum.reject(comments, &nonblocking_answer_comment?/1)
+  end
+
+  defp follow_up_request(issue, active_repo_root, relevant_comments, open_comment) do
+    case session_id_from_comments(relevant_comments) do
+      nil ->
+        with {:ok, prompt} <- first_turn_prompt(issue, active_repo_root, comment_body(open_comment)) do
+          {:ok, request(prompt, nil, true, open_comment)}
+        end
+
+      session_id ->
+        {:ok, request(comment_body(open_comment), session_id, false, open_comment)}
+    end
+  end
+
+  defp latest_open_request_comment(relevant_comments) when is_list(relevant_comments) do
+    comments = comments_after_last_answer(relevant_comments)
+    covered_source_keys = nonblocking_source_keys(comments)
+
+    comments
+    |> Enum.reject(
+      &(answer_comment?(&1) or nonblocking_answer_comment?(&1) or
+          source_comment_covered?(&1, covered_source_keys))
+    )
+    |> List.last()
+  end
+
+  defp comments_after_last_answer(comments) when is_list(comments) do
+    last_answer_index =
+      comments
+      |> Enum.with_index()
+      |> Enum.reduce(nil, fn {comment, index}, acc ->
+        if answer_comment?(comment), do: index, else: acc
+      end)
+
+    case last_answer_index do
+      nil -> comments
+      index -> Enum.drop(comments, index + 1)
+    end
+  end
+
+  defp source_scoped_nonblocking_answer_exists?(comments) when is_list(comments) do
+    comments
+    |> nonblocking_source_keys()
+    |> MapSet.size()
+    |> Kernel.>(0)
+  end
+
+  defp request_source_covered?(request, comments) when is_map(request) and is_list(comments) do
+    MapSet.member?(nonblocking_source_keys(comments), request_source_key(request))
+  end
+
+  defp nonblocking_source_keys(comments) when is_list(comments) do
+    comments
+    |> Enum.filter(&nonblocking_answer_comment?/1)
+    |> Enum.map(&nonblocking_source_key/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp nonblocking_source_key(comment) do
+    case Regex.run(@source_pattern, comment_body(comment)) do
+      [_, source_key] -> source_key
+      _ -> nil
+    end
+  end
+
+  defp source_comment_covered?(comment, covered_source_keys) do
+    comment
+    |> comment_source_keys()
+    |> Enum.any?(&MapSet.member?(covered_source_keys, &1))
+  end
+
+  defp comment_source_keys(comment) do
+    id = comment_id(comment)
+    timestamp = comment_timestamp(comment)
+    body = comment_body(comment)
+
+    timestamp_source_key =
+      if match?(%DateTime{}, timestamp) do
+        source_hash([DateTime.to_iso8601(timestamp), body])
+      end
+
+    []
+    |> maybe_prepend_source_key(if(is_binary(id), do: "id:#{id}"))
+    |> maybe_prepend_source_key(timestamp_source_key)
+    |> maybe_prepend_source_key(if(body != "", do: source_hash([body])))
+  end
+
+  defp maybe_prepend_source_key(keys, source_key) when is_binary(source_key), do: [source_key | keys]
+  defp maybe_prepend_source_key(keys, _source_key), do: keys
+
+  defp nonblocking_answer_body?(body) when is_binary(body) do
+    body = String.trim_leading(body)
+    String.starts_with?(body, @answer_header) and Regex.match?(@nonblocking_answer_pattern, body)
   end
 
   defp order_comments(comments) do
@@ -288,6 +465,15 @@ defmodule SymphonyElixir.Dialog do
   end
 
   defp session_line(_session_id, _include_session?), do: ""
+
+  defp source_line(source_key) when is_binary(source_key) and source_key != "", do: "[Quelle #{source_key}]"
+  defp source_line(_source_key), do: ""
+
+  defp source_hash(parts) when is_list(parts) do
+    value = Enum.join(parts, <<0>>)
+
+    "sha256:" <> Base.encode16(:crypto.hash(:sha256, value), case: :lower)
+  end
 
   defp agent_message_from_update(message) when is_map(message) do
     message

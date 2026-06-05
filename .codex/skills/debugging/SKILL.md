@@ -61,8 +61,8 @@ rg -o "session_id=[^ ;]+" log/symphony.log* | sort -u
 # 4) Eine Session Ende-zu-Ende verfolgen
 rg -n "session_id=<thread>-<turn>" log/symphony.log*
 
-# 5) Auf Hänger-/Retry-Signale fokussieren
-rg -n "Issue stalled|scheduling retry|turn_timeout|turn_failed|Codex session failed|Codex session ended with error" log/symphony.log*
+# 5) Auf Hänger-/Retry-/Dialog-Finalisierungssignale fokussieren
+rg -n "Issue stalled|scheduling retry|turn_timeout|turn_failed|Codex session failed|Codex session ended with error|Finalizing dialog issue after repository guard error|Finalizing dialog issue after non-interactive turn error|Finalizing dialog issue after dialog session error" log/symphony.log*
 ```
 
 ## Untersuchungsablauf

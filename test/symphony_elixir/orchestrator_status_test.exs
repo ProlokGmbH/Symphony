@@ -1964,8 +1964,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        }}
     )
 
-    Process.sleep(20)
-    refreshed_state = :sys.get_state(pid)
+    refreshed_state =
+      wait_for_orchestrator_state(pid, fn state ->
+        state.last_activity_at_ms > stale_activity_at_ms
+      end)
+
     assert refreshed_state.last_activity_at_ms > stale_activity_at_ms
 
     :sys.replace_state(pid, fn state ->
@@ -2009,6 +2012,26 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       else
         Process.sleep(5)
         do_wait_for_snapshot(pid, predicate, deadline_ms)
+      end
+    end
+  end
+
+  defp wait_for_orchestrator_state(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_orchestrator_state(pid, predicate, deadline_ms)
+  end
+
+  defp do_wait_for_orchestrator_state(pid, predicate, deadline_ms) do
+    state = :sys.get_state(pid)
+
+    if predicate.(state) do
+      state
+    else
+      if System.monotonic_time(:millisecond) >= deadline_ms do
+        flunk("timed out waiting for orchestrator internal state: #{inspect(state)}")
+      else
+        Process.sleep(5)
+        do_wait_for_orchestrator_state(pid, predicate, deadline_ms)
       end
     end
   end
