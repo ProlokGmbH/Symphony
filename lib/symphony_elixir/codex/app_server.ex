@@ -390,12 +390,20 @@ defmodule SymphonyElixir.Codex.AppServer do
       {:ok, %{"thread" => thread_payload}} ->
         case thread_payload do
           %{"id" => resumed_thread_id} -> {:ok, resumed_thread_id}
-          _ -> {:error, {:invalid_thread_payload, thread_payload}}
+          _ -> thread_resume_error(thread_id, {:error, {:invalid_thread_payload, thread_payload}})
         end
 
       other ->
-        other
+        thread_resume_error(thread_id, other)
     end
+  end
+
+  defp thread_resume_error(thread_id, {:error, reason}) when is_binary(thread_id) do
+    {:error, {:thread_resume_failed, thread_id, reason}}
+  end
+
+  defp thread_resume_error(thread_id, {:ok, payload}) when is_binary(thread_id) do
+    {:error, {:thread_resume_failed, thread_id, {:invalid_thread_payload, payload}}}
   end
 
   defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do

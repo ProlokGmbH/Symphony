@@ -40,8 +40,8 @@ vergleichbaren Themen und die semantische Suche einbezogen werden.
   Code, Dokumentation oder Konfiguration des aktuellen Repositories vornehmen.
 - Du darfst Dateien im Repository lesen und Befehle zur Analyse ausführen, wenn
   das für die Antwort nötig ist.
-- Symphony prüft nach dem Turn, dass der Git-Status des aktuellen Repositories
-  unverändert blieb.
+- Symphony prüft nach dem Turn, dass keine Code-, Dokumentations- oder
+  Konfigurationsänderungen im aktuellen Repository zurückbleiben.
 - Erstelle keinen Git-Worktree, führe keine Hooks aus und pflege kein Symphony
   Workpad.
 - Ändere keinen Issue-Status, außer im ausdrücklich bestätigten
@@ -51,6 +51,33 @@ vergleichbaren Themen und die semantische Suche einbezogen werden.
 - Schreibe keine Antwortkommentare direkt in Linear. Gib deine Antwort als
   finale Antwort an Symphony zurück; Symphony veröffentlicht sie mit dem Header
   `### Antwort Symphony`.
+- Symphony prüft nach dem Dialog-Turn Änderungen an von Git versionierten
+  Dateien sowie an nicht erlaubten unversionierten oder ignorierten Pfaden.
+  Erwartbare Runtime-, Build- und Logartefakte unter bekannten Artefaktpfaden
+  wie `log/`, `_build/`, `deps/`, `node_modules/`, `.elixir_ls/`, `.mix/`,
+  `.cache/` und `tmp/` blockieren die Antwort nicht. Wenn verbotene
+  Repository-Änderungen zurückbleiben, veröffentlicht Symphony statt der
+  eigentlichen Antwort einen Fehlerhinweis und wartet auf einen neuen
+  Linear-Kommentar. Wenn während des fehlerhaften Turns bereits ein neuerer
+  Benutzerkommentar eingetroffen ist, bleibt der Fehlerhinweis sichtbar, zählt
+  aber nicht als abschließende Antwort auf diesen neueren Kommentar. Wenn
+  Symphony die Kommentarfrische vor dem Fehlerhinweis nicht verifizieren kann,
+  markiert der sichtbare Hinweis nur die ursprüngliche Anfrage als behandelt;
+  neuere Benutzerkommentare bleiben weiterhin bearbeitbar.
+- Wenn der Codex-Turn in der nicht-interaktiven Dialog-Sitzung wegen
+  erforderlicher Genehmigung, zusätzlicher Eingabe oder eines Turn-Fehlers nicht
+  abgeschlossen werden kann, veröffentlicht Symphony einen Antwortkommentar mit
+  Fehlerhinweis und wartet auf einen neuen Linear-Kommentar statt denselben Turn
+  in einer Backoff-Schleife zu wiederholen.
+- Wenn eine gespeicherte Dialogsitzung nicht per `thread/resume` fortgesetzt
+  werden kann, veröffentlicht Symphony einen Fehlerhinweis mit zurückgesetzter
+  Session. Der nächste Benutzerkommentar startet dann eine neue Codex-Sitzung.
+  Wenn während des fehlerhaften Resume-Versuchs bereits ein neuerer
+  Benutzerkommentar eingetroffen ist, bleibt der Reset-Hinweis sichtbar, zählt
+  aber nicht als abschließende Antwort auf diesen neueren Kommentar.
+  App-Server-, Initialisierungs-, Konfigurations- und Policy-Fehler vor einem
+  echten `thread/resume` bleiben Infrastrukturfehler und laufen weiter über die
+  normale Retry-/Backoff-Behandlung.
 - Wenn aus der Diskussion ein Umsetzungsticket entstehen könnte, frage, ob eine
   Formulierung für ein neues Umsetzungsticket gewünscht ist.
 - Wenn der Benutzer eine Ticketformulierung wünscht, liefere in deiner finalen
