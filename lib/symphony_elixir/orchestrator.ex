@@ -7,7 +7,18 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, Dialog, PromptBuilder, StatusDashboard, Tracker, Workpad, Workspace}
+  alias SymphonyElixir.{
+    AgentRunner,
+    Config,
+    Dialog,
+    PromptBuilder,
+    RuntimeInstances,
+    StatusDashboard,
+    Tracker,
+    Workpad,
+    Workspace
+  }
+
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -49,6 +60,7 @@ defmodule SymphonyElixir.Orchestrator do
       :poll_check_in_progress,
       :tick_timer_ref,
       :tick_token,
+      :active_instance_count_fun,
       :shutdown_fun,
       :output_fun,
       shutdown_requested: false,
@@ -84,6 +96,7 @@ defmodule SymphonyElixir.Orchestrator do
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
+      active_instance_count_fun: Keyword.get(opts, :active_instance_count_fun, &RuntimeInstances.active_count/0),
       shutdown_fun: Keyword.get(opts, :shutdown_fun, &default_shutdown/0),
       output_fun: Keyword.get(opts, :output_fun, &IO.puts/1),
       codex_totals: @empty_codex_totals,
@@ -150,7 +163,14 @@ defmodule SymphonyElixir.Orchestrator do
     state = maybe_dispatch(state)
     state = maybe_touch_activity_for_state_change(previous_state, state)
     state = maybe_request_idle_shutdown(state)
-    state = if state.shutdown_requested, do: state, else: schedule_tick(state, state.poll_interval_ms)
+
+    state =
+      if state.shutdown_requested do
+        state
+      else
+        schedule_tick(state, next_poll_delay_ms(state))
+      end
+
     state = %{state | poll_check_in_progress: false}
 
     notify_dashboard()
@@ -3486,6 +3506,23 @@ defmodule SymphonyElixir.Orchestrator do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
   end
+
+  defp next_poll_delay_ms(%State{} = state) do
+    state.poll_interval_ms * active_instance_count(state)
+  end
+
+  defp active_instance_count(%State{active_instance_count_fun: fun}) when is_function(fun, 0) do
+    case fun.() do
+      count when is_integer(count) and count > 0 -> count
+      _invalid -> 1
+    end
+  rescue
+    _reason -> 1
+  catch
+    _kind, _reason -> 1
+  end
+
+  defp active_instance_count(%State{}), do: 1
 
   defp next_poll_in_ms(nil, _now_ms), do: nil
 

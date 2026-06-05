@@ -959,7 +959,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     )
 
     orchestrator_name = Module.concat(__MODULE__, :ImmediateStartupOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: true)
+
+    {:ok, pid} =
+      Orchestrator.start_link(
+        name: orchestrator_name,
+        initial_poll?: true,
+        active_instance_count_fun: fn -> 1 end
+      )
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -1011,7 +1017,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     )
 
     orchestrator_name = Module.concat(__MODULE__, :PollCycleOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    {:ok, pid} =
+      Orchestrator.start_link(
+        name: orchestrator_name,
+        initial_poll?: false,
+        active_instance_count_fun: fn -> 1 end
+      )
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -1020,9 +1032,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     end)
 
     :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref) do
+        Process.cancel_timer(state.tick_timer_ref)
+      end
+
       %{
         state
         | poll_interval_ms: 50,
+          tick_timer_ref: nil,
+          tick_token: nil,
           poll_check_in_progress: true,
           next_poll_due_at_ms: nil
       }
@@ -1051,6 +1069,67 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert is_integer(next_poll_in_ms)
     assert next_poll_in_ms >= 0
     assert next_poll_in_ms <= 50
+  end
+
+  test "orchestrator poll cycle scales next refresh countdown by active instance count" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_api_token: nil,
+      poll_interval_ms: 50
+    )
+
+    orchestrator_name = Module.concat(__MODULE__, :ScaledPollCycleOrchestrator)
+
+    {:ok, pid} =
+      Orchestrator.start_link(
+        name: orchestrator_name,
+        initial_poll?: false,
+        active_instance_count_fun: fn -> 3 end
+      )
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref) do
+        Process.cancel_timer(state.tick_timer_ref)
+      end
+
+      %{
+        state
+        | poll_interval_ms: 50,
+          tick_timer_ref: nil,
+          tick_token: nil,
+          poll_check_in_progress: true,
+          next_poll_due_at_ms: nil
+      }
+    end)
+
+    send(pid, :run_poll_cycle)
+
+    snapshot =
+      wait_for_snapshot(pid, fn
+        %{polling: %{checking?: false, poll_interval_ms: 50, next_poll_in_ms: next_poll_in_ms}}
+        when is_integer(next_poll_in_ms) and next_poll_in_ms > 50 and next_poll_in_ms <= 150 ->
+          true
+
+        _ ->
+          false
+      end)
+
+    assert %{
+             polling: %{
+               checking?: false,
+               poll_interval_ms: 50,
+               next_poll_in_ms: next_poll_in_ms
+             }
+           } = snapshot
+
+    assert is_integer(next_poll_in_ms)
+    assert next_poll_in_ms > 50
+    assert next_poll_in_ms <= 150
   end
 
   test "orchestrator restarts stalled workers with retry backoff" do
