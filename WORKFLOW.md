@@ -178,7 +178,7 @@ Zusätzliche Review-Hinweise:
 
 - Arbeite nur in der bereitgestellten Repository-Kopie. Berühre keinen anderen Pfad.
 - Beginne damit, den aktuellen Status des Tickets zu bestimmen, und folge dann dem passenden Ablauf für diesen Status.
-- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus; `Todo` ist der ausdrücklich definierte manuelle Worktree-Bootstrap-Sonderfall, `Todo (Dialog-AI)` der ausdrücklich definierte isolierte Sonderfall.
+- Betrachte grundsätzlich nur Statuswerte mit `(AI)` im Namen als automatische Arbeitsstatus; `In Arbeit` ist der ausdrücklich definierte manuelle Worktree-Bootstrap-Sonderfall, `Todo (Dialog-AI)` der ausdrücklich definierte isolierte Sonderfall.
 - Starte jede Aufgabe damit, den verfolgenden Workpad-Kommentar zu öffnen und auf den neuesten Stand zu bringen, bevor neue Implementierungsarbeit beginnt.
 - Investiere vor der Implementierung bewusst mehr Aufwand in Planung und Verifikationsdesign.
 - Reproduziere zuerst: bestätige immer das aktuelle Verhalten bzw. Signal des Problems, bevor du Code änderst, damit das Ziel des Fixes eindeutig ist.
@@ -298,12 +298,13 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
 | Status | Im Scope | Bedeutung / Verhalten | Nächster regulärer Status |
 | --- | --- | --- | --- |
 | `Backlog` | Nein | Außerhalb des Scopes dieses Workflows; nicht ändern. | Warten auf menschliches Verschieben nach `Todo (AI)` |
-| `Todo` | Ja (Bootstrap) | Manueller Benutzer-Todo: Symphony erstellt nur Workspace/Worktree inkl. `after_create`-Hook, startet kein Codex und ändert den Status nicht. | Warten auf menschliches Verschieben nach `Todo (AI)` |
+| `Todo` | Nein | Außerhalb des Scopes dieses Workflows; Benutzer-Todo ohne Automatisierung. | Warten auf menschliches Verschieben nach `Todo (AI)` |
 | `Todo (Dialog-AI)` | Ja | Isolierter Dialog- und Vorplanungsmodus außerhalb des regulären Workflows. Symphony verwendet `WORKFLOW_DIALOG.md`, erstellt keinen Worktree, führt keine Hooks aus, startet Codex im Projektroot und veröffentlicht Antworten als Linear-Kommentar. Bei ausdrücklich bestätigter Umsetzungsticket-Erstellung darf der Dialog-AI-Prompt zusätzlich das neue Ticket erstellen/verknüpfen und das Ursprungsticket nach `Umsetzungsticket erstellt` verschieben. | Bleibt in `Todo (Dialog-AI)` bis zu externem Statuswechsel, neuem Benutzerkommentar oder erfolgreicher Erstellung eines bestätigten Umsetzungstickets |
 | `Umsetzungsticket erstellt` | Nein | Abschlussstatus für ein Ursprungsticket nach erfolgreicher bestätigter Umsetzungsticket-Erstellung aus `Todo (Dialog-AI)`; keine weitere Automatisierung. | - |
 | `Todo (AI)` | Ja | In der Warteschlange; vor aktiver Arbeit sofort nach `Planung (AI)` verschieben. | `Planung (AI)` |
 | `Planung (AI)` | Ja | Ticketbeschreibung und Workpad-Planung vorbereiten und entscheiden, ob vollständig autonome Umsetzung möglich ist. | `In Arbeit (AI)` |
 | `Planung` | Nein | Manueller Klärungs- und Planschärfungspunkt, wenn offene Verständnis-, Umsetzungs- oder Produktverhaltensfragen festgestellt wurden. | Warten auf menschliches Verschieben |
+| `In Arbeit` | Ja (Bootstrap) | Manueller Benutzer-In-Arbeit-Bootstrap: Symphony erstellt nur Workspace/Worktree inkl. `after_create`-Hook, startet kein Codex und ändert den Status nicht. | Warten auf menschliches Verschieben |
 | `In Arbeit (AI)` | Ja | Vor der Umsetzung `symphony-pull` ausführen; danach den vorbereiteten Plan umsetzen. Nicht-funktionale Plananpassungen begründet im Workpad pflegen; produktverhaltensrelevanten Klärungsbedarf nach `Planung` zurückgeben. | `PreReview (AI)` |
 | `PreReview (AI)` | Ja | `symphony-prereview` ausführen. | `Freigabe Implementierung` |
 | `Freigabe Implementierung` | Nein | Manueller Review- und Commit-Schritt nach PreReview; ohne Skip-Label keine weitere automatische Aktion bis zum nächsten menschlichen Statuswechsel. | Warten auf menschliches Verschieben |
@@ -324,12 +325,13 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
 3. Halte knapp fest, wenn Status und Issue-Inhalt nicht konsistent sind: im bestehenden Workpad oder, falls vor dem ersten Workpad-Bootstrap noch kein Workpad existiert, beim Anlegen des ersten Workpads. Fahre dann mit dem sichersten Ablauf fort.
 4. Leite in den passenden Ablauf weiter:
    - `Backlog` -> Issue-Inhalt/Status nicht ändern; stoppen und warten, bis ein Mensch es auf `Todo (AI)` setzt.
-   - `Todo` -> Workspace/Worktree-Bootstrap inkl. Hook durchführen, keinen Codex starten, keinen Statuswechsel ausführen und danach beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
+   - `Todo` -> nichts tun und beenden; warten, bis ein Mensch das Issue auf `Todo (AI)` setzt.
    - `Todo (Dialog-AI)` -> Dialog-Sonderablauf aus `WORKFLOW_DIALOG.md` ausführen; keinen regulären Worktree erstellen; Statuswechsel nur im bestätigten Umsetzungsticket-Erstellungspfad nach `Umsetzungsticket erstellt` vornehmen.
    - `Umsetzungsticket erstellt` -> nichts tun und beenden; Umsetzungsticket wurde aus `Todo (Dialog-AI)` heraus erstellt.
    - `Todo (AI)` -> Ablauf `Todo (AI)` ausführen.
    - `Planung (AI)` -> Ablauf `Planung (AI)` ausführen.
    - `Planung` -> nichts tun und beenden; warten, bis ein Mensch die Planung geschärft und das Issue wieder in einen AI-Status verschiebt.
+   - `In Arbeit` -> Workspace/Worktree-Bootstrap inkl. `after_create`-Hook durchführen, keinen Codex starten, keinen Statuswechsel ausführen und danach beenden.
    - `In Arbeit (AI)` -> Ablauf `In Arbeit (AI)` ausführen.
    - `PreReview (AI)` -> Ablauf `PreReview (AI)` ausführen.
    - `Freigabe Implementierung` -> mit `Skip "Freigabe Implementierung"` oder `--yolo` zum nächsten Tabellenstatus verschieben und den Turn beenden; sonst nichts tun und beenden, bis ein Mensch das Issue wieder in einen AI-Status verschiebt.
@@ -717,7 +719,7 @@ der globale Skill `symphony-planning` die maßgebliche Quelle.
 
 ## Leitplanken und Verbote
 
-- Wenn der Issue-Status `Backlog` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt. Für `Todo` ist nur der definierte Worktree-Bootstrap ohne Codex-Start und ohne automatischen Statuswechsel zulässig.
+- Wenn der Issue-Status `Backlog` oder `Todo` ist, ändere ihn nicht; warte, bis ein Mensch ihn in den nächsten vorgesehenen AI-Status verschiebt.
 - Bearbeite den Issue-Body/die Beschreibung nicht für Planung oder Fortschrittsverfolgung. Ausnahmen sind nur die automatisierte Beschreibungspflege in `Planung (AI)` und das einmalige `Erstkontakt-Protokoll für neue Items`.
 - Verwende pro Issue genau einen persistierenden Workpad-Kommentar (`## Symphony Workpad`).
 - Von aufgerufenen Skills ausdrücklich geforderte separate Nachvollziehbarkeitskommentare sind neben dem Workpad zulässig; sie ersetzen den Workpad-Kommentar nicht und zählen nicht als zusätzliche Workpads. Im Review-Kontext bedeutet das kombinierte Nach-Fix-Kommentare pro behandeltem Finding, keine getrennten Vorab-Finding-Kommentare plus spätere Fix-Kommentare.
