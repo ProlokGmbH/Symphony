@@ -1007,6 +1007,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                         stateNames: [
                           "Todo (AI)",
                           "Review (AI)",
+                          "Todo",
                           "In Arbeit",
                           "Freigabe Implementierung",
                           "Freigabe Review",
@@ -1065,6 +1066,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                         stateNames: [
                           "Todo (AI)",
                           "Review (AI)",
+                          "Todo",
                           "In Arbeit",
                           "Freigabe Implementierung",
                           "Freigabe Review",
