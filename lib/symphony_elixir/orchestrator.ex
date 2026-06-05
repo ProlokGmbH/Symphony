@@ -21,6 +21,9 @@ defmodule SymphonyElixir.Orchestrator do
   @in_arbeit_ai_state_name "in arbeit (ai)"
   @manual_in_progress_state_name "in arbeit"
   @yolo_manual_state_names ["freigabe implementierung", "freigabe review"]
+  @regular_run_mode :regular
+  @dialog_run_mode :dialog
+  @manual_in_progress_bootstrap_run_mode :manual_in_progress_bootstrap
   @review_handoff_state_name "Freigabe Review"
   @review_no_findings_handoff_state_name "Test (AI)"
   @canceled_terminal_state_name "Abgebrochen"
@@ -477,7 +480,7 @@ defmodule SymphonyElixir.Orchestrator do
         terminate_running_issue(state, issue.id, false)
 
       active_issue_state?(issue.state, active_states) ->
-        refresh_running_issue_state(state, issue)
+        reconcile_active_running_issue_state(state, issue)
 
       true ->
         Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
@@ -521,6 +524,22 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp log_missing_running_issue(_state, _issue_id), do: :ok
+
+  defp reconcile_active_running_issue_state(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{issue: _} = running_entry ->
+        if same_run_mode?(running_entry, issue) do
+          refresh_running_issue_state(state, issue)
+        else
+          Logger.info("Issue changed active run mode: #{issue_context(issue)} state=#{issue.state}; restarting with matching runner")
+
+          terminate_running_issue(state, issue.id, false)
+        end
+
+      _ ->
+        state
+    end
+  end
 
   defp refresh_running_issue_state(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
@@ -587,6 +606,14 @@ defmodule SymphonyElixir.Orchestrator do
   defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
+    if manual_in_progress_bootstrap_running_entry?(running_entry) do
+      state
+    else
+      restart_stalled_codex_issue(state, issue_id, running_entry, elapsed_ms, timeout_ms)
+    end
+  end
+
+  defp restart_stalled_codex_issue(state, issue_id, running_entry, elapsed_ms, timeout_ms) do
     if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = running_entry_session_id(running_entry)
@@ -616,6 +643,32 @@ defmodule SymphonyElixir.Orchestrator do
       state
     end
   end
+
+  defp same_run_mode?(running_entry, %Issue{} = issue) when is_map(running_entry) do
+    running_entry_run_mode(running_entry) == issue_run_mode(issue)
+  end
+
+  defp running_entry_run_mode(%{run_mode: run_mode}) when is_atom(run_mode), do: run_mode
+
+  defp running_entry_run_mode(%{issue: %Issue{} = issue}), do: issue_run_mode(issue)
+
+  defp running_entry_run_mode(_running_entry), do: @regular_run_mode
+
+  defp issue_run_mode(%Issue{state: state_name}) when is_binary(state_name) do
+    cond do
+      Dialog.state?(state_name) -> @dialog_run_mode
+      manual_in_progress_issue_state?(state_name) -> @manual_in_progress_bootstrap_run_mode
+      true -> @regular_run_mode
+    end
+  end
+
+  defp issue_run_mode(_issue), do: @regular_run_mode
+
+  defp manual_in_progress_bootstrap_running_entry?(running_entry) when is_map(running_entry) do
+    running_entry_run_mode(running_entry) == @manual_in_progress_bootstrap_run_mode
+  end
+
+  defp manual_in_progress_bootstrap_running_entry?(_running_entry), do: false
 
   defp stall_elapsed_ms(running_entry, now) do
     running_entry
@@ -946,6 +999,7 @@ defmodule SymphonyElixir.Orchestrator do
             identifier: issue.identifier,
             dispatch_issue: issue,
             issue: issue,
+            run_mode: issue_run_mode(issue),
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,

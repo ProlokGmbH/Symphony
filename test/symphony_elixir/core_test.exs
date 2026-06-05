@@ -355,6 +355,7 @@ defmodule SymphonyElixir.CoreTest do
       "Todo (AI)",
       "Planung (AI)",
       "Planung",
+      "In Arbeit",
       "In Arbeit (AI)",
       "PreReview (AI)",
       "Freigabe Implementierung",
@@ -1340,6 +1341,58 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.has_key?(updated_state.running, issue_id)
     assert MapSet.member?(updated_state.claimed, issue_id)
     assert updated_entry.issue.state == "In Arbeit (AI)"
+  end
+
+  test "reconcile stops running issue when active state needs a different runner" do
+    for {new_state, issue_id} <- [
+          {"In Arbeit", "issue-active-mode-manual"},
+          {"Todo (Dialog-AI)", "issue-active-mode-dialog"}
+        ] do
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      agent_ref = Process.monitor(agent_pid)
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: "MT-MODE",
+            issue: %Issue{
+              id: issue_id,
+              identifier: "MT-MODE",
+              state: "In Arbeit (AI)"
+            },
+            run_mode: :regular,
+            started_at: DateTime.utc_now()
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{}
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-MODE",
+        state: new_state,
+        title: "Active mode switch",
+        description: "Runner should switch immediately",
+        labels: []
+      }
+
+      updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+      refute Map.has_key?(updated_state.running, issue_id)
+      refute MapSet.member?(updated_state.claimed, issue_id)
+      refute Map.has_key?(updated_state.completed_states, issue_id)
+      assert_receive {:DOWN, ^agent_ref, :process, ^agent_pid, _reason}
+    end
   end
 
   test "reconcile stops running issue when it is reassigned away from this worker" do
@@ -10348,6 +10401,54 @@ defmodule SymphonyElixir.CoreTest do
 
       assert :ok = AgentRunner.run(issue)
       refute File.exists?(marker_path)
+      refute File.exists?(codex_stamp)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner leaves existing workspace state untouched for manual Todo" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-todo-noop-existing-workspace-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-TODO-NOOP")
+      codex_stamp = Path.join(test_root, "codex-invoked")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "README.md"), "# test\n")
+      System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", workspace, "add", "README.md"])
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial"])
+      marker_path = review_autocommit_marker_path!(workspace)
+      File.write!(marker_path, "true\n")
+      assert File.exists?(marker_path)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "sh -lc 'touch #{codex_stamp}'",
+        max_turns: 3
+      )
+
+      issue = %Issue{
+        id: "issue-todo-noop-existing-workspace",
+        identifier: "MT-TODO-NOOP",
+        title: "Todo leaves workspace alone",
+        description: "Manual Todo must not touch existing workspace state",
+        state: "Todo",
+        url: "https://example.org/issues/MT-TODO-NOOP",
+        labels: []
+      }
+
+      assert :ok = AgentRunner.run(issue)
+      assert File.exists?(marker_path)
       refute File.exists?(codex_stamp)
     after
       File.rm_rf(test_root)

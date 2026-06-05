@@ -30,9 +30,10 @@ defmodule SymphonyElixir.AgentRunner do
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
+  @manual_todo_state_name "todo"
   @manual_in_progress_state_name "in arbeit"
   @ignored_manual_state_names [
-    "todo",
+    @manual_todo_state_name,
     "in arbeit",
     "freigabe",
     "planung",
@@ -74,6 +75,10 @@ defmodule SymphonyElixir.AgentRunner do
       {:bootstrap_only, %Issue{} = manual_issue} ->
         bootstrap_manual_in_progress_issue(manual_issue, codex_update_recipient, worker_host)
 
+      :todo_noop ->
+        Logger.info("Skipping manual Todo issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
+        :ok
+
       :manual_noop ->
         Logger.info("Skipping manual-only issue state for #{issue_context(issue)} state=#{inspect(issue.state)}")
         maybe_clear_review_autocommit_marker_for_existing_workspace(issue, worker_host)
@@ -113,6 +118,9 @@ defmodule SymphonyElixir.AgentRunner do
     cond do
       Dialog.state?(issue.state) ->
         :dialog
+
+      manual_todo_issue_state?(issue.state) ->
+        :todo_noop
 
       manual_in_progress_issue_state?(issue.state) ->
         {:bootstrap_only, issue}
@@ -168,6 +176,12 @@ defmodule SymphonyElixir.AgentRunner do
         label == ~s(skip "#{current_state}") or label == "skip #{current_state}"
       end)
   end
+
+  defp manual_todo_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == @manual_todo_state_name
+  end
+
+  defp manual_todo_issue_state?(_state_name), do: false
 
   defp codex_message_handler(recipient, issue) do
     fn message ->
