@@ -130,7 +130,7 @@ Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Fre
 | Status | Rolle | Zweck | Regulaerer Uebergang |
 | --- | --- | --- | --- |
 | `Backlog` | Mensch | Ticket liegt noch ausserhalb der Automatisierung. | `Todo (AI)` |
-| `Todo` | Mensch | Manueller Benutzerstatus: Symphony bootstrappt Workspace/Git-Worktree inklusive `after_create`-/`on_create_worktree`-Hook, startet kein Codex und verschiebt den Status nicht automatisch. | bleibt offen bis zum nächsten AI-Status |
+| `Todo` | Mensch | Nicht automatisiertes Benutzer-Todo ausserhalb des Symphony-Scopes. | bleibt offen bis zum naechsten AI-Status |
 | `Todo (AI)` | AI | Ticket wartet auf den Start der Bearbeitung. | `Planung (AI)` |
 | `Todo (Dialog-AI)` | AI | Dialogische Vorplanung über `WORKFLOW_DIALOG.md` ohne Worktree, Hooks oder Repository-Änderungen; Antworten laufen als Linear-Kommentare. Bei ausdrücklicher Bestätigung darf der Dialog-AI-Pfad ein Umsetzungsticket erstellen, verknüpfen und das Ursprungsticket verschieben. | `Umsetzungsticket erstellt` nach erfolgreicher bestätigter Ticketerstellung; sonst bleibt es bis zu externem Statuswechsel oder neuer Benutzeranfrage |
 | `Umsetzungsticket erstellt` | Abschluss | Ursprungsticket nach erfolgreicher Umsetzungsticket-Erstellung aus `Todo (Dialog-AI)`; keine weitere Automatisierung. | - |
