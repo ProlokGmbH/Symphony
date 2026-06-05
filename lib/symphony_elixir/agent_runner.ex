@@ -11,7 +11,6 @@ defmodule SymphonyElixir.AgentRunner do
     Config,
     Dialog,
     Linear.Issue,
-    LogFile,
     PromptBuilder,
     RuntimePaths,
     Tracker,
@@ -344,11 +343,16 @@ defmodule SymphonyElixir.AgentRunner do
       {:ok, {:ok, turn_session}} ->
         maybe_post_dialog_answer(issue, request, turn_session, message_key)
 
-      {{:error, reason}, _turn_result} ->
+      {{:error, reason}, {:ok, turn_session}} ->
+        with :ok <- maybe_post_dialog_answer(issue, request, turn_session, message_key) do
+          {:error, reason}
+        end
+
+      {{:error, reason}, {:error, _turn_reason}} ->
         {:error, reason}
 
       {:ok, {:error, reason}} ->
-        {:error, reason}
+        maybe_finalize_dialog_turn_error(issue, request, app_session, reason)
     end
   after
     Process.delete({__MODULE__, :dialog_messages})
@@ -377,6 +381,54 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
+  defp maybe_finalize_dialog_turn_error(issue, request, app_session, reason) do
+    if finalizable_dialog_turn_error?(reason) do
+      maybe_post_dialog_turn_error_answer(issue, request, app_session, reason)
+    else
+      {:error, reason}
+    end
+  end
+
+  defp finalizable_dialog_turn_error?({:approval_required, _payload}), do: true
+  defp finalizable_dialog_turn_error?({:turn_input_required, _payload}), do: true
+  defp finalizable_dialog_turn_error?({:turn_failed, _payload}), do: true
+  defp finalizable_dialog_turn_error?(_reason), do: false
+
+  defp maybe_post_dialog_turn_error_answer(issue, request, app_session, reason) do
+    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
+         true <- Dialog.request_current?(request, comments) do
+      Logger.warning("Finalizing dialog issue after non-interactive turn error for #{issue_context(issue)} reason=#{inspect(reason)}")
+
+      Tracker.create_comment(
+        issue.id,
+        Dialog.format_answer_comment(
+          dialog_turn_error_answer(reason),
+          Map.get(app_session, :thread_id),
+          Map.get(request, :include_session?, false)
+        )
+      )
+    else
+      false ->
+        Logger.info("Skipping stale dialog error answer because a newer user comment exists: #{issue_context(issue)}")
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp dialog_turn_error_answer({:approval_required, _payload}) do
+    "Ich konnte die Dialoganfrage nicht abschließen, weil der Codex-Lauf in dieser nicht-interaktiven Dialog-Sitzung eine interaktive Genehmigung benötigt hat. Bitte formuliere die nächste Anfrage so, dass sie ohne interaktive Genehmigung beantwortet werden kann."
+  end
+
+  defp dialog_turn_error_answer({:turn_input_required, _payload}) do
+    "Ich konnte die Dialoganfrage nicht abschließen, weil der Codex-Lauf zusätzliche interaktive Eingabe benötigt hat. Bitte ergänze die fehlenden Angaben als neuen Linear-Kommentar."
+  end
+
+  defp dialog_turn_error_answer({:turn_failed, _payload}) do
+    "Ich konnte die Dialoganfrage nicht abschließen, weil der Codex-Turn fehlgeschlagen ist. Bitte ergänze den Kontext oder stelle die Anfrage erneut als neuen Linear-Kommentar."
+  end
+
   defp run_dialog_app_turn(app_session, prompt, issue, on_message) when is_function(on_message, 1) do
     AppServer.run_turn(app_session, prompt, issue, on_message: on_message)
   rescue
@@ -388,20 +440,14 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp dialog_repo_status_snapshot(workspace) when is_binary(workspace) do
-    with {:ok, status} <- dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    with {:ok, status} <- dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z", "--untracked-files=no"]),
          {:ok, unstaged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--binary", "--no-ext-diff", "--no-color"]),
-         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]),
-         {:ok, untracked_paths} <- dialog_untracked_paths(workspace),
-         {:ok, ignored_paths} <- dialog_ignored_paths(workspace),
-         {:ok, untracked_files} <- dialog_file_hashes(workspace, untracked_paths),
-         {:ok, ignored_files} <- dialog_file_hashes(workspace, ignored_paths) do
+         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]) do
       {:ok,
        %{
          status: status,
          unstaged_diff: dialog_snapshot_hash(unstaged_diff),
-         staged_diff: dialog_snapshot_hash(staged_diff),
-         untracked_files: untracked_files,
-         ignored_files: ignored_files
+         staged_diff: dialog_snapshot_hash(staged_diff)
        }}
     end
   end
@@ -428,99 +474,6 @@ defmodule SymphonyElixir.AgentRunner do
       {output, status} ->
         {:error, {:dialog_git_snapshot_failed, args, status, output}}
     end
-  end
-
-  defp dialog_untracked_paths(workspace) when is_binary(workspace) do
-    with {:ok, output} <- dialog_git_snapshot_command(workspace, ["ls-files", "--others", "--exclude-standard", "-z"]) do
-      paths =
-        output
-        |> String.split(<<0>>, trim: true)
-        |> Enum.reject(&dialog_runtime_log_artifact?(workspace, &1))
-        |> Enum.sort()
-
-      {:ok, paths}
-    end
-  end
-
-  defp dialog_ignored_paths(workspace) when is_binary(workspace) do
-    with {:ok, output} <-
-           dialog_git_snapshot_command(workspace, [
-             "ls-files",
-             "--others",
-             "--ignored",
-             "--exclude-standard",
-             "-z"
-           ]) do
-      paths =
-        output
-        |> String.split(<<0>>, trim: true)
-        |> Enum.reject(&dialog_runtime_log_artifact?(workspace, &1))
-        |> Enum.sort()
-
-      {:ok, paths}
-    end
-  end
-
-  defp dialog_file_hashes(workspace, paths) when is_binary(workspace) and is_list(paths) do
-    paths
-    |> Enum.reduce_while({:ok, []}, fn path, {:ok, acc} ->
-      case dialog_path_hash(workspace, path) do
-        {:ok, hash} -> {:cont, {:ok, [{path, hash} | acc]}}
-        :skip -> {:cont, {:ok, acc}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> then(fn
-      {:ok, hashes} -> {:ok, Enum.reverse(hashes)}
-      {:error, reason} -> {:error, reason}
-    end)
-  end
-
-  defp dialog_path_hash(workspace, path) when is_binary(workspace) and is_binary(path) do
-    absolute_path = Path.join(workspace, path)
-
-    case File.lstat(absolute_path) do
-      {:ok, stat} ->
-        dialog_path_hash_for_type(path, absolute_path, stat)
-
-      {:error, reason} ->
-        {:error, {:dialog_file_stat_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(path, absolute_path, %{type: :regular}) do
-    case File.read(absolute_path) do
-      {:ok, contents} -> {:ok, dialog_snapshot_hash(contents)}
-      {:error, reason} -> {:error, {:dialog_file_read_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(path, absolute_path, %{type: :symlink}) do
-    case File.read_link(absolute_path) do
-      {:ok, target} -> {:ok, dialog_snapshot_hash("symlink:" <> target)}
-      {:error, reason} -> {:error, {:dialog_symlink_read_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(_path, _absolute_path, %{type: :directory}), do: :skip
-
-  defp dialog_path_hash_for_type(_path, _absolute_path, stat) do
-    {:ok, dialog_snapshot_hash(:erlang.term_to_binary({stat.type, stat.size, stat.mtime}))}
-  end
-
-  defp dialog_runtime_log_artifact?(workspace, path) when is_binary(workspace) and is_binary(path) do
-    absolute_path = Path.expand(path, workspace)
-
-    Enum.any?(dialog_runtime_log_files(workspace), fn log_file ->
-      absolute_path == log_file or String.starts_with?(absolute_path, log_file <> ".")
-    end)
-  end
-
-  defp dialog_runtime_log_files(workspace) when is_binary(workspace) do
-    [Application.get_env(:symphony_elixir, :log_file), LogFile.default_log_file(workspace)]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.map(&Path.expand(&1, workspace))
-    |> Enum.uniq()
   end
 
   defp dialog_snapshot_hash(contents) when is_binary(contents) do

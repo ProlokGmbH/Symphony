@@ -51,6 +51,15 @@ vergleichbaren Themen und die semantische Suche einbezogen werden.
 - Schreibe keine Antwortkommentare direkt in Linear. Gib deine Antwort als
   finale Antwort an Symphony zurück; Symphony veröffentlicht sie mit dem Header
   `### Antwort Symphony`.
+- Symphony prüft nach dem Dialog-Turn nur Änderungen an von Git versionierten
+  Dateien. Nicht versionierte oder ignorierte Runtime-, Build- und Logdateien
+  blockieren die Antwort nicht. Wenn eine finale Antwort vorliegt, veröffentlicht
+  Symphony sie vor der Auswertung dieses Git-Guards.
+- Wenn der Codex-Turn in der nicht-interaktiven Dialog-Sitzung wegen
+  erforderlicher Genehmigung, zusätzlicher Eingabe oder eines Turn-Fehlers nicht
+  abgeschlossen werden kann, veröffentlicht Symphony einen Antwortkommentar mit
+  Fehlerhinweis und wartet auf einen neuen Linear-Kommentar statt denselben Turn
+  in einer Backoff-Schleife zu wiederholen.
 - Wenn aus der Diskussion ein Umsetzungsticket entstehen könnte, frage, ob eine
   Formulierung für ein neues Umsetzungsticket gewünscht ist.
 - Wenn der Benutzer eine Ticketformulierung wünscht, liefere in deiner finalen

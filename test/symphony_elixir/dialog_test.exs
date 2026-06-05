@@ -243,6 +243,58 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
+  test "agent runner finalizes dialog approval errors with an answer comment" do
+    test_root = Path.join(System.tmp_dir!(), "symphony-dialog-approval-error-#{System.unique_integer([:positive])}")
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      project_root = Path.join(test_root, "project")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-approval-error.trace")
+
+      File.mkdir_p!(project_root)
+      File.write!(Path.join(project_root, "README.md"), "clean\n")
+      git_cmd!(project_root, ["init", "-b", "main"])
+      git_cmd!(project_root, ["config", "user.name", "Dialog Test"])
+      git_cmd!(project_root, ["config", "user.email", "dialog-test@example.com"])
+      git_cmd!(project_root, ["add", "README.md"])
+      git_cmd!(project_root, ["commit", "-m", "Initial commit"])
+      write_approval_request_fake_codex!(codex_binary, trace_file)
+      write_dialog_workflow!("dialog prompt {{ issue.identifier }}")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = dialog_issue("issue-dialog-approval-error", "MT-DAPPROVAL")
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{})
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      File.cd!(project_root, fn ->
+        assert :ok = AgentRunner.run(issue, self())
+
+        assert_receive {:memory_tracker_comment, "issue-dialog-approval-error", body}, 1_000
+        assert body =~ "### Antwort Symphony"
+        assert body =~ "[Session thread-dialog-approval]"
+        assert body =~ "interaktive Genehmigung"
+      end)
+
+      assert File.read!(trace_file) =~ ~s("method":"item/commandExecution/requestApproval")
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner allows Symphony runtime log artifacts during dialog repo checks" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-log-artifact-#{System.unique_integer([:positive])}")
 
@@ -299,7 +351,7 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
-  test "agent runner rejects dialog answers if the dialog turn changes the source repo" do
+  test "agent runner posts dialog answers before failing tracked source changes" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-dirty-#{System.unique_integer([:positive])}")
 
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
@@ -311,7 +363,7 @@ defmodule SymphonyElixir.DialogTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-dirty.trace")
-      dirty_file = Path.join(project_root, "dialog-dirty.txt")
+      dirty_file = Path.join(project_root, "README.md")
 
       File.mkdir_p!(project_root)
       File.write!(Path.join(project_root, "README.md"), "clean\n")
@@ -341,8 +393,62 @@ defmodule SymphonyElixir.DialogTest do
         end
       end)
 
-      refute_received {:memory_tracker_comment, "issue-dialog-dirty", _body}
-      assert File.exists?(dirty_file)
+      assert_receive {:memory_tracker_comment, "issue-dialog-dirty", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Dirty answer"
+      assert File.read!(dirty_file) == "dirty\n"
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner allows dialog answers when untracked files change" do
+    test_root = Path.join(System.tmp_dir!(), "symphony-dialog-untracked-dirty-#{System.unique_integer([:positive])}")
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      project_root = Path.join(test_root, "project")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-untracked-dirty.trace")
+      dirty_file = Path.join(project_root, "dialog-dirty.txt")
+
+      File.mkdir_p!(project_root)
+      File.write!(Path.join(project_root, "README.md"), "clean\n")
+      git_cmd!(project_root, ["init", "-b", "main"])
+      git_cmd!(project_root, ["config", "user.name", "Dialog Test"])
+      git_cmd!(project_root, ["config", "user.email", "dialog-test@example.com"])
+      git_cmd!(project_root, ["add", "README.md"])
+      git_cmd!(project_root, ["commit", "-m", "Initial commit"])
+
+      write_dirty_fake_codex!(codex_binary, trace_file, dirty_file)
+      write_dialog_workflow!("dialog prompt {{ issue.identifier }}")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = dialog_issue("issue-dialog-untracked-dirty", "MT-UDIRTY")
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{})
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      File.cd!(project_root, fn ->
+        assert :ok = AgentRunner.run(issue, self())
+      end)
+
+      assert_receive {:memory_tracker_comment, "issue-dialog-untracked-dirty", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Dirty answer"
+      assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -394,7 +500,9 @@ defmodule SymphonyElixir.DialogTest do
         end
       end)
 
-      refute_received {:memory_tracker_comment, "issue-dialog-tracked-dirty", _body}
+      assert_receive {:memory_tracker_comment, "issue-dialog-tracked-dirty", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Dirty answer"
       assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -404,7 +512,7 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
-  test "agent runner catches dialog changes to ignored files" do
+  test "agent runner allows dialog answers when ignored files change" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-ignored-dirty-#{System.unique_integer([:positive])}")
 
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
@@ -442,12 +550,12 @@ defmodule SymphonyElixir.DialogTest do
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
 
       File.cd!(project_root, fn ->
-        assert_raise RuntimeError, ~r/dialog_repo_modified/, fn ->
-          AgentRunner.run(issue, self())
-        end
+        assert :ok = AgentRunner.run(issue, self())
       end)
 
-      refute_received {:memory_tracker_comment, "issue-dialog-ignored-dirty", _body}
+      assert_receive {:memory_tracker_comment, "issue-dialog-ignored-dirty", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Dirty answer"
       assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -457,7 +565,7 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
-  test "agent runner catches dialog changes below ignored directories" do
+  test "agent runner allows dialog answers when ignored directories change" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-ignored-dir-dirty-#{System.unique_integer([:positive])}")
 
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
@@ -495,12 +603,12 @@ defmodule SymphonyElixir.DialogTest do
       Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
 
       File.cd!(project_root, fn ->
-        assert_raise RuntimeError, ~r/dialog_repo_modified/, fn ->
-          AgentRunner.run(issue, self())
-        end
+        assert :ok = AgentRunner.run(issue, self())
       end)
 
-      refute_received {:memory_tracker_comment, "issue-dialog-ignored-dir-dirty", _body}
+      assert_receive {:memory_tracker_comment, "issue-dialog-ignored-dir-dirty", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Dirty answer"
       assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -522,7 +630,7 @@ defmodule SymphonyElixir.DialogTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-dirty-error.trace")
-      dirty_file = Path.join(project_root, "dialog-dirty-error.txt")
+      dirty_file = Path.join(project_root, "README.md")
 
       File.mkdir_p!(project_root)
       File.write!(Path.join(project_root, "README.md"), "clean\n")
@@ -553,7 +661,7 @@ defmodule SymphonyElixir.DialogTest do
       end)
 
       refute_received {:memory_tracker_comment, "issue-dialog-dirty-error", _body}
-      assert File.exists?(dirty_file)
+      assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
@@ -574,7 +682,7 @@ defmodule SymphonyElixir.DialogTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-dirty-resume-error.trace")
-      dirty_file = Path.join(project_root, "dialog-dirty-resume-error.txt")
+      dirty_file = Path.join(project_root, "README.md")
 
       File.mkdir_p!(project_root)
       File.write!(Path.join(project_root, "README.md"), "clean\n")
@@ -615,7 +723,7 @@ defmodule SymphonyElixir.DialogTest do
       end)
 
       refute_received {:memory_tracker_comment, "issue-dialog-dirty-resume-error", _body}
-      assert File.exists?(dirty_file)
+      assert File.read!(dirty_file) == "dirty\n"
       assert File.read!(trace_file) =~ ~s("method":"thread/resume")
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -1118,6 +1226,38 @@ defmodule SymphonyElixir.DialogTest do
           ;;
         *)
           exit 0
+          ;;
+      esac
+    done
+    """)
+
+    File.chmod!(codex_binary, 0o755)
+  end
+
+  defp write_approval_request_fake_codex!(codex_binary, trace_file) do
+    File.write!(codex_binary, """
+    #!/bin/sh
+    trace_file=#{inspect(trace_file)}
+    count=0
+
+    while IFS= read -r line; do
+      count=$((count + 1))
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$count" in
+        1)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        2)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-dialog-approval"}}}'
+          ;;
+        3)
+          printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-dialog-approval"}}}'
+          printf 'EVENT:%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"touch README.md","cwd":"/tmp","reason":"write file"}}' >> "$trace_file"
+          printf '%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"touch README.md","cwd":"/tmp","reason":"write file"}}'
+          ;;
+        *)
+          sleep 1
           ;;
       esac
     done

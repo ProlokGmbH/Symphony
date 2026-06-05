@@ -22,6 +22,10 @@ description:
   - Enthält Orchestrator-, Agent-Runner- und Codex-app-server-Lifecycle-Logs.
 - Rotierte Runtime-Logs: `log/symphony.log*`
   - Prüfe sie, wenn der relevante Lauf älter ist.
+- Die Pfade `log/symphony.log*` sind relativ zum Projektroot des betroffenen
+  Tickets gemeint, nicht generell relativ zum Symphony-Orchestrator-Repository.
+  Wenn ein Ticket ein anderes Projekt betrifft, bestimme zuerst dessen
+  Projektroot und suche dort unter `<projektroot>/log/`.
 
 ## Korrelationsschlüssel
 
