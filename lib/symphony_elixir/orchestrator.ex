@@ -418,6 +418,12 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @doc false
+  @spec reconcile_stalled_running_issues_for_test(term()) :: term()
+  def reconcile_stalled_running_issues_for_test(%State{} = state) do
+    reconcile_stalled_running_issues(state)
+  end
+
+  @doc false
   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
     should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
@@ -473,10 +479,21 @@ defmodule SymphonyElixir.Orchestrator do
 
         terminate_running_issue(state, issue.id, true)
 
+      dialog_issue_state?(issue.state) ->
+        reconcile_dialog_issue_state(state, issue)
+
       !issue_routable_to_worker?(issue) ->
         Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
 
         terminate_running_issue(state, issue.id, false)
+
+      running_entry_dispatched_as_dialog?(Map.get(state.running, issue.id)) ->
+        Logger.info("Issue moved out of dialog state: #{issue_context(issue)} state=#{issue.state}; stopping dialog agent")
+
+        terminate_running_issue(state, issue.id, false)
+
+      manual_bootstrap_issue_state?(issue.state) ->
+        reconcile_manual_bootstrap_issue_state(state, issue)
 
       active_issue_state?(issue.state, active_states) ->
         refresh_running_issue_state(state, issue)
@@ -489,6 +506,45 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp reconcile_issue_state(_issue, state, _active_states, _terminal_states), do: state
+
+  defp reconcile_manual_bootstrap_issue_state(%State{} = state, %Issue{} = issue) do
+    if running_entry_dispatched_as_manual_bootstrap?(Map.get(state.running, issue.id)) do
+      refresh_running_issue_state(state, issue)
+    else
+      Logger.info("Issue moved to manual bootstrap state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+
+      terminate_running_issue(state, issue.id, false)
+    end
+  end
+
+  defp reconcile_dialog_issue_state(%State{} = state, %Issue{} = issue) do
+    cond do
+      !issue_routable_to_worker?(issue) ->
+        Logger.info("Dialog issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+
+        terminate_running_issue(state, issue.id, false)
+
+      running_entry_dispatched_as_dialog?(Map.get(state.running, issue.id)) ->
+        refresh_running_issue_state(state, issue)
+
+      true ->
+        Logger.info("Issue moved to dialog state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+
+        terminate_running_issue(state, issue.id, false)
+    end
+  end
+
+  defp running_entry_dispatched_as_manual_bootstrap?(%{dispatch_issue: %Issue{state: state_name}}) do
+    manual_bootstrap_issue_state?(state_name)
+  end
+
+  defp running_entry_dispatched_as_manual_bootstrap?(_running_entry), do: false
+
+  defp running_entry_dispatched_as_dialog?(%{dispatch_issue: %Issue{state: state_name}}) do
+    dialog_issue_state?(state_name)
+  end
+
+  defp running_entry_dispatched_as_dialog?(_running_entry), do: false
 
   defp reconcile_missing_running_issue_ids(%State{} = state, requested_issue_ids, issues)
        when is_list(requested_issue_ids) and is_list(issues) do
@@ -589,33 +645,38 @@ defmodule SymphonyElixir.Orchestrator do
   defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
-    if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
-      identifier = Map.get(running_entry, :identifier, issue_id)
-      session_id = running_entry_session_id(running_entry)
+    cond do
+      running_entry_dispatched_as_manual_bootstrap?(running_entry) ->
+        state
 
-      Logger.warning(
-        "Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms} " <>
-          "last_event=#{inspect(Map.get(running_entry, :last_codex_event))} " <>
-          "last_event_at=#{inspect(log_timestamp(Map.get(running_entry, :last_codex_timestamp)))} " <>
-          "last_tool_call=#{log_inspect(Map.get(running_entry, :last_tool_call))} " <>
-          "last_session_event=#{log_inspect(Map.get(running_entry, :last_codex_message))}; restarting with backoff"
-      )
+      is_integer(elapsed_ms) and elapsed_ms > timeout_ms ->
+        identifier = Map.get(running_entry, :identifier, issue_id)
+        session_id = running_entry_session_id(running_entry)
 
-      next_attempt = next_retry_attempt_from_running(running_entry)
+        Logger.warning(
+          "Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms} " <>
+            "last_event=#{inspect(Map.get(running_entry, :last_codex_event))} " <>
+            "last_event_at=#{inspect(log_timestamp(Map.get(running_entry, :last_codex_timestamp)))} " <>
+            "last_tool_call=#{log_inspect(Map.get(running_entry, :last_tool_call))} " <>
+            "last_session_event=#{log_inspect(Map.get(running_entry, :last_codex_message))}; restarting with backoff"
+        )
 
-      state
-      |> terminate_running_issue(issue_id, false)
-      |> schedule_issue_retry(issue_id, next_attempt, %{
-        identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity",
-        worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path),
-        recovered_turn_context: recoverable_turn_context(running_entry, :stalled),
-        review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
-        review_subagent_ids: review_subagent_ids_for_retry(running_entry)
-      })
-    else
-      state
+        next_attempt = next_retry_attempt_from_running(running_entry)
+
+        state
+        |> terminate_running_issue(issue_id, false)
+        |> schedule_issue_retry(issue_id, next_attempt, %{
+          identifier: identifier,
+          error: "stalled for #{elapsed_ms}ms without codex activity",
+          worker_host: Map.get(running_entry, :worker_host),
+          workspace_path: Map.get(running_entry, :workspace_path),
+          recovered_turn_context: recoverable_turn_context(running_entry, :stalled),
+          review_subagent_call_ids: review_subagent_call_ids_for_retry(running_entry),
+          review_subagent_ids: review_subagent_ids_for_retry(running_entry)
+        })
+
+      true ->
+        state
     end
   end
 
@@ -831,6 +892,12 @@ defmodule SymphonyElixir.Orchestrator do
   defp todo_issue_state?(state_name) when is_binary(state_name) do
     String.starts_with?(normalize_issue_state(state_name), "todo")
   end
+
+  defp dialog_issue_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) == normalize_issue_state(Dialog.state_name())
+  end
+
+  defp dialog_issue_state?(_state_name), do: false
 
   defp blocked_by_respected_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
