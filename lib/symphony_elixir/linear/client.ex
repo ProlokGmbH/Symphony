@@ -43,6 +43,13 @@ defmodule SymphonyElixir.Linear.Client do
       }
     }
   }
+  comments(first: 1, orderBy: updatedAt) {
+    nodes {
+      id
+      createdAt
+      updatedAt
+    }
+  }
   createdAt
   updatedAt
   """
@@ -591,6 +598,7 @@ defmodule SymphonyElixir.Linear.Client do
       branch_name: issue["branchName"],
       url: issue["url"],
       assignee_id: assignee_field(assignee, "id"),
+      last_comment_signal: extract_last_comment_signal(issue),
       blocked_by: extract_blockers(issue),
       labels: extract_labels(issue),
       assigned_to_worker: assigned_to_worker?(assignee, assignee_filter),
@@ -753,6 +761,45 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp extract_comments(_), do: []
 
+  defp extract_last_comment_signal(%{"comments" => %{"nodes" => comments}}) when is_list(comments) do
+    comments
+    |> Enum.map(&normalize_comment_signal/1)
+    |> Enum.reject(&is_nil/1)
+    |> latest_comment_signal()
+  end
+
+  defp extract_last_comment_signal(_issue), do: nil
+
+  defp latest_comment_signal([]), do: nil
+
+  defp latest_comment_signal(signals) when is_list(signals) do
+    if Enum.all?(signals, &(match?(%DateTime{}, &1.updated_at) or match?(%DateTime{}, &1.created_at))) do
+      Enum.max_by(signals, &comment_signal_timestamp_sort_key/1)
+    else
+      List.first(signals)
+    end
+  end
+
+  defp comment_signal_timestamp_sort_key(%{updated_at: %DateTime{} = updated_at}) do
+    DateTime.to_unix(updated_at, :microsecond)
+  end
+
+  defp comment_signal_timestamp_sort_key(%{created_at: %DateTime{} = created_at}) do
+    DateTime.to_unix(created_at, :microsecond)
+  end
+
+  defp normalize_comment_signal(comment) when is_map(comment) do
+    signal = %{
+      id: normalize_comment_id(comment["id"]),
+      created_at: parse_datetime(comment["createdAt"]),
+      updated_at: parse_datetime(comment["updatedAt"])
+    }
+
+    if Enum.any?(signal, fn {_key, value} -> not is_nil(value) end), do: signal
+  end
+
+  defp normalize_comment_signal(_comment), do: nil
+
   defp normalize_comment(%{"body" => body} = comment) when is_binary(body) do
     %{
       id: comment["id"],
@@ -763,6 +810,15 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp normalize_comment(_comment), do: nil
+
+  defp normalize_comment_id(id) when is_binary(id) do
+    case String.trim(id) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_comment_id(_id), do: nil
 
   defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
        when is_list(inverse_relations) do
@@ -790,13 +846,16 @@ defmodule SymphonyElixir.Linear.Client do
   defp extract_blockers(_), do: []
 
   defp parse_datetime(nil), do: nil
+  defp parse_datetime(%DateTime{} = datetime), do: datetime
 
-  defp parse_datetime(raw) do
+  defp parse_datetime(raw) when is_binary(raw) do
     case DateTime.from_iso8601(raw) do
       {:ok, dt, _offset} -> dt
       _ -> nil
     end
   end
+
+  defp parse_datetime(_raw), do: nil
 
   defp parse_priority(priority) when is_integer(priority), do: priority
   defp parse_priority(_priority), do: nil

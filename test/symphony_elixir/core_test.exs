@@ -4449,6 +4449,441 @@ defmodule SymphonyElixir.CoreTest do
     refute Orchestrator.should_dispatch_issue_for_test(regular_issue, state)
   end
 
+  test "unchanged answered dialog issue stays idle without comment refresh or activity touch" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-dialog-idle-poll-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      issue_id = "issue-dialog-idle-poll"
+      completed_at = ~U[2026-05-21 09:50:44Z]
+
+      answer_signal = %{
+        id: "comment-answer",
+        created_at: ~U[2026-05-21 09:55:00Z],
+        updated_at: ~U[2026-05-21 09:55:00Z]
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-DIALOG-IDLE",
+        title: "Idle dialog",
+        description: "Already answered dialog issue",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-DIALOG-IDLE",
+        updated_at: completed_at,
+        last_comment_signal: answer_signal,
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: Path.join(test_root, "worktrees"),
+        poll_interval_ms: 30_000
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        issue_id => [
+          %{id: "comment-user", body: "Question", created_at: ~U[2026-05-21 09:54:00Z]},
+          %{
+            id: "comment-answer",
+            body: "### Antwort Symphony\n\n[Session thread-idle]\n\nDone",
+            created_at: ~U[2026-05-21 09:55:00Z],
+            updated_at: ~U[2026-05-21 09:55:00Z]
+          }
+        ]
+      })
+
+      parent = self()
+      orchestrator_name = Module.concat(__MODULE__, :DialogIdlePollOrchestrator)
+
+      {:ok, pid} =
+        Orchestrator.start_link(
+          name: orchestrator_name,
+          initial_poll?: false,
+          idle_shutdown_ms: 1,
+          output_fun: fn message -> send(parent, {:orchestrator_output, message}) end,
+          shutdown_fun: fn -> send(parent, :shutdown_called) end
+        )
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          Process.exit(pid, :normal)
+        end
+      end)
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      :sys.replace_state(pid, fn state ->
+        issue
+        |> Orchestrator.observe_dialog_full_check_for_test(state, now_ms)
+        |> Map.put(:last_activity_at_ms, now_ms - 10_000)
+        |> Map.put(:completed_states, %{issue_id => {"todo (dialog-ai)", DateTime.to_iso8601(completed_at)}})
+      end)
+
+      send(pid, :tick)
+
+      assert_receive {:orchestrator_output, "Symphony nach Inaktivität beendet"}, 1_000
+      assert_receive :shutdown_called, 1_000
+      refute_receive {:memory_tracker_fetch_issue_comments, ^issue_id}, 100
+
+      state = orchestrator_state(pid)
+      refute Map.has_key?(state.running, issue_id)
+      refute MapSet.member?(state.claimed, issue_id)
+      assert state.shutdown_requested
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "changed dialog comment signal dispatches despite unchanged issue timestamp" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-dialog-comment-signal-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      issue_id = "issue-dialog-comment-signal"
+      completed_at = ~U[2026-05-21 09:50:44Z]
+
+      answer_signal = %{
+        id: "comment-answer",
+        created_at: ~U[2026-05-21 09:55:00Z],
+        updated_at: ~U[2026-05-21 09:55:00Z]
+      }
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-DIALOG-SIGNAL",
+        title: "Dialog with new comment",
+        description: "A new comment should dispatch",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-DIALOG-SIGNAL",
+        updated_at: completed_at,
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: Path.join(test_root, "worktrees"),
+        codex_command: "sh -lc 'sleep 60'",
+        poll_interval_ms: 30_000
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        issue_id => [
+          %{id: "comment-user-old", body: "Old question", created_at: ~U[2026-05-21 09:54:00Z]},
+          %{
+            id: "comment-answer",
+            body: "### Antwort Symphony\n\n[Session thread-existing]\n\nDone",
+            created_at: ~U[2026-05-21 09:55:00Z],
+            updated_at: ~U[2026-05-21 09:55:00Z]
+          },
+          %{
+            id: "comment-user-new",
+            body: "Follow-up without issue updatedAt changing",
+            created_at: ~U[2026-05-21 10:00:00Z],
+            updated_at: ~U[2026-05-21 10:00:00Z]
+          }
+        ]
+      })
+
+      orchestrator_name = Module.concat(__MODULE__, :DialogChangedSignalOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+      on_exit(fn -> stop_orchestrator_and_workers(pid) end)
+
+      observed_issue = %{issue | last_comment_signal: answer_signal}
+      now_ms = System.monotonic_time(:millisecond)
+
+      :sys.replace_state(pid, fn state ->
+        observed_issue
+        |> Orchestrator.observe_dialog_full_check_for_test(state, now_ms)
+        |> Map.put(:completed_states, %{issue_id => {"todo (dialog-ai)", DateTime.to_iso8601(completed_at)}})
+      end)
+
+      send(pid, :tick)
+
+      assert_receive {:memory_tracker_fetch_issue_comments, ^issue_id}, 1_000
+
+      running_entry =
+        Enum.find_value(1..20, fn _attempt ->
+          Process.sleep(50)
+          orchestrator_state(pid).running[issue_id]
+        end)
+
+      assert %{run_mode: :dialog, issue: %Issue{updated_at: ^completed_at}} = running_entry
+      assert running_entry.issue.last_comment_signal.id == "comment-user-new"
+      refute_receive {:memory_tracker_fetch_issue_comments, ^issue_id}, 100
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "dialog safety fallback dispatches when lightweight signal is missing and unchanged" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-dialog-safety-fallback-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+
+    try do
+      issue_id = "issue-dialog-safety-fallback"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-DIALOG-SAFETY",
+        title: "Dialog with missing comment signal",
+        description: "Safety fallback should find a request",
+        state: "Todo (Dialog-AI)",
+        url: "https://example.org/issues/MT-DIALOG-SAFETY",
+        last_comment_signal: %{},
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: Path.join(test_root, "worktrees"),
+        codex_command: "sh -lc 'sleep 60'",
+        poll_interval_ms: 30_000
+      )
+
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+        issue_id => [
+          %{
+            id: "comment-safety-answer",
+            body: "### Antwort Symphony\n\n[Session thread-safety]\n\nPrevious answer",
+            created_at: ~U[2026-05-21 09:55:00Z],
+            updated_at: ~U[2026-05-21 09:55:00Z]
+          },
+          %{
+            id: "comment-safety-user",
+            body: "Safety-discovered request",
+            created_at: ~U[2026-05-21 10:00:00Z],
+            updated_at: ~U[2026-05-21 10:00:00Z]
+          }
+        ]
+      })
+
+      orchestrator_name = Module.concat(__MODULE__, :DialogSafetyFallbackOrchestrator)
+
+      {:ok, pid} =
+        Orchestrator.start_link(
+          name: orchestrator_name,
+          initial_poll?: false,
+          active_instance_count_fun: fn -> 1 end
+        )
+
+      on_exit(fn -> stop_orchestrator_and_workers(pid) end)
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      :sys.replace_state(pid, fn state ->
+        Orchestrator.observe_dialog_full_check_for_test(issue, state, now_ms - 31_000)
+      end)
+
+      send(pid, :tick)
+
+      assert_receive {:memory_tracker_fetch_issue_comments, ^issue_id}, 1_000
+
+      running_entry =
+        Enum.find_value(1..20, fn _attempt ->
+          Process.sleep(50)
+          orchestrator_state(pid).running[issue_id]
+        end)
+
+      assert %{run_mode: :dialog} = running_entry
+      refute_receive {:memory_tracker_fetch_issue_comments, ^issue_id}, 100
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "dialog safety interval scales by open dialog issues and active instances" do
+    state = %Orchestrator.State{
+      active_instance_count_fun: fn -> 3 end
+    }
+
+    assert Orchestrator.dialog_safety_full_check_interval_ms_for_test(state, 3) == 270_000
+    assert Orchestrator.dialog_safety_full_check_interval_ms_for_test(state, 0) == 90_000
+  end
+
+  test "failed dialog safety full check is throttled only for unchanged or missing signals" do
+    now_ms = System.monotonic_time(:millisecond)
+    issue_id = "issue-dialog-failed-safety"
+    checked_at_ms = now_ms - 31_000
+    old_key = {"comment-old", "2026-05-21T09:55:00Z", "2026-05-21T09:55:00Z"}
+
+    unchanged_issue = %Issue{
+      id: issue_id,
+      identifier: "MT-DIALOG-FAILED-SAFETY",
+      title: "Dialog failed safety",
+      state: "Todo (Dialog-AI)",
+      last_comment_signal: %{
+        id: "comment-old",
+        created_at: ~U[2026-05-21 09:55:00Z],
+        updated_at: ~U[2026-05-21 09:55:00Z]
+      }
+    }
+
+    state = %Orchestrator.State{
+      dialog_observations: %{
+        issue_id => %{
+          comment_key: old_key,
+          last_full_check_at_ms: checked_at_ms
+        }
+      }
+    }
+
+    throttled_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(unchanged_issue, state, now_ms)
+
+    assert %{
+             comment_key: ^old_key,
+             last_full_check_at_ms: ^now_ms
+           } = throttled_state.dialog_observations[issue_id]
+
+    refute Orchestrator.should_dispatch_issue_for_test(unchanged_issue, throttled_state)
+
+    changed_issue = %{
+      unchanged_issue
+      | last_comment_signal: %{
+          id: "comment-new",
+          created_at: ~U[2026-05-21 10:00:00Z],
+          updated_at: ~U[2026-05-21 10:00:00Z]
+        }
+    }
+
+    unchanged_failed_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(changed_issue, state, now_ms)
+
+    assert %{
+             comment_key: ^old_key,
+             last_full_check_at_ms: ^checked_at_ms
+           } = unchanged_failed_state.dialog_observations[issue_id]
+
+    assert Orchestrator.should_dispatch_issue_for_test(changed_issue, unchanged_failed_state)
+
+    missing_signal_issue = %{unchanged_issue | id: "issue-dialog-missing-signal", last_comment_signal: nil}
+
+    missing_signal_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(
+        missing_signal_issue,
+        %Orchestrator.State{},
+        now_ms
+      )
+
+    assert %{
+             comment_key: :missing,
+             last_full_check_at_ms: ^now_ms
+           } = missing_signal_state.dialog_observations[missing_signal_issue.id]
+
+    refute Orchestrator.should_dispatch_issue_for_test(missing_signal_issue, missing_signal_state)
+  end
+
+  test "dialog prompt full check observes signal only after accepted dispatch" do
+    now_ms = System.monotonic_time(:millisecond)
+    issue_id = "issue-dialog-observe-dispatch"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-DIALOG-OBSERVE",
+      title: "Dialog observation",
+      state: "Todo (Dialog-AI)",
+      last_comment_signal: %{
+        id: "comment-user",
+        created_at: ~U[2026-05-21 10:00:00Z],
+        updated_at: ~U[2026-05-21 10:00:00Z]
+      }
+    }
+
+    state_before_dispatch = %Orchestrator.State{
+      running: %{},
+      claimed: MapSet.new(),
+      retry_attempts: %{},
+      dialog_observations: %{}
+    }
+
+    skipped_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        state_before_dispatch,
+        now_ms
+      )
+
+    refute Map.has_key?(skipped_state.dialog_observations, issue_id)
+
+    running_state = %{
+      state_before_dispatch
+      | running: %{issue_id => %{run_mode: :dialog}}
+    }
+
+    observed_running_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        running_state,
+        now_ms
+      )
+
+    assert %{
+             comment_key: {"comment-user", "2026-05-21T10:00:00Z", "2026-05-21T10:00:00Z"},
+             last_full_check_at_ms: ^now_ms
+           } = observed_running_state.dialog_observations[issue_id]
+
+    retry_state = %{
+      state_before_dispatch
+      | retry_attempts: %{issue_id => %{attempt: 1, identifier: "MT-DIALOG-OBSERVE"}}
+    }
+
+    observed_retry_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        retry_state,
+        now_ms
+      )
+
+    assert %{
+             comment_key: {"comment-user", "2026-05-21T10:00:00Z", "2026-05-21T10:00:00Z"},
+             last_full_check_at_ms: ^now_ms
+           } = observed_retry_state.dialog_observations[issue_id]
+  end
+
   test "orchestrator ignores manual Todo without recording bootstrap completion" do
     test_root =
       Path.join(

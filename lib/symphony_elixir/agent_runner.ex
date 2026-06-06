@@ -94,7 +94,7 @@ defmodule SymphonyElixir.AgentRunner do
         maybe_clear_review_autocommit_marker_for_existing_workspace(issue, worker_host)
 
       :dialog ->
-        run_dialog_issue(issue, codex_update_recipient, worker_host)
+        run_dialog_issue(issue, codex_update_recipient, worker_host, opts)
 
       :proceed ->
         run_regular_issue(issue, codex_update_recipient, opts, worker_host)
@@ -247,11 +247,10 @@ defmodule SymphonyElixir.AgentRunner do
     continue_run_codex_turns(:continue, turn_context, issue)
   end
 
-  defp run_dialog_issue(%Issue{} = issue, codex_update_recipient, _worker_host) do
+  defp run_dialog_issue(%Issue{} = issue, codex_update_recipient, _worker_host, opts) do
     workspace = RuntimePaths.project_root()
 
-    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
-         {:ok, request} <- Dialog.next_request(issue, comments, workspace) do
+    with {:ok, request} <- dialog_request(issue, workspace, opts) do
       case request do
         :noop ->
           Logger.info("Skipping dialog issue because the latest relevant comment is already a Symphony answer: #{issue_context(issue)}")
@@ -261,6 +260,21 @@ defmodule SymphonyElixir.AgentRunner do
           send_worker_runtime_info(codex_update_recipient, issue, nil, workspace)
           run_dialog_codex_turn(issue, workspace, request, session_id, codex_update_recipient)
       end
+    end
+  end
+
+  defp dialog_request(%Issue{} = issue, workspace, opts) when is_binary(workspace) and is_list(opts) do
+    case Keyword.get(opts, :dialog_request) do
+      %{prompt: prompt} = request when is_binary(prompt) ->
+        {:ok, request}
+
+      :noop ->
+        {:ok, :noop}
+
+      _ ->
+        with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id) do
+          Dialog.next_request(issue, comments, workspace)
+        end
     end
   end
 
