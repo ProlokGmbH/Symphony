@@ -343,6 +343,15 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
    - `Review` -> nichts tun und beenden.
    - `Fertig` -> nichts tun und beenden.
    - `Abgebrochen` -> nichts tun und beenden.
+
+## Polling-Vertrag für `Todo (Dialog-AI)`
+
+- Der reguläre Candidate-Poll beobachtet `Todo (Dialog-AI)`-Issues über ein leichtes letztes-Kommentar-Signal aus Linear (`id`, `createdAt`, `updatedAt`) und merkt pro Issue den zuletzt vollständig geprüften Signal-Key.
+- Bei unverändertem Signal und nicht fälligem Safety-Fallback wird kein `running`-Eintrag erzeugt, kein Dashboard-Item angezeigt, kein Codex gestartet und kein vollständiger Kommentarabruf ausgeführt.
+- Bei neuem oder geändertem Signal lädt Symphony die vollständigen Kommentare, wertet `Dialog.next_request/3` aus und startet Codex nur bei einer echten offenen Dialoganfrage. Die Frischeprüfung vor dem Antwortposting bleibt unverändert.
+- Wenn das leichte Signal fehlt oder unverändert bleibt, führt Symphony einen skalierten Safety-Full-Check aus. Das Intervall beträgt pro Instanz `30 Sekunden * Anzahl sichtbarer offener Dialogtickets * active_instance_count`.
+- Candidate-Polls, unveränderte Signale und No-op-Safety-Checks zählen nicht als Aktivität für den Idle-Shutdown. Erst echte Dialogbearbeitung, Antwortposting, Statusänderungen, Retry-/Running-Änderungen oder reguläre Agentenarbeit setzen die Inaktivitätszeit zurück.
+
 ## Ablauf für `Todo (AI)`
 
 ### Ziel

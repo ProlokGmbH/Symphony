@@ -47,6 +47,7 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   @spec fetch_issue_comments(String.t()) :: {:ok, [map()]} | {:error, term()}
   def fetch_issue_comments(issue_id) when is_binary(issue_id) do
+    send_event({:memory_tracker_fetch_issue_comments, issue_id})
     {:ok, configured_comments() |> Map.get(issue_id, []) |> Enum.map(&normalize_comment/1)}
   end
 
@@ -90,7 +91,9 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   defp issue_entries do
-    Enum.filter(configured_issues(), &match?(%Issue{}, &1))
+    configured_issues()
+    |> Enum.filter(&match?(%Issue{}, &1))
+    |> Enum.map(&maybe_put_last_comment_signal/1)
   end
 
   defp has_workpad_comment?(issue_id) when is_binary(issue_id) do
@@ -130,6 +133,73 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   defp normalize_comment(body) when is_binary(body), do: %{body: body}
   defp normalize_comment(_comment), do: %{body: ""}
+
+  defp maybe_put_last_comment_signal(%Issue{last_comment_signal: signal} = issue)
+       when not is_nil(signal),
+       do: issue
+
+  defp maybe_put_last_comment_signal(%Issue{id: issue_id} = issue) when is_binary(issue_id) do
+    %{issue | last_comment_signal: last_comment_signal(issue_id)}
+  end
+
+  defp maybe_put_last_comment_signal(%Issue{} = issue), do: issue
+
+  defp last_comment_signal(issue_id) when is_binary(issue_id) do
+    configured_comments()
+    |> Map.get(issue_id, [])
+    |> Enum.map(&normalize_comment/1)
+    |> Enum.map(&comment_signal/1)
+    |> Enum.reject(&is_nil/1)
+    |> latest_comment_signal()
+  end
+
+  defp comment_signal(comment) when is_map(comment) do
+    signal = %{
+      id: normalize_comment_id(Map.get(comment, :id)),
+      created_at: parse_datetime(Map.get(comment, :created_at)),
+      updated_at: parse_datetime(Map.get(comment, :updated_at))
+    }
+
+    if Enum.any?(signal, fn {_key, value} -> not is_nil(value) end), do: signal
+  end
+
+  defp latest_comment_signal([]), do: nil
+
+  defp latest_comment_signal(signals) when is_list(signals) do
+    if Enum.all?(signals, &(match?(%DateTime{}, &1.updated_at) or match?(%DateTime{}, &1.created_at))) do
+      Enum.max_by(signals, &comment_signal_timestamp_sort_key/1)
+    else
+      List.last(signals)
+    end
+  end
+
+  defp comment_signal_timestamp_sort_key(%{updated_at: %DateTime{} = updated_at}) do
+    DateTime.to_unix(updated_at, :microsecond)
+  end
+
+  defp comment_signal_timestamp_sort_key(%{created_at: %DateTime{} = created_at}) do
+    DateTime.to_unix(created_at, :microsecond)
+  end
+
+  defp normalize_comment_id(id) when is_binary(id) do
+    case String.trim(id) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_comment_id(_id), do: nil
+
+  defp parse_datetime(%DateTime{} = datetime), do: datetime
+
+  defp parse_datetime(raw) when is_binary(raw) do
+    case DateTime.from_iso8601(raw) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(_raw), do: nil
 
   defp normalize_state(state) when is_binary(state) do
     state

@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Orchestrator do
     Dialog,
     PromptBuilder,
     RuntimeInstances,
+    RuntimePaths,
     StatusDashboard,
     Tracker,
     Workpad,
@@ -27,6 +28,7 @@ defmodule SymphonyElixir.Orchestrator do
   @idle_shutdown_message "Symphony nach Inaktivität beendet"
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
+  @dialog_safety_full_check_base_ms 30_000
   @codex_recent_events_limit 200
   @cancel_state_name "abbruch (ai)"
   @in_arbeit_ai_state_name "in arbeit (ai)"
@@ -69,6 +71,7 @@ defmodule SymphonyElixir.Orchestrator do
       completed_states: %{},
       claimed: MapSet.new(),
       retry_attempts: %{},
+      dialog_observations: %{},
       codex_totals: nil,
       codex_rate_limits: nil
     ]
@@ -356,6 +359,7 @@ defmodule SymphonyElixir.Orchestrator do
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues() do
       state = retain_visible_completed_states(state, issues)
+      state = retain_visible_dialog_observations(state, issues)
 
       if available_slots(state) > 0 do
         choose_issues(state, issues)
@@ -441,7 +445,8 @@ defmodule SymphonyElixir.Orchestrator do
   @doc false
   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
-    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set()) and
+      dialog_full_check_needed_for_dispatch?(issue, state, 1, System.monotonic_time(:millisecond))
   end
 
   @doc false
@@ -469,6 +474,19 @@ defmodule SymphonyElixir.Orchestrator do
           String.t() | nil | :no_worker_capacity
   def select_worker_host_for_issue_for_test(%Issue{} = issue, %State{} = state, preferred_worker_host) do
     select_worker_host_for_issue(issue, state, preferred_worker_host)
+  end
+
+  @doc false
+  @spec observe_dialog_full_check_for_test(Issue.t(), term(), integer()) :: term()
+  def observe_dialog_full_check_for_test(%Issue{} = issue, %State{} = state, now_ms) when is_integer(now_ms) do
+    observe_dialog_full_check(state, issue, now_ms)
+  end
+
+  @doc false
+  @spec dialog_safety_full_check_interval_ms_for_test(term(), non_neg_integer()) :: pos_integer()
+  def dialog_safety_full_check_interval_ms_for_test(%State{} = state, dialog_issue_count)
+      when is_integer(dialog_issue_count) and dialog_issue_count >= 0 do
+    dialog_safety_full_check_interval_ms(state, dialog_issue_count)
   end
 
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
@@ -736,6 +754,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp choose_issues(state, issues) do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
+    dialog_issue_count = dialog_issue_count(issues)
 
     issues
     |> sort_issues_for_dispatch()
@@ -745,12 +764,20 @@ defmodule SymphonyElixir.Orchestrator do
           cancel_issue_workflow(state_acc, issue)
 
         should_dispatch_issue?(issue, state_acc, active_states, terminal_states) ->
-          dispatch_issue(state_acc, issue)
+          maybe_dispatch_candidate_issue(state_acc, issue, dialog_issue_count)
 
         true ->
           state_acc
       end
     end)
+  end
+
+  defp maybe_dispatch_candidate_issue(%State{} = state, %Issue{} = issue, dialog_issue_count) do
+    if Dialog.state?(issue.state) do
+      maybe_dispatch_dialog_issue(state, issue, dialog_issue_count)
+    else
+      dispatch_issue(state, issue)
+    end
   end
 
   defp sort_issues_for_dispatch(issues) when is_list(issues) do
@@ -1092,6 +1119,113 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
 
+  defp maybe_dispatch_dialog_issue(%State{} = state, %Issue{} = issue, dialog_issue_count) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    if dialog_full_check_needed_for_dispatch?(issue, state, dialog_issue_count, now_ms) do
+      run_dialog_full_check(state, issue, now_ms)
+    else
+      state
+    end
+  end
+
+  defp run_dialog_full_check(%State{} = state, %Issue{} = issue, now_ms) when is_integer(now_ms) do
+    workspace = RuntimePaths.project_root()
+
+    with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
+         {:ok, request} <- Dialog.next_request(issue, comments, workspace) do
+      state = observe_dialog_full_check(state, issue, now_ms)
+
+      case request do
+        :noop ->
+          Logger.debug("Skipping idle dialog issue after comment refresh: #{issue_context(issue)}")
+          state
+
+        %{prompt: prompt} = request when is_binary(prompt) ->
+          dispatch_issue(state, issue, nil, nil, dialog_run_opts(request))
+      end
+    else
+      {:error, reason} ->
+        Logger.warning("Skipping dialog issue after comment refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
+        state
+    end
+  end
+
+  defp dialog_run_opts(request) when is_map(request), do: [dialog_request: request]
+
+  defp dialog_full_check_needed_for_dispatch?(%Issue{} = issue, %State{} = state, dialog_issue_count, now_ms)
+       when is_integer(now_ms) do
+    if Dialog.state?(issue.state) do
+      dialog_full_check_needed?(issue, state, dialog_issue_count, now_ms)
+    else
+      true
+    end
+  end
+
+  defp dialog_full_check_needed?(%Issue{id: issue_id} = issue, %State{} = state, dialog_issue_count, now_ms)
+       when is_binary(issue_id) do
+    current_key = dialog_comment_signal_key(issue.last_comment_signal)
+
+    case Map.get(state.dialog_observations, issue_id) do
+      nil ->
+        true
+
+      %{comment_key: observed_key} = observation ->
+        observed_key != current_key or dialog_safety_full_check_due?(observation, state, dialog_issue_count, now_ms)
+
+      _observation ->
+        true
+    end
+  end
+
+  defp dialog_full_check_needed?(_issue, _state, _dialog_issue_count, _now_ms), do: true
+
+  defp dialog_safety_full_check_due?(observation, %State{} = state, dialog_issue_count, now_ms)
+       when is_map(observation) and is_integer(now_ms) do
+    case Map.get(observation, :last_full_check_at_ms) do
+      checked_at_ms when is_integer(checked_at_ms) ->
+        now_ms - checked_at_ms >= dialog_safety_full_check_interval_ms(state, dialog_issue_count)
+
+      _ ->
+        true
+    end
+  end
+
+  defp dialog_safety_full_check_interval_ms(%State{} = state, dialog_issue_count) do
+    @dialog_safety_full_check_base_ms * max(1, dialog_issue_count) * active_instance_count(state)
+  end
+
+  defp observe_dialog_full_check(%State{} = state, %Issue{id: issue_id} = issue, now_ms)
+       when is_binary(issue_id) and is_integer(now_ms) do
+    observation = %{
+      comment_key: dialog_comment_signal_key(issue.last_comment_signal),
+      last_full_check_at_ms: now_ms
+    }
+
+    %{state | dialog_observations: Map.put(state.dialog_observations, issue_id, observation)}
+  end
+
+  defp observe_dialog_full_check(%State{} = state, _issue, _now_ms), do: state
+
+  defp dialog_comment_signal_key(%{id: id, created_at: created_at, updated_at: updated_at}) do
+    {comment_signal_key_value(id), comment_signal_key_value(created_at), comment_signal_key_value(updated_at)}
+  end
+
+  defp dialog_comment_signal_key(_signal), do: :missing
+
+  defp comment_signal_key_value(value) when is_binary(value), do: value
+  defp comment_signal_key_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp comment_signal_key_value(_value), do: nil
+
+  defp dialog_issue_count(issues) when is_list(issues) do
+    issues
+    |> Enum.count(fn
+      %Issue{state: state_name} -> Dialog.state?(state_name)
+      _ -> false
+    end)
+    |> max(1)
+  end
+
   defp complete_issue(%State{} = state, issue_id, issue_state) do
     %{
       state
@@ -1262,6 +1396,7 @@ defmodule SymphonyElixir.Orchestrator do
         claimed: MapSet.delete(state.claimed, issue_id),
         completed: MapSet.delete(state.completed, issue_id),
         completed_states: Map.delete(state.completed_states, issue_id),
+        dialog_observations: Map.delete(state.dialog_observations, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
@@ -1521,6 +1656,30 @@ defmodule SymphonyElixir.Orchestrator do
       end)
 
     %{state | completed_states: completed_states, completed: completed}
+  end
+
+  defp retain_visible_dialog_observations(%State{} = state, issues) when is_list(issues) do
+    visible_dialog_issue_ids =
+      issues
+      |> Enum.flat_map(fn
+        %Issue{id: issue_id, state: state_name} when is_binary(issue_id) ->
+          if Dialog.state?(state_name), do: [issue_id], else: []
+
+        _ ->
+          []
+      end)
+      |> MapSet.new()
+
+    dialog_observations =
+      Enum.reduce(state.dialog_observations, %{}, fn {issue_id, observation}, acc ->
+        if MapSet.member?(visible_dialog_issue_ids, issue_id) do
+          Map.put(acc, issue_id, observation)
+        else
+          acc
+        end
+      end)
+
+    %{state | dialog_observations: dialog_observations}
   end
 
   defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do

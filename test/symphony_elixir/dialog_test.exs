@@ -1967,15 +1967,39 @@ defmodule SymphonyElixir.DialogTest do
   end
 
   test "memory tracker normalizes comment maps and non-comment values" do
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
     previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
 
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+        dialog_issue(nil, "MT-NO-ID"),
+        dialog_issue("issue-memory-string-signal", "MT-STRING-SIGNAL"),
+        dialog_issue("issue-memory-fallback-signal", "MT-FALLBACK-SIGNAL"),
+        dialog_issue("issue-memory-invalid-signal", "MT-INVALID-SIGNAL")
+      ])
+
       Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
         "issue-memory-comments" => [
           %{"id" => "comment-1", "body" => "string-key body", "createdAt" => "2026-05-19T10:00:00Z"},
           123
+        ],
+        "issue-memory-string-signal" => [
+          %{"id" => " ", "body" => "blank id", "createdAt" => "2026-05-19T10:00:00Z"},
+          %{
+            "id" => "comment-string-signal",
+            "body" => "string timestamp",
+            "createdAt" => "2026-05-19T10:01:00Z",
+            "updatedAt" => "2026-05-19T10:02:00Z"
+          }
+        ],
+        "issue-memory-fallback-signal" => [
+          %{"id" => "comment-fallback-old", "body" => "old without timestamps"},
+          %{"id" => "comment-fallback-new", "body" => "new without timestamps"}
+        ],
+        "issue-memory-invalid-signal" => [
+          %{"id" => "comment-invalid", "body" => "invalid timestamp", "createdAt" => "not-a-timestamp"}
         ]
       })
 
@@ -1986,7 +2010,24 @@ defmodule SymphonyElixir.DialogTest do
               ]} = Tracker.fetch_issue_comments("issue-memory-comments")
 
       assert {:ok, ["string-key body", ""]} = Tracker.fetch_issue_comment_bodies("issue-memory-comments")
+
+      assert {:ok, issues} = Tracker.fetch_candidate_issues()
+
+      assert Enum.find(issues, &(&1.identifier == "MT-NO-ID")).last_comment_signal == nil
+
+      assert %{
+               id: "comment-string-signal",
+               created_at: ~U[2026-05-19 10:01:00Z],
+               updated_at: ~U[2026-05-19 10:02:00Z]
+             } = Enum.find(issues, &(&1.identifier == "MT-STRING-SIGNAL")).last_comment_signal
+
+      assert %{id: "comment-fallback-new", created_at: nil, updated_at: nil} =
+               Enum.find(issues, &(&1.identifier == "MT-FALLBACK-SIGNAL")).last_comment_signal
+
+      assert %{id: "comment-invalid", created_at: nil, updated_at: nil} =
+               Enum.find(issues, &(&1.identifier == "MT-INVALID-SIGNAL")).last_comment_signal
     after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)
     end
   end

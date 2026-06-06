@@ -774,6 +774,34 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert issue.assigned_to_worker
   end
 
+  test "linear client includes and normalizes the lightweight last comment signal" do
+    raw_issue = %{
+      "id" => "issue-comment-signal",
+      "identifier" => "MT-COMMENT-SIGNAL",
+      "title" => "Comment signal",
+      "state" => %{"name" => "Todo (Dialog-AI)"},
+      "comments" => %{
+        "nodes" => [
+          %{
+            "id" => "comment-last",
+            "createdAt" => "2026-05-21T09:55:00Z",
+            "updatedAt" => "2026-05-21T10:00:00Z"
+          }
+        ]
+      }
+    }
+
+    issue = Client.normalize_issue_for_test(raw_issue)
+
+    assert %{
+             id: "comment-last",
+             created_at: ~U[2026-05-21 09:55:00Z],
+             updated_at: ~U[2026-05-21 10:00:00Z]
+           } = issue.last_comment_signal
+
+    assert Client.candidate_query_for_test(nil) =~ "comments(last: 1, orderBy: updatedAt)"
+  end
+
   test "linear client marks explicitly unassigned issues as not routed to worker" do
     raw_issue = %{
       "id" => "issue-99",
