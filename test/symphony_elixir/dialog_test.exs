@@ -20,6 +20,16 @@ defmodule SymphonyElixir.DialogTest do
     assert first_prompt =~ "workflow=#{dialog_workflow_path}"
     assert Dialog.request_current?(first_request, [])
 
+    first_turn_nonblocking_answer =
+      Dialog.format_nonblocking_answer_comment("Repository changed before first turn", nil, false, "first-turn")
+
+    refute Dialog.request_current?(
+             first_request,
+             [%{body: first_turn_nonblocking_answer, created_at: ~U[2026-05-19 10:00:00Z]}]
+           )
+
+    assert String.starts_with?(Dialog.request_source_key(%{source_comment_body: "Body-only request"}), "sha256:")
+
     refute Dialog.request_current?(
              first_request,
              [%{id: "comment-after-description", body: "New user comment", created_at: ~U[2026-05-19 10:00:30Z]}]
@@ -72,6 +82,39 @@ defmodule SymphonyElixir.DialogTest do
 
     assert {:ok, :noop} = Dialog.next_request(issue, completed_comments, workspace)
 
+    edited_completed_comment = %{
+      id: "comment-edited",
+      body: "Edited handled question",
+      created_at: ~U[2026-05-19 10:00:00Z],
+      updated_at: ~U[2026-05-19 10:02:00Z]
+    }
+
+    comments_after_edit = [
+      edited_completed_comment,
+      %{
+        body: "### Antwort Symphony\n\n[Session thread-existing]\n\nEarlier answer",
+        created_at: ~U[2026-05-19 10:01:00Z],
+        updated_at: ~U[2026-05-19 10:01:00Z]
+      }
+    ]
+
+    assert {:ok, %{prompt: "Edited handled question", session_id: "thread-existing"} = edited_request} =
+             Dialog.next_request(issue, comments_after_edit, workspace)
+
+    assert Dialog.request_current?(edited_request, comments_after_edit)
+
+    refute Dialog.request_current?(
+             edited_request,
+             [
+               %{edited_completed_comment | body: "Edited handled question with more detail", updated_at: ~U[2026-05-19 10:03:00Z]},
+               %{
+                 body: "### Antwort Symphony\n\n[Session thread-existing]\n\nEarlier answer",
+                 created_at: ~U[2026-05-19 10:01:00Z],
+                 updated_at: ~U[2026-05-19 10:01:00Z]
+               }
+             ]
+           )
+
     assert Dialog.format_answer_comment("### Antwort Symphony\n\nDone", "thread-new", true) ==
              "### Antwort Symphony\n\n[Session thread-new]\n\nDone\n"
 
@@ -98,6 +141,14 @@ defmodule SymphonyElixir.DialogTest do
     assert source_scoped_nonblocking_answer ==
              "### Antwort Symphony\n\n[Antwort nicht abgeschlossen]\n\n[Quelle id:comment-initial]\n\nRepository changed\n"
 
+    refute Dialog.request_current?(
+             comment_request,
+             [
+               initial_comment,
+               %{body: source_scoped_nonblocking_answer, created_at: ~U[2026-05-19 10:01:00Z]}
+             ]
+           )
+
     assert {:ok, :noop} =
              Dialog.next_request(
                issue,
@@ -107,6 +158,41 @@ defmodule SymphonyElixir.DialogTest do
                ],
                workspace
              )
+
+    untimed_source_scoped_nonblocking_answer =
+      Dialog.format_nonblocking_answer_comment("Repository changed", nil, false, "id:comment-untimed")
+
+    assert {:ok, :noop} =
+             Dialog.next_request(
+               issue,
+               [
+                 %{id: "comment-untimed", body: "Untimed request"},
+                 %{body: untimed_source_scoped_nonblocking_answer}
+               ],
+               workspace
+             )
+
+    edited_nonblocking_comments = [
+      Map.merge(initial_comment, %{body: "Edited after nonblocking answer", updated_at: ~U[2026-05-19 10:03:00Z]}),
+      %{body: source_scoped_nonblocking_answer, created_at: ~U[2026-05-19 10:01:00Z], updated_at: ~U[2026-05-19 10:01:00Z]}
+    ]
+
+    assert {:ok,
+            %{
+              prompt: edited_nonblocking_prompt,
+              session_id: nil,
+              include_session?: true
+            } = edited_nonblocking_request} =
+             Dialog.next_request(issue, edited_nonblocking_comments, workspace)
+
+    assert edited_nonblocking_prompt =~ "Edited after nonblocking answer"
+    assert Dialog.request_current?(edited_nonblocking_request, edited_nonblocking_comments)
+
+    assert Dialog.request_current?(
+             edited_nonblocking_request,
+             edited_nonblocking_comments ++
+               [%{body: Dialog.format_nonblocking_answer_comment("Repository changed without source", nil, false), created_at: ~U[2026-05-19 10:04:00Z]}]
+           )
 
     assert {:ok, %{prompt: source_scoped_prompt, session_id: nil, include_session?: true}} =
              Dialog.next_request(

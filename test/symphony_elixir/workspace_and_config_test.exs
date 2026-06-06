@@ -783,9 +783,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       "comments" => %{
         "nodes" => [
           %{
-            "id" => "comment-last",
+            "id" => "comment-newest",
             "createdAt" => "2026-05-21T09:55:00Z",
             "updatedAt" => "2026-05-21T10:00:00Z"
+          },
+          %{
+            "id" => "comment-older",
+            "createdAt" => "2026-05-21T09:58:00Z",
+            "updatedAt" => "2026-05-21T09:59:00Z"
           }
         ]
       }
@@ -794,12 +799,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     issue = Client.normalize_issue_for_test(raw_issue)
 
     assert %{
-             id: "comment-last",
+             id: "comment-newest",
              created_at: ~U[2026-05-21 09:55:00Z],
              updated_at: ~U[2026-05-21 10:00:00Z]
            } = issue.last_comment_signal
 
-    assert Client.candidate_query_for_test(nil) =~ "comments(last: 1, orderBy: updatedAt)"
+    assert Client.candidate_query_for_test(nil) =~ "comments(first: 1, orderBy: updatedAt)"
   end
 
   test "linear client marks explicitly unassigned issues as not routed to worker" do

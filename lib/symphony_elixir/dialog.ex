@@ -266,12 +266,12 @@ defmodule SymphonyElixir.Dialog do
 
   defp latest_open_request_comment(relevant_comments) when is_list(relevant_comments) do
     comments = comments_after_last_answer(relevant_comments)
-    covered_source_keys = nonblocking_source_keys(comments)
+    nonblocking_answer_comments = Enum.filter(comments, &nonblocking_answer_comment?/1)
 
     comments
     |> Enum.reject(
       &(answer_comment?(&1) or nonblocking_answer_comment?(&1) or
-          source_comment_covered?(&1, covered_source_keys))
+          source_comment_covered?(&1, nonblocking_answer_comments))
     )
     |> List.last()
   end
@@ -298,7 +298,19 @@ defmodule SymphonyElixir.Dialog do
   end
 
   defp request_source_covered?(request, comments) when is_map(request) and is_list(comments) do
-    MapSet.member?(nonblocking_source_keys(comments), request_source_key(request))
+    request_source_keys = request_source_keys(request)
+
+    comments
+    |> Enum.filter(&nonblocking_answer_comment?/1)
+    |> Enum.any?(fn answer_comment ->
+      case nonblocking_source_key(answer_comment) do
+        nil ->
+          false
+
+        source_key ->
+          source_key in request_source_keys and not request_activity_after?(request, answer_comment)
+      end
+    end)
   end
 
   defp nonblocking_source_keys(comments) when is_list(comments) do
@@ -316,10 +328,19 @@ defmodule SymphonyElixir.Dialog do
     end
   end
 
-  defp source_comment_covered?(comment, covered_source_keys) do
-    comment
-    |> comment_source_keys()
-    |> Enum.any?(&MapSet.member?(covered_source_keys, &1))
+  defp source_comment_covered?(comment, nonblocking_answer_comments) do
+    comment_source_keys = comment_source_keys(comment)
+
+    Enum.any?(nonblocking_answer_comments, fn answer_comment ->
+      case nonblocking_source_key(answer_comment) do
+        nil ->
+          false
+
+        source_key ->
+          source_key in comment_source_keys and
+            not comment_activity_after?(comment, answer_comment)
+      end
+    end)
   end
 
   defp comment_source_keys(comment) do
@@ -340,6 +361,47 @@ defmodule SymphonyElixir.Dialog do
 
   defp maybe_prepend_source_key(keys, source_key) when is_binary(source_key), do: [source_key | keys]
   defp maybe_prepend_source_key(keys, _source_key), do: keys
+
+  defp request_source_keys(request) when is_map(request) do
+    id = Map.get(request, :source_comment_id)
+    timestamp = Map.get(request, :source_comment_timestamp)
+    body = Map.get(request, :source_comment_body)
+
+    []
+    |> maybe_prepend_source_key(if(is_binary(id) and id != "", do: "id:#{id}"))
+    |> maybe_prepend_source_key(timestamp_body_source_key(timestamp, body))
+    |> maybe_prepend_source_key(if(is_binary(body), do: source_hash([body])))
+    |> case do
+      [] -> [@first_turn_source_key]
+      keys -> keys
+    end
+  end
+
+  defp timestamp_body_source_key(%DateTime{} = timestamp, body) when is_binary(body) do
+    source_hash([DateTime.to_iso8601(timestamp), body])
+  end
+
+  defp timestamp_body_source_key(_timestamp, _body), do: nil
+
+  defp request_activity_after?(request, reference_comment) when is_map(request) do
+    case {Map.get(request, :source_comment_timestamp), comment_timestamp(reference_comment)} do
+      {%DateTime{} = request_timestamp, %DateTime{} = reference_timestamp} ->
+        DateTime.compare(request_timestamp, reference_timestamp) == :gt
+
+      _ ->
+        false
+    end
+  end
+
+  defp comment_activity_after?(comment, reference_comment) do
+    case {comment_timestamp(comment), comment_timestamp(reference_comment)} do
+      {%DateTime{} = comment_timestamp, %DateTime{} = reference_timestamp} ->
+        DateTime.compare(comment_timestamp, reference_timestamp) == :gt
+
+      _ ->
+        false
+    end
+  end
 
   defp nonblocking_answer_body?(body) when is_binary(body) do
     body = String.trim_leading(body)
@@ -389,23 +451,26 @@ defmodule SymphonyElixir.Dialog do
   end
 
   defp source_comment_matches?(request, comment) when is_map(request) do
-    request_id = Map.get(request, :source_comment_id)
-    comment_id = comment_id(comment)
-    request_timestamp = Map.get(request, :source_comment_timestamp)
-    comment_timestamp = comment_timestamp(comment)
-
-    cond do
-      is_binary(request_id) and is_binary(comment_id) ->
-        request_id == comment_id
-
-      match?(%DateTime{}, request_timestamp) and match?(%DateTime{}, comment_timestamp) ->
-        DateTime.compare(request_timestamp, comment_timestamp) == :eq and
-          Map.get(request, :source_comment_body) == comment_body(comment)
-
-      true ->
-        Map.get(request, :source_comment_body) == comment_body(comment)
-    end
+    source_comment_matches_by_id?(request, comment_id(comment), comment)
   end
+
+  defp source_comment_matches_by_id?(%{source_comment_id: request_id} = request, comment_id, comment)
+       when is_binary(request_id) and is_binary(comment_id) do
+    request_id == comment_id and source_comment_content_matches?(request, comment)
+  end
+
+  defp source_comment_matches_by_id?(request, _comment_id, comment), do: source_comment_content_matches?(request, comment)
+
+  defp source_comment_content_matches?(request, comment) do
+    Map.get(request, :source_comment_body) == comment_body(comment) and
+      source_comment_timestamp_matches?(Map.get(request, :source_comment_timestamp), comment_timestamp(comment))
+  end
+
+  defp source_comment_timestamp_matches?(%DateTime{} = request_timestamp, %DateTime{} = comment_timestamp) do
+    DateTime.compare(request_timestamp, comment_timestamp) == :eq
+  end
+
+  defp source_comment_timestamp_matches?(_request_timestamp, _comment_timestamp), do: true
 
   defp comment_id(comment) when is_map(comment) do
     case map_get(comment, :id) do
@@ -430,7 +495,7 @@ defmodule SymphonyElixir.Dialog do
   defp comment_body(_comment), do: ""
 
   defp comment_timestamp(comment) when is_map(comment) do
-    [:created_at, :updated_at, "created_at", "updated_at", "createdAt", "updatedAt"]
+    [:updated_at, :created_at, "updated_at", "created_at", "updatedAt", "createdAt"]
     |> Enum.find_value(fn key -> parse_timestamp(Map.get(comment, key)) end)
   end
 

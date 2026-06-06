@@ -4741,6 +4741,149 @@ defmodule SymphonyElixir.CoreTest do
     assert Orchestrator.dialog_safety_full_check_interval_ms_for_test(state, 0) == 90_000
   end
 
+  test "failed dialog safety full check is throttled only for unchanged or missing signals" do
+    now_ms = System.monotonic_time(:millisecond)
+    issue_id = "issue-dialog-failed-safety"
+    checked_at_ms = now_ms - 31_000
+    old_key = {"comment-old", "2026-05-21T09:55:00Z", "2026-05-21T09:55:00Z"}
+
+    unchanged_issue = %Issue{
+      id: issue_id,
+      identifier: "MT-DIALOG-FAILED-SAFETY",
+      title: "Dialog failed safety",
+      state: "Todo (Dialog-AI)",
+      last_comment_signal: %{
+        id: "comment-old",
+        created_at: ~U[2026-05-21 09:55:00Z],
+        updated_at: ~U[2026-05-21 09:55:00Z]
+      }
+    }
+
+    state = %Orchestrator.State{
+      dialog_observations: %{
+        issue_id => %{
+          comment_key: old_key,
+          last_full_check_at_ms: checked_at_ms
+        }
+      }
+    }
+
+    throttled_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(unchanged_issue, state, now_ms)
+
+    assert %{
+             comment_key: ^old_key,
+             last_full_check_at_ms: ^now_ms
+           } = throttled_state.dialog_observations[issue_id]
+
+    refute Orchestrator.should_dispatch_issue_for_test(unchanged_issue, throttled_state)
+
+    changed_issue = %{
+      unchanged_issue
+      | last_comment_signal: %{
+          id: "comment-new",
+          created_at: ~U[2026-05-21 10:00:00Z],
+          updated_at: ~U[2026-05-21 10:00:00Z]
+        }
+    }
+
+    unchanged_failed_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(changed_issue, state, now_ms)
+
+    assert %{
+             comment_key: ^old_key,
+             last_full_check_at_ms: ^checked_at_ms
+           } = unchanged_failed_state.dialog_observations[issue_id]
+
+    assert Orchestrator.should_dispatch_issue_for_test(changed_issue, unchanged_failed_state)
+
+    missing_signal_issue = %{unchanged_issue | id: "issue-dialog-missing-signal", last_comment_signal: nil}
+
+    missing_signal_state =
+      Orchestrator.observe_dialog_failed_full_check_for_test(
+        missing_signal_issue,
+        %Orchestrator.State{},
+        now_ms
+      )
+
+    assert %{
+             comment_key: :missing,
+             last_full_check_at_ms: ^now_ms
+           } = missing_signal_state.dialog_observations[missing_signal_issue.id]
+
+    refute Orchestrator.should_dispatch_issue_for_test(missing_signal_issue, missing_signal_state)
+  end
+
+  test "dialog prompt full check observes signal only after accepted dispatch" do
+    now_ms = System.monotonic_time(:millisecond)
+    issue_id = "issue-dialog-observe-dispatch"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-DIALOG-OBSERVE",
+      title: "Dialog observation",
+      state: "Todo (Dialog-AI)",
+      last_comment_signal: %{
+        id: "comment-user",
+        created_at: ~U[2026-05-21 10:00:00Z],
+        updated_at: ~U[2026-05-21 10:00:00Z]
+      }
+    }
+
+    state_before_dispatch = %Orchestrator.State{
+      running: %{},
+      claimed: MapSet.new(),
+      retry_attempts: %{},
+      dialog_observations: %{}
+    }
+
+    skipped_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        state_before_dispatch,
+        now_ms
+      )
+
+    refute Map.has_key?(skipped_state.dialog_observations, issue_id)
+
+    running_state = %{
+      state_before_dispatch
+      | running: %{issue_id => %{run_mode: :dialog}}
+    }
+
+    observed_running_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        running_state,
+        now_ms
+      )
+
+    assert %{
+             comment_key: {"comment-user", "2026-05-21T10:00:00Z", "2026-05-21T10:00:00Z"},
+             last_full_check_at_ms: ^now_ms
+           } = observed_running_state.dialog_observations[issue_id]
+
+    retry_state = %{
+      state_before_dispatch
+      | retry_attempts: %{issue_id => %{attempt: 1, identifier: "MT-DIALOG-OBSERVE"}}
+    }
+
+    observed_retry_state =
+      Orchestrator.observe_dialog_dispatch_result_for_test(
+        issue,
+        state_before_dispatch,
+        retry_state,
+        now_ms
+      )
+
+    assert %{
+             comment_key: {"comment-user", "2026-05-21T10:00:00Z", "2026-05-21T10:00:00Z"},
+             last_full_check_at_ms: ^now_ms
+           } = observed_retry_state.dialog_observations[issue_id]
+  end
+
   test "orchestrator ignores manual Todo without recording bootstrap completion" do
     test_root =
       Path.join(

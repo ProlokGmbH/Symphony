@@ -483,6 +483,25 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @doc false
+  @spec observe_dialog_failed_full_check_for_test(Issue.t(), term(), integer()) :: term()
+  def observe_dialog_failed_full_check_for_test(%Issue{} = issue, %State{} = state, now_ms)
+      when is_integer(now_ms) do
+    observe_dialog_failed_full_check(state, issue, now_ms)
+  end
+
+  @doc false
+  @spec observe_dialog_dispatch_result_for_test(Issue.t(), term(), term(), integer()) :: term()
+  def observe_dialog_dispatch_result_for_test(
+        %Issue{} = issue,
+        %State{} = state_before_dispatch,
+        %State{} = state_after_dispatch,
+        now_ms
+      )
+      when is_integer(now_ms) do
+    observe_dialog_dispatched_full_check(state_before_dispatch, state_after_dispatch, issue, now_ms)
+  end
+
+  @doc false
   @spec dialog_safety_full_check_interval_ms_for_test(term(), non_neg_integer()) :: pos_integer()
   def dialog_safety_full_check_interval_ms_for_test(%State{} = state, dialog_issue_count)
       when is_integer(dialog_issue_count) and dialog_issue_count >= 0 do
@@ -1134,20 +1153,19 @@ defmodule SymphonyElixir.Orchestrator do
 
     with {:ok, comments} <- Tracker.fetch_issue_comments(issue.id),
          {:ok, request} <- Dialog.next_request(issue, comments, workspace) do
-      state = observe_dialog_full_check(state, issue, now_ms)
-
       case request do
         :noop ->
           Logger.debug("Skipping idle dialog issue after comment refresh: #{issue_context(issue)}")
-          state
+          observe_dialog_full_check(state, issue, now_ms)
 
         %{prompt: prompt} = request when is_binary(prompt) ->
-          dispatch_issue(state, issue, nil, nil, dialog_run_opts(request))
+          dispatched_state = dispatch_issue(state, issue, nil, nil, dialog_run_opts(request))
+          observe_dialog_dispatched_full_check(state, dispatched_state, issue, now_ms)
       end
     else
       {:error, reason} ->
         Logger.warning("Skipping dialog issue after comment refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
-        state
+        observe_dialog_failed_full_check(state, issue, now_ms)
     end
   end
 
@@ -1206,6 +1224,52 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp observe_dialog_full_check(%State{} = state, _issue, _now_ms), do: state
+
+  defp observe_dialog_failed_full_check(%State{} = state, %Issue{id: issue_id} = issue, now_ms)
+       when is_binary(issue_id) and is_integer(now_ms) do
+    current_key = dialog_comment_signal_key(issue.last_comment_signal)
+
+    case Map.get(state.dialog_observations, issue_id) do
+      nil when current_key == :missing ->
+        observe_dialog_full_check(state, issue, now_ms)
+
+      %{comment_key: observed_key} = observation when observed_key == current_key ->
+        updated_observation = Map.put(observation, :last_full_check_at_ms, now_ms)
+        %{state | dialog_observations: Map.put(state.dialog_observations, issue_id, updated_observation)}
+
+      _ ->
+        state
+    end
+  end
+
+  defp observe_dialog_failed_full_check(%State{} = state, _issue, _now_ms), do: state
+
+  defp observe_dialog_dispatched_full_check(
+         %State{} = state_before_dispatch,
+         %State{} = state_after_dispatch,
+         %Issue{id: issue_id} = issue,
+         now_ms
+       )
+       when is_binary(issue_id) and is_integer(now_ms) do
+    if dialog_dispatch_accepted?(state_before_dispatch, state_after_dispatch, issue_id) do
+      observe_dialog_full_check(state_after_dispatch, issue, now_ms)
+    else
+      state_after_dispatch
+    end
+  end
+
+  defp dialog_dispatch_accepted?(%State{} = state_before_dispatch, %State{} = state_after_dispatch, issue_id)
+       when is_binary(issue_id) do
+    new_running_entry? =
+      not Map.has_key?(state_before_dispatch.running, issue_id) and
+        Map.has_key?(state_after_dispatch.running, issue_id)
+
+    new_retry_entry? =
+      not Map.has_key?(state_before_dispatch.retry_attempts, issue_id) and
+        Map.has_key?(state_after_dispatch.retry_attempts, issue_id)
+
+    new_running_entry? or new_retry_entry?
+  end
 
   defp dialog_comment_signal_key(%{id: id, created_at: created_at, updated_at: updated_at}) do
     {comment_signal_key_value(id), comment_signal_key_value(created_at), comment_signal_key_value(updated_at)}

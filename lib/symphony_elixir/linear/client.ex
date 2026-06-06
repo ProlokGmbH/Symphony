@@ -43,7 +43,7 @@ defmodule SymphonyElixir.Linear.Client do
       }
     }
   }
-  comments(last: 1, orderBy: updatedAt) {
+  comments(first: 1, orderBy: updatedAt) {
     nodes {
       id
       createdAt
@@ -765,10 +765,28 @@ defmodule SymphonyElixir.Linear.Client do
     comments
     |> Enum.map(&normalize_comment_signal/1)
     |> Enum.reject(&is_nil/1)
-    |> List.last()
+    |> latest_comment_signal()
   end
 
   defp extract_last_comment_signal(_issue), do: nil
+
+  defp latest_comment_signal([]), do: nil
+
+  defp latest_comment_signal(signals) when is_list(signals) do
+    if Enum.all?(signals, &(match?(%DateTime{}, &1.updated_at) or match?(%DateTime{}, &1.created_at))) do
+      Enum.max_by(signals, &comment_signal_timestamp_sort_key/1)
+    else
+      List.first(signals)
+    end
+  end
+
+  defp comment_signal_timestamp_sort_key(%{updated_at: %DateTime{} = updated_at}) do
+    DateTime.to_unix(updated_at, :microsecond)
+  end
+
+  defp comment_signal_timestamp_sort_key(%{created_at: %DateTime{} = created_at}) do
+    DateTime.to_unix(created_at, :microsecond)
+  end
 
   defp normalize_comment_signal(comment) when is_map(comment) do
     signal = %{
