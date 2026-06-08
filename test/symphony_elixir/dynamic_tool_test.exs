@@ -297,6 +297,138 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
            }
   end
 
+  test "linear client enriches HTTP 400, 401, 403, and rate-limit responses" do
+    cases = [
+      {400, %{"errors" => [%{"message" => "Unknown field", "extensions" => %{"code" => "GRAPHQL_VALIDATION_FAILED"}}]}, [], "graphql", ["GRAPHQL_VALIDATION_FAILED"]},
+      {401, %{"errors" => [%{"message" => "Unauthorized", "extensions" => %{"code" => "UNAUTHENTICATED"}}]}, [], "auth", ["UNAUTHENTICATED"]},
+      {403, %{"errors" => [%{"message" => "Forbidden", "extensions" => %{"code" => "FORBIDDEN"}}]}, [], "auth", ["FORBIDDEN"]},
+      {429, %{"errors" => [%{"message" => "Too many requests", "extensions" => %{"code" => "RATELIMITED"}}]}, [{"retry-after", "12"}, {"x-ratelimit-remaining", "0"}], "rate_limited", ["RATELIMITED"]}
+    ]
+
+    Enum.each(cases, fn {status, body, headers, classification, codes} ->
+      capture_log(fn ->
+        assert {:error, {:linear_api_status, ^status, diagnostics}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:ok, %{status: status, body: body, headers: headers}}
+                   end
+                 )
+
+        assert diagnostics.status == status
+        assert diagnostics.classification == classification
+        assert diagnostics.extensions_codes == codes
+        assert diagnostics.errors == body["errors"]
+        assert diagnostics.body_excerpt =~ hd(body["errors"])["message"]
+
+        if status == 429 do
+          assert diagnostics.rate_limit["limited"] == true
+          assert diagnostics.rate_limit["retry-after"] == "12"
+          assert diagnostics.rate_limit["x-ratelimit-remaining"] == "0"
+        end
+      end)
+    end)
+  end
+
+  test "linear_graphql formats enriched HTTP diagnostics" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:error,
+           {:linear_api_status, 401,
+            %{
+              status: 401,
+              classification: "auth",
+              body_excerpt: ~s({"errors":[{"message":"Unauthorized"}]}),
+              errors: [%{"message" => "Unauthorized", "extensions" => %{"code" => "UNAUTHENTICATED"}}],
+              extensions_codes: ["UNAUTHENTICATED"],
+              rate_limit: %{}
+            }}}
+        end
+      )
+
+    assert response["success"] == false
+
+    assert Jason.decode!(response["output"]) == %{
+             "error" => %{
+               "message" => "Linear GraphQL request failed with HTTP 401 (auth/permission).",
+               "status" => 401,
+               "classification" => "auth",
+               "bodyExcerpt" => ~s({"errors":[{"message":"Unauthorized"}]}),
+               "errors" => [%{"message" => "Unauthorized", "extensions" => %{"code" => "UNAUTHENTICATED"}}],
+               "extensionsCodes" => ["UNAUTHENTICATED"]
+             }
+           }
+
+    forbidden =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:error,
+           {:linear_api_status, 403,
+            %{
+              status: 403,
+              classification: "auth",
+              body_excerpt: "Forbidden",
+              errors: [%{"message" => "Forbidden", "extensions" => %{"code" => "FORBIDDEN"}}],
+              extensions_codes: ["FORBIDDEN"],
+              rate_limit: %{}
+            }}}
+        end
+      )
+
+    assert get_in(Jason.decode!(forbidden["output"]), ["error", "status"]) == 403
+    assert get_in(Jason.decode!(forbidden["output"]), ["error", "extensionsCodes"]) == ["FORBIDDEN"]
+
+    schema_error =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:error,
+           {:linear_api_status, 400,
+            %{
+              status: 400,
+              classification: "graphql",
+              body_excerpt: "Unknown field",
+              errors: [%{"message" => "Unknown field", "extensions" => %{"code" => "GRAPHQL_VALIDATION_FAILED"}}],
+              extensions_codes: ["GRAPHQL_VALIDATION_FAILED"],
+              rate_limit: %{}
+            }}}
+        end
+      )
+
+    assert get_in(Jason.decode!(schema_error["output"]), ["error", "message"]) ==
+             "Linear GraphQL request failed with HTTP 400."
+
+    rate_limited =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:error,
+           {:linear_api_status, 429,
+            %{
+              status: 429,
+              classification: "rate_limited",
+              body_excerpt: "Too many requests",
+              errors: [%{"message" => "Too many requests", "extensions" => %{"code" => "RATELIMITED"}}],
+              extensions_codes: ["RATELIMITED"],
+              rate_limit: %{"limited" => true, "retry-after" => "30"}
+            }}}
+        end
+      )
+
+    decoded_rate_limit = Jason.decode!(rate_limited["output"])
+    assert get_in(decoded_rate_limit, ["error", "message"]) =~ "rate limited"
+    assert get_in(decoded_rate_limit, ["error", "rateLimit", "limited"]) == true
+    assert get_in(decoded_rate_limit, ["error", "rateLimit", "retry-after"]) == "30"
+  end
+
   test "linear_graphql formats unexpected failures from the client" do
     response =
       DynamicTool.execute(

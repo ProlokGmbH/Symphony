@@ -1234,7 +1234,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "linear client logs response bodies for non-200 graphql responses" do
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert {:error, {:linear_api_status, 400}} =
+        assert {:error, {:linear_api_status, 400, diagnostics}} =
                  Client.graphql(
                    "query Viewer { viewer { id } }",
                    %{},
@@ -1253,11 +1253,24 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                       }}
                    end
                  )
+
+        assert diagnostics.status == 400
+        assert diagnostics.classification == "graphql"
+        assert diagnostics.extensions_codes == ["BAD_USER_INPUT"]
+
+        assert diagnostics.errors == [
+                 %{
+                   "message" => "Variable \"$ids\" got invalid value",
+                   "extensions" => %{"code" => "BAD_USER_INPUT"}
+                 }
+               ]
       end)
 
     assert log =~ "Linear GraphQL request failed status=400"
     assert log =~ ~s(body=%{"errors" => [%{"extensions" => %{"code" => "BAD_USER_INPUT"})
     assert log =~ "Variable \\\"$ids\\\" got invalid value"
+    assert log =~ ~s(classification="graphql")
+    assert log =~ ~s(errorCodes=["BAD_USER_INPUT"])
   end
 
   test "orchestrator sorts dispatch by priority then oldest created_at" do

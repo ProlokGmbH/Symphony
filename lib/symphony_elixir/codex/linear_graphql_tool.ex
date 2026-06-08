@@ -195,6 +195,21 @@ defmodule SymphonyElixir.Codex.LinearGraphqlTool do
     }
   end
 
+  defp tool_error_payload({:linear_api_status, status, diagnostics}) when is_map(diagnostics) do
+    error =
+      %{
+        "message" => linear_status_message(status, diagnostics),
+        "status" => status
+      }
+      |> maybe_put("classification", Map.get(diagnostics, :classification))
+      |> maybe_put("bodyExcerpt", Map.get(diagnostics, :body_excerpt))
+      |> maybe_put("errors", Map.get(diagnostics, :errors))
+      |> maybe_put("extensionsCodes", Map.get(diagnostics, :extensions_codes))
+      |> maybe_put("rateLimit", Map.get(diagnostics, :rate_limit))
+
+    %{"error" => error}
+  end
+
   defp tool_error_payload({:linear_api_request, reason}) do
     %{
       "error" => %{
@@ -212,4 +227,19 @@ defmodule SymphonyElixir.Codex.LinearGraphqlTool do
       }
     }
   end
+
+  defp linear_status_message(status, %{classification: "auth"}) do
+    "Linear GraphQL request failed with HTTP #{status} (auth/permission)."
+  end
+
+  defp linear_status_message(status, %{classification: "rate_limited"}) do
+    "Linear GraphQL request failed with HTTP #{status} (rate limited)."
+  end
+
+  defp linear_status_message(status, _diagnostics) do
+    "Linear GraphQL request failed with HTTP #{status}."
+  end
+
+  defp maybe_put(map, _key, value) when value in [nil, "", [], %{}], do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

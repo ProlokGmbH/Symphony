@@ -18,6 +18,12 @@ bei `symphony-planning`.
 - Suche vorhandene Kommentare nach diesem Marker und nutze einen aktiven Treffer
   weiter; sonst erstelle einen neuen Kommentar in der Standardstruktur.
 - Fortschritt, Review, Test und Handoff bleiben in derselben Kommentar-ID.
+- Wenn der reguläre Linear-Edit-Pfad fehlt oder wegen HTTP 401/403/Auth
+  ausfällt, aktualisiere bestehende Workpads lokal mit
+  `SymphonyElixir.Workpad.update_tracker_workpad/2`. Der Helfer sucht
+  vollständig paginiert genau einen Marker-Kommentar, lehnt leere,
+  markerlose oder probeartige Bodies ab und verifiziert das Update nach dem
+  Schreiben.
 
 ## Standardstruktur
 
@@ -75,3 +81,6 @@ widersprüchlich war.
   `WORKFLOW.md` oder aufgerufenen Skills verlangten Nachvollziehbarkeitskommentare,
   etwa für Originalbeschreibungen, Klärungsfragen oder kombinierte
   Review-Finding-Fix-Kommentare; sie ersetzen das Workpad nicht.
+- Ein separater Blocker-Kommentar ist bei bestehendem Workpad nur letzte Stufe,
+  wenn sowohl reguläres Bearbeiten als auch
+  `SymphonyElixir.Workpad.update_tracker_workpad/2` scheitern.

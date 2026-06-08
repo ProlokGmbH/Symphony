@@ -171,7 +171,7 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.workflow_prompt() == prompt
     assert prompt =~ "Der kanonische Arbeitsbranch für dieses Issue heißt immer `symphony/{{ issue.identifier }}`."
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
-    assert prompt =~ "Wenn keines von beiden bereits vor dem ersten Workpad-Zugriff vorhanden ist"
+    assert prompt =~ "Wenn kein regulärer Kommentar-Edit-Pfad verfügbar ist"
     assert prompt =~ "mise exec -- mix run --no-start -e"
     assert prompt =~ "git rev-parse --show-toplevel"
 
@@ -180,6 +180,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert prompt =~ "Application.ensure_all_started(:req)"
     assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
+    assert prompt =~ "SymphonyElixir.Workpad.update_tracker_workpad/2"
     assert prompt =~ "verwende für die erste Anfrage einen bereits abgesicherten schema-konformen Bootstrap"
     assert prompt =~ "query BootstrapIssue($key: String!)"
     assert prompt =~ "query BootstrapIssueByTeamAndNumber($teamKey: String!, $number: Float!)"

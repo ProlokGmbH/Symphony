@@ -8,6 +8,18 @@ defmodule SymphonyElixir.Linear.Client do
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
+  @rate_limit_header_names [
+    "retry-after",
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    "x-rate-limit-limit",
+    "x-rate-limit-remaining",
+    "x-rate-limit-reset",
+    "ratelimit-limit",
+    "ratelimit-remaining",
+    "ratelimit-reset"
+  ]
   @manual_in_progress_state_name "In Arbeit"
   @manual_approval_state_names ["Freigabe Implementierung", "Freigabe Review"]
 
@@ -217,12 +229,15 @@ defmodule SymphonyElixir.Linear.Client do
       {:ok, body}
     else
       {:ok, response} ->
+        diagnostics = http_error_diagnostics(response)
+        status = Map.get(diagnostics, :status)
+
         Logger.error(
-          "Linear GraphQL request failed status=#{response.status}" <>
-            linear_error_context(payload, response)
+          "Linear GraphQL request failed status=#{status}" <>
+            linear_error_context(payload, diagnostics)
         )
 
-        {:error, {:linear_api_status, response.status}}
+        {:error, {:linear_api_status, status, diagnostics}}
 
       {:error, reason} ->
         Logger.error("Linear GraphQL request failed: #{inspect(reason)}")
@@ -257,6 +272,10 @@ defmodule SymphonyElixir.Linear.Client do
   @doc false
   @spec next_page_cursor_for_test(map()) :: {:ok, String.t()} | :done | {:error, term()}
   def next_page_cursor_for_test(page_info) when is_map(page_info), do: next_page_cursor(page_info)
+
+  @doc false
+  @spec http_error_diagnostics_for_test(map()) :: map()
+  def http_error_diagnostics_for_test(response) when is_map(response), do: http_error_diagnostics(response)
 
   @doc false
   @spec candidate_query_for_test(String.t() | nil) :: String.t()
@@ -449,20 +468,161 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp maybe_put_operation_name(payload, _operation_name), do: payload
 
-  defp linear_error_context(payload, response) when is_map(payload) do
+  defp linear_error_context(payload, diagnostics) when is_map(payload) and is_map(diagnostics) do
     operation_name =
       case Map.get(payload, "operationName") do
         name when is_binary(name) and name != "" -> " operation=#{name}"
         _ -> ""
       end
 
-    body =
-      response
-      |> Map.get(:body)
-      |> summarize_error_body()
+    body = Map.get(diagnostics, :body_excerpt, "")
 
-    operation_name <> " body=" <> body
+    operation_name <>
+      " body=" <>
+      body <>
+      diagnostic_log_part(" classification", Map.get(diagnostics, :classification)) <>
+      diagnostic_log_part(" errorCodes", Map.get(diagnostics, :extensions_codes)) <>
+      diagnostic_log_part(" rateLimit", Map.get(diagnostics, :rate_limit))
   end
+
+  defp http_error_diagnostics(response) when is_map(response) do
+    status = response_status(response)
+    body = response_body(response)
+    decoded_body = decode_error_body(body)
+    errors = graphql_errors(decoded_body)
+    extensions_codes = graphql_extension_codes(errors)
+    rate_limit = rate_limit_hints(status, response_headers(response), extensions_codes)
+
+    %{
+      status: status,
+      body_excerpt: summarize_error_body(body),
+      errors: errors,
+      extensions_codes: extensions_codes,
+      rate_limit: rate_limit,
+      classification: classify_http_error(status, errors, extensions_codes, rate_limit)
+    }
+  end
+
+  defp response_status(response) when is_map(response) do
+    Map.get(response, :status) || Map.get(response, "status")
+  end
+
+  defp response_body(response) when is_map(response) do
+    Map.get(response, :body) || Map.get(response, "body")
+  end
+
+  defp response_headers(response) when is_map(response) do
+    response
+    |> Map.get(:headers, Map.get(response, "headers", []))
+    |> normalize_headers()
+  end
+
+  defp normalize_headers(headers) when is_map(headers) do
+    Enum.reduce(headers, %{}, fn {key, value}, acc ->
+      Map.put(acc, normalize_header_name(key), normalize_header_value(value))
+    end)
+  end
+
+  defp normalize_headers(headers) when is_list(headers) do
+    Enum.reduce(headers, %{}, fn
+      {key, value}, acc -> Map.put(acc, normalize_header_name(key), normalize_header_value(value))
+      _other, acc -> acc
+    end)
+  end
+
+  defp normalize_headers(_headers), do: %{}
+
+  defp normalize_header_name(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+  end
+
+  defp normalize_header_value(values) when is_list(values) do
+    Enum.map_join(values, ", ", &to_string/1)
+  end
+
+  defp normalize_header_value(value), do: to_string(value)
+
+  defp decode_error_body(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} -> decoded
+      _ -> body
+    end
+  end
+
+  defp decode_error_body(body), do: body
+
+  defp graphql_errors(%{"errors" => errors}) when is_list(errors), do: Enum.map(errors, &sanitize_graphql_error/1)
+  defp graphql_errors(%{errors: errors}) when is_list(errors), do: Enum.map(errors, &sanitize_graphql_error/1)
+  defp graphql_errors(_body), do: []
+
+  defp sanitize_graphql_error(error) when is_map(error) do
+    error
+    |> stringify_keys()
+    |> Map.take(["message", "extensions", "locations", "path"])
+    |> truncate_graphql_error_message()
+  end
+
+  defp sanitize_graphql_error(error), do: %{"message" => inspect(error)}
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} ->
+      {to_string(key), stringify_value(value)}
+    end)
+  end
+
+  defp stringify_value(value) when is_map(value), do: stringify_keys(value)
+  defp stringify_value(values) when is_list(values), do: Enum.map(values, &stringify_value/1)
+  defp stringify_value(value), do: value
+
+  defp truncate_graphql_error_message(%{"message" => message} = error) when is_binary(message) do
+    Map.put(error, "message", truncate_error_body(message))
+  end
+
+  defp truncate_graphql_error_message(error), do: error
+
+  defp graphql_extension_codes(errors) when is_list(errors) do
+    errors
+    |> Enum.flat_map(fn
+      %{"extensions" => %{"code" => code}} when is_binary(code) -> [code]
+      _error -> []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp rate_limit_hints(status, headers, extensions_codes)
+       when is_map(headers) and is_list(extensions_codes) do
+    header_hints =
+      headers
+      |> Map.take(@rate_limit_header_names)
+      |> Enum.reject(fn {_key, value} -> value == "" end)
+      |> Map.new()
+
+    limited? = status == 429 or Enum.member?(extensions_codes, "RATELIMITED")
+
+    cond do
+      limited? -> Map.put(header_hints, "limited", true)
+      header_hints != %{} -> header_hints
+      true -> %{}
+    end
+  end
+
+  defp classify_http_error(status, errors, extensions_codes, rate_limit) do
+    cond do
+      status in [401, 403] or auth_error_code?(extensions_codes) -> "auth"
+      Map.get(rate_limit, "limited") == true -> "rate_limited"
+      status == 400 or errors != [] -> "graphql"
+      true -> "http"
+    end
+  end
+
+  defp auth_error_code?(extensions_codes) when is_list(extensions_codes) do
+    Enum.any?(extensions_codes, &(&1 in ["AUTHENTICATION_ERROR", "FORBIDDEN", "UNAUTHENTICATED"]))
+  end
+
+  defp diagnostic_log_part(_label, value) when value in [nil, "", [], %{}], do: ""
+  defp diagnostic_log_part(label, value), do: label <> "=" <> inspect(value)
 
   defp summarize_error_body(body) when is_binary(body) do
     body

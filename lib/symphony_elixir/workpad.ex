@@ -3,7 +3,19 @@ defmodule SymphonyElixir.Workpad do
   Helpers for the persistent Linear workpad comment managed by Symphony.
   """
 
+  alias SymphonyElixir.Tracker
+
   @marker "## Symphony Workpad"
+  @placeholder_tokens MapSet.new([
+                        "beispiel",
+                        "dummy",
+                        "example",
+                        "placeholder",
+                        "probe",
+                        "tbd",
+                        "test",
+                        "todo"
+                      ])
   @review_evidence_patterns [
     ~r/\b(?:review-)?subagent-findings?\b/iu,
     ~r/\breview[-\s]?finding[-\s]?fix(?:es)?\b/iu,
@@ -23,6 +35,35 @@ defmodule SymphonyElixir.Workpad do
   @spec marker() :: String.t()
   def marker, do: @marker
 
+  @spec update_tracker_workpad(String.t(), String.t()) :: :ok | {:error, term()}
+  def update_tracker_workpad(issue_id, body) when is_binary(issue_id) and is_binary(body) do
+    with :ok <- validate_update_body(body),
+         {:ok, comment} <- fetch_single_tracker_comment(issue_id),
+         {:ok, comment_id} <- comment_id(comment),
+         :ok <- Tracker.update_comment(comment_id, body),
+         {:ok, verified_comment} <- fetch_single_tracker_comment(issue_id) do
+      verify_updated_comment(verified_comment, comment_id, body)
+    end
+  end
+
+  @spec find_comment(term()) :: {:ok, map()} | {:error, term()}
+  def find_comment(comments) when is_list(comments) do
+    matches =
+      Enum.filter(comments, fn comment ->
+        comment
+        |> comment_body()
+        |> comment_matches?()
+      end)
+
+    case matches do
+      [comment] -> {:ok, normalize_comment(comment)}
+      [] -> {:error, :workpad_comment_not_found}
+      many -> {:error, {:multiple_workpad_comments, length(many)}}
+    end
+  end
+
+  def find_comment(_comments), do: {:error, :workpad_comment_not_found}
+
   @spec find_comment_body(term()) :: String.t() | nil
   def find_comment_body(comments) when is_list(comments) do
     Enum.find_value(comments, fn comment ->
@@ -40,6 +81,18 @@ defmodule SymphonyElixir.Workpad do
   end
 
   def comment_matches?(_body), do: false
+
+  @spec validate_update_body(term()) :: :ok | {:error, term()}
+  def validate_update_body(body) when is_binary(body) do
+    cond do
+      String.trim(body) == "" -> {:error, :empty_workpad_body}
+      not comment_matches?(body) -> {:error, :workpad_marker_missing}
+      placeholder_body?(body) -> {:error, :placeholder_workpad_body}
+      true -> :ok
+    end
+  end
+
+  def validate_update_body(_body), do: {:error, :invalid_workpad_body}
 
   @spec section_has_open_checklist_items?(term(), term()) :: boolean()
   def section_has_open_checklist_items?(body, section_title)
@@ -174,6 +227,48 @@ defmodule SymphonyElixir.Workpad do
 
   defp merge_commit_evidence?(body) when is_binary(body) do
     Regex.match?(~r/\bmerge[-\s]?commit\s*[:#]?\s*`?[0-9a-f]{7,40}`?\b/iu, body)
+  end
+
+  defp fetch_single_tracker_comment(issue_id) do
+    with {:ok, comments} <- Tracker.fetch_issue_comments(issue_id) do
+      find_comment(comments)
+    end
+  end
+
+  defp verify_updated_comment(comment, expected_id, expected_body) do
+    with {:ok, verified_id} <- comment_id(comment) do
+      cond do
+        verified_id != expected_id -> {:error, :workpad_comment_id_changed}
+        comment_body(comment) != expected_body -> {:error, :workpad_update_verification_failed}
+        true -> :ok
+      end
+    end
+  end
+
+  defp comment_id(%{id: id}) when is_binary(id) and id != "", do: {:ok, id}
+  defp comment_id(_comment), do: {:error, :workpad_comment_missing_id}
+
+  defp normalize_comment(%{} = comment) do
+    %{
+      id: Map.get(comment, :id) || Map.get(comment, "id"),
+      body: comment_body(comment),
+      created_at: Map.get(comment, :created_at) || Map.get(comment, "created_at") || Map.get(comment, "createdAt"),
+      updated_at: Map.get(comment, :updated_at) || Map.get(comment, "updated_at") || Map.get(comment, "updatedAt")
+    }
+  end
+
+  defp normalize_comment(body) when is_binary(body), do: %{body: body}
+
+  defp placeholder_body?(body) when is_binary(body) do
+    body
+    |> String.replace(~r/(^|\n)#{Regex.escape(@marker)}(\n|$)/, " ")
+    |> String.replace(~r/[#`*_>\[\]\(\)\{\}:.\-,;!?\s]+/u, " ")
+    |> String.downcase()
+    |> String.split()
+    |> case do
+      [] -> true
+      tokens -> Enum.all?(tokens, &MapSet.member?(@placeholder_tokens, &1))
+    end
   end
 
   defp comment_body(%{body: body}) when is_binary(body), do: body

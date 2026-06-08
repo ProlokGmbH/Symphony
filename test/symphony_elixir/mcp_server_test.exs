@@ -221,6 +221,44 @@ defmodule SymphonyElixir.Codex.MCPServerTest do
            ]
   end
 
+  test "tools/call surfaces enriched linear_graphql HTTP diagnostics" do
+    response =
+      MCPServer.handle_request(
+        %{
+          "jsonrpc" => "2.0",
+          "id" => 41,
+          "method" => "tools/call",
+          "params" => %{
+            "name" => "linear_graphql",
+            "arguments" => %{"query" => "query Viewer { viewer { id } }"}
+          }
+        },
+        linear_client: fn _query, _variables, _opts ->
+          {:error,
+           {:linear_api_status, 403,
+            %{
+              status: 403,
+              classification: "auth",
+              body_excerpt: "Forbidden",
+              errors: [%{"message" => "Forbidden", "extensions" => %{"code" => "FORBIDDEN"}}],
+              extensions_codes: ["FORBIDDEN"],
+              rate_limit: %{}
+            }}}
+        end
+      )
+
+    assert get_in(response, ["result", "isError"]) == true
+
+    decoded =
+      response
+      |> get_in(["result", "content", Access.at(0), "text"])
+      |> Jason.decode!()
+
+    assert get_in(decoded, ["error", "status"]) == 403
+    assert get_in(decoded, ["error", "classification"]) == "auth"
+    assert get_in(decoded, ["error", "extensionsCodes"]) == ["FORBIDDEN"]
+  end
+
   test "tools/call rejects unknown tools and malformed payloads" do
     assert MCPServer.handle_request(%{
              "jsonrpc" => "2.0",
