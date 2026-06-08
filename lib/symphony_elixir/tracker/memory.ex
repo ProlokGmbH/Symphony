@@ -65,6 +65,26 @@ defmodule SymphonyElixir.Tracker.Memory do
     :ok
   end
 
+  @spec update_comment(String.t(), String.t()) :: :ok | {:error, term()}
+  def update_comment(comment_id, body) when is_binary(comment_id) and is_binary(body) do
+    {comments, updated_issue_id} =
+      configured_comments()
+      |> Enum.map_reduce(nil, fn {issue_id, issue_comments}, updated_issue_id ->
+        {updated_comments, updated?} = update_comment_entries(issue_comments, comment_id, body)
+        {{issue_id, updated_comments}, updated_issue_id || if(updated?, do: issue_id)}
+      end)
+
+    case updated_issue_id do
+      nil ->
+        {:error, :comment_not_found}
+
+      issue_id ->
+        Application.put_env(:symphony_elixir, :memory_tracker_comments, Map.new(comments))
+        send_event({:memory_tracker_comment_update, issue_id, comment_id, body})
+        :ok
+    end
+  end
+
   @spec workpad_exists?(String.t()) :: {:ok, boolean()} | {:error, term()}
   def workpad_exists?(issue_id) do
     {:ok, has_workpad_comment?(issue_id)}
@@ -103,12 +123,46 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   defp store_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
+    now = DateTime.utc_now()
+    comment = %{id: new_comment_id(), body: body, created_at: now, updated_at: now}
+
     comments =
       configured_comments()
-      |> Map.update(issue_id, [body], &[body | &1])
+      |> Map.update(issue_id, [comment], &prepend_comment(&1, comment))
 
     Application.put_env(:symphony_elixir, :memory_tracker_comments, comments)
     :ok
+  end
+
+  defp prepend_comment(comments, comment) when is_list(comments), do: [comment | comments]
+  defp prepend_comment(_comments, comment), do: [comment]
+
+  defp new_comment_id do
+    "memory-comment-#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  defp update_comment_entries(comments, comment_id, body) when is_list(comments) do
+    Enum.map_reduce(comments, false, fn comment, updated? ->
+      case update_comment_entry(comment, comment_id, body) do
+        {:ok, updated_comment} -> {updated_comment, true}
+        :skip -> {comment, updated?}
+      end
+    end)
+  end
+
+  defp update_comment_entries(_comments, _comment_id, _body), do: {[], false}
+
+  defp update_comment_entry(comment, comment_id, body) do
+    normalized = normalize_comment(comment)
+
+    if Map.get(normalized, :id) == comment_id do
+      {:ok,
+       normalized
+       |> Map.put(:body, body)
+       |> Map.put(:updated_at, DateTime.utc_now())}
+    else
+      :skip
+    end
   end
 
   defp send_event(message) do

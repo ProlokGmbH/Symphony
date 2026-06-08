@@ -35,6 +35,19 @@ defmodule SymphonyElixir.ExtensionsTest do
       Process.get({__MODULE__, :issue_comment_bodies_result})
     end
 
+    def fetch_issue_comments(issue_id) do
+      send(self(), {:fetch_issue_comments_called, issue_id})
+
+      case Process.get({__MODULE__, :issue_comments_results}) do
+        [result | rest] ->
+          Process.put({__MODULE__, :issue_comments_results}, rest)
+          result
+
+        _ ->
+          Process.get({__MODULE__, :issue_comments_result})
+      end
+    end
+
     def graphql(query, variables) do
       send(self(), {:graphql_called, query, variables})
 
@@ -95,6 +108,8 @@ defmodule SymphonyElixir.ExtensionsTest do
       Process.delete({FakeLinearClient, :graphql_result})
       Process.delete({FakeLinearClient, :graphql_results})
       Process.delete({FakeLinearClient, :issue_comment_bodies_result})
+      Process.delete({FakeLinearClient, :issue_comments_result})
+      Process.delete({FakeLinearClient, :issue_comments_results})
 
       if is_nil(linear_client_module) do
         Application.delete_env(:symphony_elixir, :linear_client_module)
@@ -233,6 +248,162 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
+  test "memory tracker updates addressable comments" do
+    Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+    Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+      "issue-1" => [
+        %{id: "comment-1", body: "old body", created_at: "2026-06-08T08:00:00Z"},
+        %{id: "comment-2", body: "other"}
+      ]
+    })
+
+    assert :ok = Memory.update_comment("comment-1", "updated body")
+    assert_receive {:memory_tracker_comment_update, "issue-1", "comment-1", "updated body"}
+
+    assert {:ok, comments} = Memory.fetch_issue_comments("issue-1")
+    assert Enum.find(comments, &(&1.id == "comment-1")).body == "updated body"
+    assert Enum.find(comments, &(&1.id == "comment-2")).body == "other"
+
+    assert {:error, :comment_not_found} = Memory.update_comment("missing", "new body")
+
+    Application.put_env(:symphony_elixir, :memory_tracker_comments, %{"issue-1" => "not a comment list"})
+    assert {:error, :comment_not_found} = Memory.update_comment("comment-1", "updated body")
+
+    assert :ok = Memory.create_comment("issue-1", "restored body")
+    assert {:ok, [created_comment]} = Memory.fetch_issue_comments("issue-1")
+    assert is_binary(created_comment.id)
+    assert created_comment.body == "restored body"
+  end
+
+  test "workpad helper safely updates one existing tracker workpad and verifies it" do
+    Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+    Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+      "issue-1" => [
+        %{id: "comment-other", body: "ordinary comment"},
+        %{id: "comment-workpad", body: "## Symphony Workpad\n\nold"}
+      ]
+    })
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    updated_body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [x] updated
+    """
+
+    assert :ok = Workpad.update_tracker_workpad("issue-1", updated_body)
+
+    assert_receive {:memory_tracker_fetch_issue_comments, "issue-1"}
+    assert_receive {:memory_tracker_comment_update, "issue-1", "comment-workpad", ^updated_body}
+    assert_receive {:memory_tracker_fetch_issue_comments, "issue-1"}
+
+    assert {:ok, comments} = Memory.fetch_issue_comments("issue-1")
+    assert Enum.find(comments, &(&1.id == "comment-workpad")).body == updated_body
+    assert Enum.find(comments, &(&1.id == "comment-other")).body == "ordinary comment"
+  end
+
+  test "workpad helper updates a workpad comment created through memory tracker" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [ ] created
+    """
+
+    assert :ok = Memory.create_comment("issue-1", body)
+    assert {:ok, [comment]} = Memory.fetch_issue_comments("issue-1")
+    assert is_binary(comment.id)
+    assert comment.id != ""
+    assert comment.body == body
+
+    updated_body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [x] updated
+    """
+
+    assert :ok = Workpad.update_tracker_workpad("issue-1", updated_body)
+    assert {:ok, [updated_comment]} = Memory.fetch_issue_comments("issue-1")
+    assert updated_comment.id == comment.id
+    assert updated_comment.body == updated_body
+  end
+
+  test "workpad helper rejects missing, multiple, empty, placeholder, and markerless updates" do
+    Application.put_env(:symphony_elixir, :memory_tracker_comments, %{
+      "missing-workpad" => [%{id: "comment-1", body: "ordinary comment"}],
+      "missing-id" => ["## Symphony Workpad\n\nold"],
+      "multiple-workpads" => [
+        %{id: "comment-1", body: "## Symphony Workpad\n\nfirst"},
+        %{id: "comment-2", body: "## Symphony Workpad\n\nsecond"}
+      ]
+    })
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    valid_body = "## Symphony Workpad\n\n### Plan\n\n- [x] done\n"
+
+    assert {:error, :workpad_comment_not_found} = Workpad.update_tracker_workpad("missing-workpad", valid_body)
+
+    assert {:error, {:multiple_workpad_comments, 2}} =
+             Workpad.update_tracker_workpad("multiple-workpads", valid_body)
+
+    assert {:error, :workpad_comment_missing_id} = Workpad.update_tracker_workpad("missing-id", valid_body)
+    assert {:error, :workpad_comment_not_found} = Workpad.find_comment(nil)
+    assert {:error, :empty_workpad_body} = Workpad.validate_update_body(" \n ")
+    assert {:error, :workpad_marker_missing} = Workpad.validate_update_body("### Plan\n\n- [x] done")
+    assert {:error, :placeholder_workpad_body} = Workpad.validate_update_body("## Symphony Workpad\n\nprobe")
+    assert {:error, :placeholder_workpad_body} = Workpad.validate_update_body("## Symphony Workpad\n")
+    assert {:error, :invalid_workpad_body} = Workpad.validate_update_body(nil)
+  end
+
+  test "workpad helper reports verification mismatches after tracker update" do
+    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    updated_body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [x] updated
+    """
+
+    Process.put(
+      {FakeLinearClient, :issue_comments_results},
+      [
+        {:ok, [%{id: "comment-workpad", body: "## Symphony Workpad\n\nold"}]},
+        {:ok, [%{id: "comment-other", body: updated_body}]}
+      ]
+    )
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"commentUpdate" => %{"success" => true}}}}
+    )
+
+    assert {:error, :workpad_comment_id_changed} = Workpad.update_tracker_workpad("issue-1", updated_body)
+
+    Process.put(
+      {FakeLinearClient, :issue_comments_results},
+      [
+        {:ok, [%{id: "comment-workpad", body: "## Symphony Workpad\n\nold"}]},
+        {:ok, [%{id: "comment-workpad", body: "## Symphony Workpad\n\nstale"}]}
+      ]
+    )
+
+    assert {:error, :workpad_update_verification_failed} = Workpad.update_tracker_workpad("issue-1", updated_body)
+  end
+
   test "workpad helper matches only the exact marker header" do
     assert Workpad.marker() == "## Symphony Workpad"
     assert Workpad.comment_matches?("## Symphony Workpad\n\nbody")
@@ -256,6 +427,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     """
 
     assert Workpad.find_comment_body(["other", workpad_body]) == workpad_body
+    assert {:ok, %{body: ^workpad_body}} = Workpad.find_comment([workpad_body])
     assert Workpad.find_comment_body(nil) == nil
     assert Workpad.section_has_open_checklist_items?(workpad_body, "Review")
     refute Workpad.section_has_open_checklist_items?(workpad_body, "Test")
@@ -459,6 +631,32 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert :ok = Adapter.create_comment("issue-1", "hello")
     assert_receive {:graphql_called, create_comment_query, %{body: "hello", issueId: "issue-1"}}
     assert create_comment_query =~ "commentCreate"
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"commentUpdate" => %{"success" => true}}}}
+    )
+
+    assert :ok = Adapter.update_comment("comment-1", "updated")
+    assert_receive {:graphql_called, update_comment_query, %{body: "updated", commentId: "comment-1"}}
+    assert update_comment_query =~ "commentUpdate"
+
+    Process.put(
+      {FakeLinearClient, :graphql_result},
+      {:ok, %{"data" => %{"commentUpdate" => %{"success" => false}}}}
+    )
+
+    assert {:error, :comment_update_failed} = Adapter.update_comment("comment-1", "broken")
+
+    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
+
+    assert {:error, :boom} = Adapter.update_comment("comment-1", "boom")
+
+    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
+    assert {:error, :comment_update_failed} = Adapter.update_comment("comment-1", "weird")
+
+    Process.put({FakeLinearClient, :graphql_result}, :unexpected)
+    assert {:error, :comment_update_failed} = Adapter.update_comment("comment-1", "odd")
 
     Process.put(
       {FakeLinearClient, :graphql_result},
