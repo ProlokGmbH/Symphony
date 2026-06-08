@@ -311,7 +311,7 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
 | `Review (AI)` | Ja | Vor `symphony-review` `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Abschlussstatus nach Review-Ergebnis sowie `--yolo` oder `Skip "Freigabe Review"`. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach `symphony-test` ausführen. | `Merge (AI)` |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull oder Konfliktlösung neue Änderungen erzeugen, nach `Test (AI)` zurückspringen. | `Review` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull, Konfliktlösung oder andere Merge-Dateiänderungen neue Änderungen erzeugen oder übernehmen, nach `Test (AI)` zurückspringen. | `Review` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
@@ -627,13 +627,14 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 ### Ablauf
 
 1. Öffne den globalen Skill `symphony-land` und befolge den dort definierten Ablauf.
-2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
-3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-5. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
+2. Lokale Volltests werden in `Merge (AI)` nicht pauschal ausgeführt; das vollständige lokale Gate bleibt Aufgabe von `Test (AI)`.
+3. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie und verschiebe das Issue nach `Test (AI)`. Beende den Turn danach sofort; der normale Merge-Pfad wird nur fortgesetzt, wenn `Merge (AI)` keine Dateien verändert oder übernimmt.
+4. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+5. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+6. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
    eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
    gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
-6. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
+7. Falls ein erneuter Pull/Rebase, die Konfliktlösung, Review-Feedback, ein CI-Fix oder eine andere Handlung in `Merge (AI)` zu Dateiänderungen führt oder Dateiänderungen übernimmt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
