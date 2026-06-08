@@ -627,13 +627,14 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 ### Ablauf
 
 1. Öffne den globalen Skill `symphony-land` und befolge den dort definierten Ablauf.
-2. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
-3. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
-4. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-5. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
+2. Lokale Volltests werden in `Merge (AI)` nicht pauschal ausgeführt; das vollständige lokale Gate bleibt Aufgabe von `Test (AI)`.
+3. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body.
+4. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
+5. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
+6. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
    eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
    gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
-6. Falls ein erneuter Pull/Rebase oder die Konfliktlösung in `Merge (AI)` nochmals zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
+7. Falls ein erneuter Pull/Rebase, die Konfliktlösung oder ein anderer landebedingter Fix in `Merge (AI)` zu Dateiänderungen führt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 

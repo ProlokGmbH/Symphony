@@ -307,6 +307,32 @@ defmodule SymphonyElixir.CoreTest do
     assert land_skill =~ "`agent.max_turns` ist"
   end
 
+  test "merge phase contracts skip local full gate and keep PR checks plus rerun guarantees" do
+    workflow = File.read!(Path.expand("../../WORKFLOW.md", __DIR__))
+    test_skill = File.read!(Path.expand("../../.codex/skills/symphony-test/SKILL.md", __DIR__))
+    local_test_skill = File.read!(Path.expand("../../.codex/skills/sym-test/SKILL.md", __DIR__))
+    land_skill = File.read!(Path.expand("../../.codex/skills/symphony-land/SKILL.md", __DIR__))
+
+    assert test_skill =~ "Nur im Status `Test (AI)` verwenden"
+    assert test_skill =~ "repo-lokalen Testschritt"
+    assert test_skill =~ "nach `Merge (AI)` verschieben"
+    assert local_test_skill =~ "`make all`"
+
+    assert workflow =~ "Lokale Volltests werden in `Merge (AI)` nicht pauschal ausgeführt"
+    assert workflow =~ "das vollständige lokale Gate bleibt Aufgabe von `Test (AI)`"
+    assert workflow =~ "PR-Nummer oder PR-URL"
+    assert workflow =~ "landebedingter Fix in `Merge (AI)` zu Dateiänderungen führt"
+
+    assert land_skill =~ "Lokale Volltests nicht pauschal wiederholen"
+    assert land_skill =~ "Keine pauschalen lokalen Volltests in `Merge (AI)` ausführen"
+    assert land_skill =~ ~r/PR-\/CI-Checks sind die maßgeblichen\s+Gates/
+    assert land_skill =~ "Review-Kommentare und Codex-Review-Issue-Kommentare prüfen"
+    assert land_skill =~ "Checks beobachten"
+    assert land_skill =~ "Bei Fehlschlag Logs holen"
+    assert land_skill =~ ~r/nach\s+`Test \(AI\)` zurückverschieben und stoppen/
+    refute land_skill =~ "Vor jedem Push das vollständige lokale Qualitäts-Gate ausführen"
+  end
+
   test "repo-local symphony-linear skill documents schema-valid issue lookup patterns and fallback" do
     skill_path = Path.expand("../../.codex/skills/symphony-linear/SKILL.md", __DIR__)
     skill = File.read!(skill_path)
@@ -11734,6 +11760,7 @@ defmodule SymphonyElixir.CoreTest do
             printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-merge-rerun"}}}'
             ;;
           4)
+            printf '# changed by merge pull/rebase\\n' > README.md
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-merge-rerun"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             ;;
@@ -11790,6 +11817,9 @@ defmodule SymphonyElixir.CoreTest do
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
       refute_receive {:memory_tracker_state_update, "issue-merge-rerun-handoff", _state_name}, 100
       assert "Test (AI)" == Agent.get(state_agent, & &1)
+
+      assert File.read!(Path.join([workspace_root, "MT-MERGE-RERUN", "README.md"])) =~
+               "changed by merge pull/rebase"
     after
       restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
       File.rm_rf(test_root)
