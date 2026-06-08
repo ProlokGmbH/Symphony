@@ -16,10 +16,17 @@ description:
 
 1. Branch und Remote-Status prüfen.
 2. Dokumentierte lokale Validierung ausführen.
+   - Ausnahme: Wenn `symphony-push` aus `symphony-land` in `Merge (AI)` nur
+     einen `<Issue-Key> Merge (AI) Autocommit` veröffentlicht, keine lokale
+     Push-Validierung und kein lokales Voll-Gate ausführen. Der Merge-Schritt
+     pusht nur den neuen Stand, verschiebt nach `Test (AI)` und stoppt.
 3. `git push -u origin HEAD`.
 4. Bei non-fast-forward oder veraltetem Branch `symphony-pull` ausführen,
-   erneut validieren und pushen. `--force-with-lease` nur nach lokaler
-   History-Umschreibung. Auth-/Berechtigungsfehler direkt melden.
+   erneut validieren und pushen. Für die `Merge (AI)`-Autocommit-Ausnahme nach
+   Schritt 2 nach dem Pull/Rebase nicht lokal validieren, sondern den
+   aktualisierten Autocommit-Stand pushen, nach `Test (AI)` zurückspringen und
+   stoppen. `--force-with-lease` nur nach lokaler History-Umschreibung.
+   Auth-/Berechtigungsfehler direkt melden.
 5. PR sicherstellen: offene PR aktualisieren, fehlende PR erstellen, bei alter
    geschlossener/gemergter PR neue PR aus demselben Branch erstellen.
 6. PR-Titel und Body müssen den gesamten aktuellen Scope beschreiben.
@@ -33,7 +40,7 @@ description:
 
 ```sh
 branch=$(git branch --show-current)
-<lokale Validierung aus Repo-/Ticket-Kontext>
+<lokale Validierung aus Repo-/Ticket-Kontext; in der Merge-Autocommit-Ausnahme überspringen>
 git push -u origin HEAD
 
 pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)

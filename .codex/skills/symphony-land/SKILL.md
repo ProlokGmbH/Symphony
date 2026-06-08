@@ -25,14 +25,20 @@ Nur im Merge-Schritt des Workflows verwenden.
 2. Keine pauschalen lokalen Volltests in `Merge (AI)` ausführen. Vorhandene
    Test-Evidenz aus `Test (AI)` und die PR-/CI-Checks sind die maßgeblichen
    Gates für den normalen Merge-Pfad.
-3. Offene Änderungen mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body
-   committen und über `symphony-push` veröffentlichen.
+3. Falls beim Eintritt offene Änderungen vorhanden sind, diese als im
+   Merge-Schritt übernommene Dateiänderungen behandeln: mit `<Issue-Key>
+   Merge (AI) Autocommit` plus kurzem Body committen, über `symphony-push`
+   veröffentlichen, nach `Test (AI)` zurückverschieben und stoppen.
 4. Mergebarkeit prüfen.
 5. Bei Konflikten `symphony-pull` nutzen. Wenn Pull/Rebase oder Konfliktlösung
-   Dateien ändert, committen, nach `Test (AI)` zurückverschieben und stoppen.
+   Dateien ändert, committen, pushen, nach `Test (AI)` zurückverschieben und
+   stoppen.
 6. Review-Kommentare und Codex-Review-Issue-Kommentare prüfen.
 7. Feedback autonom anhand von Ticketkontext, Plan, Code, Tests und lokaler
-   Dokumentation akzeptieren oder begründet ablehnen/zurückstellen.
+   Dokumentation akzeptieren oder begründet ablehnen/zurückstellen. Wenn
+   Feedback Dateiänderungen erfordert, vor Codeänderungen die beabsichtigte
+   Aktion antworten, den Fix umsetzen, committen, pushen, nach `Test (AI)`
+   zurückverschieben und stoppen.
 8. Checks beobachten. Bei Fehlschlag Logs holen. Wenn eine Behebung
    Dateiänderungen erfordert, Fix umsetzen, committen, pushen, nach
    `Test (AI)` zurückverschieben und stoppen; reine CI-Neuläufe ohne
@@ -62,8 +68,8 @@ Exit-Codes: `2` Review-Kommentare, `3` CI-Fehler, `4` PR-Head aktualisiert.
 - Alle Agent-Kommentare beginnen mit `[codex]`.
 - Für jedes Feedback entscheiden: akzeptieren, zurückstellen oder ablehnen. Bei
   correctness-Feedback konkrete Validierung liefern.
-- Vor Codeänderungen die beabsichtigte Aktion antworten; nach Fixes Commit-SHA
-  und Ergebnis an derselben Stelle melden.
+- File-changing Review-Fixes in `Merge (AI)` immer mit Commit-SHA und Ergebnis
+  an derselben Stelle melden, nach `Test (AI)` zurückverschieben und stoppen.
 - Wenn Feedback trotz vorhandener Quellen nicht sicher lösbar ist, Blocker im
   Workpad und Review-Thread dokumentieren, nach `Freigabe Review` verschieben
   und stoppen.
@@ -80,8 +86,8 @@ gh api -X POST /repos/{owner}/{repo}/pulls/<pr_number>/comments \
 ## Fehlerbehandlung
 
 - Instabile CI-Ausreißer nach Prüfung erneut beobachten.
-- Auto-Fix-Commits von CI lokal übernehmen, bei Bedarf rebasen und mit eigenem
-  Commit/Push neuen CI-Lauf auslösen.
+- Auto-Fix-Commits von CI lokal übernehmen, bei Bedarf rebasen, mit eigenem
+  Commit/Push veröffentlichen, nach `Test (AI)` zurückverschieben und stoppen.
 - Bei `mergeable: UNKNOWN` warten und erneut prüfen.
 - Nicht mergen, solange Review-Kommentare offen sind.
 - Auto-Merge nur aktivieren, wenn Workflow und Repository es ausdrücklich

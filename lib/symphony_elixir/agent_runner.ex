@@ -30,6 +30,7 @@ defmodule SymphonyElixir.AgentRunner do
   @test_handoff_state_name "Merge (AI)"
   @merge_codex_state_name "merge (ai)"
   @merge_handoff_state_name "Review"
+  @merge_rerun_state_name "Test (AI)"
   @manual_todo_state_name "todo"
   @manual_in_progress_state_name "in arbeit"
   @ignored_manual_state_names [
@@ -1034,6 +1035,10 @@ defmodule SymphonyElixir.AgentRunner do
     "Merge-Evidenzprüfung fehlgeschlagen"
   end
 
+  defp incomplete_phase_reason_text(:merge_workspace_inspection_failed) do
+    "Merge-Workspace-Statusprüfung fehlgeschlagen"
+  end
+
   defp incomplete_phase_reason_text(:review_checklist_inspection_failed) do
     "Review-Checklistenprüfung fehlgeschlagen"
   end
@@ -1091,7 +1096,13 @@ defmodule SymphonyElixir.AgentRunner do
                  workspace,
                  worker_host
                ) do
-          cancelled_turn_continuation_status(started_issue, refreshed_issue)
+          cancelled_turn_continuation_status(
+            started_issue,
+            refreshed_issue,
+            issue_state_fetcher,
+            workspace,
+            worker_host
+          )
         end
 
       {:ok, []} ->
@@ -1110,15 +1121,36 @@ defmodule SymphonyElixir.AgentRunner do
        ),
        do: {:done, started_issue}
 
-  defp cancelled_turn_continuation_status(%Issue{} = started_issue, %Issue{} = refreshed_issue) do
+  defp cancelled_turn_continuation_status(
+         %Issue{} = started_issue,
+         %Issue{} = refreshed_issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       ) do
     if state_changed_during_turn?(started_issue, refreshed_issue) do
       Logger.info(
         "Stopping interrupted agent run after tracker status changed: #{issue_context(refreshed_issue)} previous_state=#{inspect(started_issue.state)} current_state=#{inspect(refreshed_issue.state)}"
       )
 
-      {:done, refreshed_issue}
+      with {:ok, %Issue{} = current_issue, continuation_mode} <-
+             maybe_redirect_dirty_merge_handoff(
+               started_issue,
+               refreshed_issue,
+               issue_state_fetcher,
+               workspace,
+               worker_host
+             ) do
+        continuation_status(current_issue, continuation_mode)
+      end
     else
-      continuation_status(refreshed_issue, :normal)
+      maybe_redirect_dirty_cancelled_merge_turn(
+        started_issue,
+        refreshed_issue,
+        issue_state_fetcher,
+        workspace,
+        worker_host
+      )
     end
   end
 
@@ -1173,7 +1205,13 @@ defmodule SymphonyElixir.AgentRunner do
       if state_changed_during_turn?(started_issue, issue) do
         Logger.info("Stopping agent run after tracker status changed: #{issue_context(issue)} previous_state=#{inspect(started_issue.state)} current_state=#{inspect(issue.state)}")
 
-        {:ok, issue, :stop}
+        maybe_redirect_dirty_merge_handoff(
+          started_issue,
+          issue,
+          issue_state_fetcher,
+          workspace,
+          worker_host
+        )
       else
         case codex_issue_finalize_mode(started_issue.state) do
           {:transition, error_event, log_label} ->
@@ -1233,6 +1271,79 @@ defmodule SymphonyElixir.AgentRunner do
          _worker_host
        ),
        do: {:ok, issue, :normal}
+
+  defp maybe_redirect_dirty_merge_handoff(
+         %Issue{} = started_issue,
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       ) do
+    if merge_codex_state?(started_issue.state) and
+         normalize_issue_state(issue.state) == normalize_issue_state(@merge_handoff_state_name) do
+      case merge_workspace_rerun_status(workspace, worker_host) do
+        :rerun ->
+          Logger.warning("Redirecting dirty merge handoff to test rerun: #{issue_context(issue)} previous_state=#{inspect(started_issue.state)} current_state=#{inspect(issue.state)}")
+
+          transition_issue_state(
+            issue,
+            issue_state_fetcher,
+            @merge_rerun_state_name,
+            :merge_rerun_state_update_failed,
+            "changed merge issue with workspace changes",
+            :stop
+          )
+
+        _clean_or_error ->
+          {:ok, issue, :stop}
+      end
+    else
+      {:ok, issue, :stop}
+    end
+  end
+
+  defp maybe_redirect_dirty_cancelled_merge_turn(
+         %Issue{} = started_issue,
+         %Issue{} = issue,
+         issue_state_fetcher,
+         workspace,
+         worker_host
+       ) do
+    if merge_codex_state?(started_issue.state) and merge_codex_state?(issue.state) do
+      maybe_redirect_dirty_cancelled_merge_workspace(issue, issue_state_fetcher, workspace, worker_host)
+    else
+      continuation_status(issue, :normal)
+    end
+  end
+
+  defp maybe_redirect_dirty_cancelled_merge_workspace(issue, issue_state_fetcher, workspace, worker_host) do
+    case merge_workspace_rerun_status(workspace, worker_host) do
+      :rerun ->
+        redirect_dirty_cancelled_merge_workspace(issue, issue_state_fetcher)
+
+      _clean_or_error ->
+        continuation_status(issue, :normal)
+    end
+  end
+
+  defp redirect_dirty_cancelled_merge_workspace(%Issue{} = issue, issue_state_fetcher) do
+    Logger.warning("Redirecting dirty interrupted merge turn to test rerun: #{issue_context(issue)} state=#{inspect(issue.state)}")
+
+    case transition_issue_state(
+           issue,
+           issue_state_fetcher,
+           @merge_rerun_state_name,
+           :merge_rerun_state_update_failed,
+           "interrupted merge issue with workspace changes",
+           :stop
+         ) do
+      {:ok, %Issue{} = current_issue, continuation_mode} ->
+        continuation_status(current_issue, continuation_mode)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp codex_issue_finalize_mode(state) do
     cond do
@@ -1313,27 +1424,52 @@ defmodule SymphonyElixir.AgentRunner do
   defp maybe_finalize_merge_codex_issue(
          %Issue{} = issue,
          issue_state_fetcher,
-         _workspace,
-         _worker_host
+         workspace,
+         worker_host
        ) do
-    case merge_workpad_handoff_status(issue) do
-      :ready ->
+    case merge_workspace_rerun_status(workspace, worker_host) do
+      :rerun ->
         transition_issue_state(
           issue,
           issue_state_fetcher,
-          resolve_next_handoff_state(issue),
-          :merge_handoff_state_update_failed,
-          "completed merge issue",
+          @merge_rerun_state_name,
+          :merge_rerun_state_update_failed,
+          "completed merge issue with workspace changes",
           :stop
         )
 
-      :blocked ->
-        Logger.info("Keeping merge issue active because PR merge evidence is missing or incomplete before completed merge issue: #{issue_context(issue)}")
-        {:ok, issue, {:incomplete_phase, :merge_evidence_missing}}
+      :clean ->
+        case merge_workpad_handoff_status(issue) do
+          :ready ->
+            transition_issue_state(
+              issue,
+              issue_state_fetcher,
+              resolve_next_handoff_state(issue),
+              :merge_handoff_state_update_failed,
+              "completed merge issue",
+              :stop
+            )
+
+          :blocked ->
+            Logger.info("Keeping merge issue active because PR merge evidence is missing or incomplete before completed merge issue: #{issue_context(issue)}")
+            {:ok, issue, {:incomplete_phase, :merge_evidence_missing}}
+
+          {:error, reason} ->
+            Logger.warning("Failed to inspect workpad merge evidence before completed merge issue; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
+            {:ok, issue, {:incomplete_phase, :merge_evidence_inspection_failed}}
+        end
 
       {:error, reason} ->
-        Logger.warning("Failed to inspect workpad merge evidence before completed merge issue; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
-        {:ok, issue, {:incomplete_phase, :merge_evidence_inspection_failed}}
+        Logger.warning("Failed to inspect merge workspace status before completed merge issue; keeping issue active: #{issue_context(issue)} reason=#{inspect(reason)}")
+        {:ok, issue, {:incomplete_phase, :merge_workspace_inspection_failed}}
+    end
+  end
+
+  defp merge_workspace_rerun_status(workspace, worker_host) do
+    case Workspace.git_status_snapshot(workspace, worker_host) do
+      {:ok, ""} -> :clean
+      {:ok, _status} -> :rerun
+      {:error, reason} -> {:error, reason}
     end
   end
 
