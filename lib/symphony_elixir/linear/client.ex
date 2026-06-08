@@ -8,18 +8,6 @@ defmodule SymphonyElixir.Linear.Client do
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
-  @rate_limit_header_names [
-    "retry-after",
-    "x-ratelimit-limit",
-    "x-ratelimit-remaining",
-    "x-ratelimit-reset",
-    "x-rate-limit-limit",
-    "x-rate-limit-remaining",
-    "x-rate-limit-reset",
-    "ratelimit-limit",
-    "ratelimit-remaining",
-    "ratelimit-reset"
-  ]
   @manual_in_progress_state_name "In Arbeit"
   @manual_approval_state_names ["Freigabe Implementierung", "Freigabe Review"]
 
@@ -595,11 +583,12 @@ defmodule SymphonyElixir.Linear.Client do
        when is_map(headers) and is_list(extensions_codes) do
     header_hints =
       headers
-      |> Map.take(@rate_limit_header_names)
-      |> Enum.reject(fn {_key, value} -> value == "" end)
+      |> Enum.filter(fn {key, value} -> rate_limit_header?(key) and value != "" end)
       |> Map.new()
 
-    limited? = status == 429 or Enum.member?(extensions_codes, "RATELIMITED")
+    limited? =
+      status == 429 or Enum.member?(extensions_codes, "RATELIMITED") or
+        (status == 403 and rate_limit_headers_limited?(header_hints))
 
     cond do
       limited? -> Map.put(header_hints, "limited", true)
@@ -610,8 +599,8 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp classify_http_error(status, errors, extensions_codes, rate_limit) do
     cond do
-      status in [401, 403] or auth_error_code?(extensions_codes) -> "auth"
       Map.get(rate_limit, "limited") == true -> "rate_limited"
+      status in [401, 403] or auth_error_code?(extensions_codes) -> "auth"
       status == 400 or errors != [] -> "graphql"
       true -> "http"
     end
@@ -619,6 +608,25 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp auth_error_code?(extensions_codes) when is_list(extensions_codes) do
     Enum.any?(extensions_codes, &(&1 in ["AUTHENTICATION_ERROR", "FORBIDDEN", "UNAUTHENTICATED"]))
+  end
+
+  defp rate_limit_header?(header_name) when is_binary(header_name) do
+    header_name == "retry-after" or String.contains?(header_name, ["ratelimit", "rate-limit"])
+  end
+
+  defp rate_limit_headers_limited?(header_hints) when is_map(header_hints) do
+    retry_after? = Map.has_key?(header_hints, "retry-after")
+
+    remaining_exhausted? =
+      Enum.any?(header_hints, fn {header_name, value} ->
+        String.ends_with?(header_name, "-remaining") and
+          value
+          |> to_string()
+          |> String.trim()
+          |> then(&Regex.match?(~r/\A0(?:\.0+)?\z/, &1))
+      end)
+
+    retry_after? or remaining_exhausted?
   end
 
   defp diagnostic_log_part(_label, value) when value in [nil, "", [], %{}], do: ""

@@ -302,6 +302,16 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       {400, %{"errors" => [%{"message" => "Unknown field", "extensions" => %{"code" => "GRAPHQL_VALIDATION_FAILED"}}]}, [], "graphql", ["GRAPHQL_VALIDATION_FAILED"]},
       {401, %{"errors" => [%{"message" => "Unauthorized", "extensions" => %{"code" => "UNAUTHENTICATED"}}]}, [], "auth", ["UNAUTHENTICATED"]},
       {403, %{"errors" => [%{"message" => "Forbidden", "extensions" => %{"code" => "FORBIDDEN"}}]}, [], "auth", ["FORBIDDEN"]},
+      {403, %{"errors" => [%{"message" => "Forbidden with budget", "extensions" => %{"code" => "FORBIDDEN"}}]}, [{"x-ratelimit-requests-remaining", "42"}], "auth", ["FORBIDDEN"]},
+      {403, %{"errors" => [%{"message" => "Rate limit retry"}]}, [{"retry-after", "12"}], "rate_limited", []},
+      {403, %{"errors" => [%{"message" => "Rate limit remaining"}]}, [{"x-ratelimit-remaining", "0"}], "rate_limited", []},
+      {403, %{"errors" => [%{"message" => "Linear rate limit remaining"}]},
+       [
+         {"x-ratelimit-requests-remaining", "0"},
+         {"x-ratelimit-endpoint-requests-remaining", "0.0"},
+         {"x-ratelimit-complexity-remaining", "42"}
+       ], "rate_limited", []},
+      {403, %{"errors" => [%{"message" => "Rate limited", "extensions" => %{"code" => "RATELIMITED"}}]}, [{"retry-after", "12"}], "rate_limited", ["RATELIMITED"]},
       {429, %{"errors" => [%{"message" => "Too many requests", "extensions" => %{"code" => "RATELIMITED"}}]}, [{"retry-after", "12"}, {"x-ratelimit-remaining", "0"}], "rate_limited", ["RATELIMITED"]}
     ]
 
@@ -322,11 +332,15 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
         assert diagnostics.errors == body["errors"]
         assert diagnostics.body_excerpt =~ hd(body["errors"])["message"]
 
-        if status == 429 do
+        if classification == "rate_limited" do
           assert diagnostics.rate_limit["limited"] == true
-          assert diagnostics.rate_limit["retry-after"] == "12"
-          assert diagnostics.rate_limit["x-ratelimit-remaining"] == "0"
+        else
+          refute diagnostics.rate_limit["limited"] == true
         end
+
+        Enum.each(headers, fn {header_name, header_value} ->
+          assert diagnostics.rate_limit[header_name] == header_value
+        end)
       end)
     end)
   end

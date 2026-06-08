@@ -269,6 +269,11 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     Application.put_env(:symphony_elixir, :memory_tracker_comments, %{"issue-1" => "not a comment list"})
     assert {:error, :comment_not_found} = Memory.update_comment("comment-1", "updated body")
+
+    assert :ok = Memory.create_comment("issue-1", "restored body")
+    assert {:ok, [created_comment]} = Memory.fetch_issue_comments("issue-1")
+    assert is_binary(created_comment.id)
+    assert created_comment.body == "restored body"
   end
 
   test "workpad helper safely updates one existing tracker workpad and verifies it" do
@@ -300,6 +305,37 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, comments} = Memory.fetch_issue_comments("issue-1")
     assert Enum.find(comments, &(&1.id == "comment-workpad")).body == updated_body
     assert Enum.find(comments, &(&1.id == "comment-other")).body == "ordinary comment"
+  end
+
+  test "workpad helper updates a workpad comment created through memory tracker" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [ ] created
+    """
+
+    assert :ok = Memory.create_comment("issue-1", body)
+    assert {:ok, [comment]} = Memory.fetch_issue_comments("issue-1")
+    assert is_binary(comment.id)
+    assert comment.id != ""
+    assert comment.body == body
+
+    updated_body = """
+    ## Symphony Workpad
+
+    ### Plan
+
+    - [x] updated
+    """
+
+    assert :ok = Workpad.update_tracker_workpad("issue-1", updated_body)
+    assert {:ok, [updated_comment]} = Memory.fetch_issue_comments("issue-1")
+    assert updated_comment.id == comment.id
+    assert updated_comment.body == updated_body
   end
 
   test "workpad helper rejects missing, multiple, empty, placeholder, and markerless updates" do

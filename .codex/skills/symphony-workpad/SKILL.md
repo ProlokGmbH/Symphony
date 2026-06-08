@@ -18,12 +18,16 @@ bei `symphony-planning`.
 - Suche vorhandene Kommentare nach diesem Marker und nutze einen aktiven Treffer
   weiter; sonst erstelle einen neuen Kommentar in der Standardstruktur.
 - Fortschritt, Review, Test und Handoff bleiben in derselben Kommentar-ID.
-- Wenn der reguläre Linear-Edit-Pfad fehlt oder wegen HTTP 401/403/Auth
-  ausfällt, aktualisiere bestehende Workpads lokal mit
+- Wenn der reguläre Linear-Edit-Pfad fehlt oder wegen HTTP 401, HTTP 403 ohne
+  Rate-Limit-Signal oder Auth ausfällt, aktualisiere bestehende Workpads lokal mit
   `SymphonyElixir.Workpad.update_tracker_workpad/2`. Der Helfer sucht
   vollständig paginiert genau einen Marker-Kommentar, lehnt leere,
   markerlose oder probeartige Bodies ab und verifiziert das Update nach dem
   Schreiben.
+- HTTP 403 mit `RATELIMITED`, `classification: "rate_limited"` oder
+  `rateLimit.limited: true` ist ein Rate-Limit-Signal und kein fehlender
+  Linear-Zugriff. Nicht erschöpfte `rateLimit`-Header ohne `limited: true` sind
+  nur Diagnosehinweise.
 
 ## Standardstruktur
 

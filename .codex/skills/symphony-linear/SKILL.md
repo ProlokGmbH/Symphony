@@ -10,10 +10,12 @@ senden und Top-Level-`errors` als Fehler behandeln.
 
 HTTP-Fehler werden im Tool-Payload mit `status`, `classification`,
 `bodyExcerpt`, `errors`, `extensionsCodes` und bei Bedarf `rateLimit`
-ausgegeben. Behandle `classification: "auth"` sowie HTTP 401/403 als fehlenden
-Linear-Zugriff für den regulären Tool-Pfad. `extensionsCodes` wie
-`RATELIMITED` und `rateLimit`-Header sind Rate-Limit-Signale, keine
-Schemafehler.
+ausgegeben. Behandle `classification: "auth"`, HTTP 401 und HTTP 403 ohne
+Rate-Limit-Signal als fehlenden Linear-Zugriff für den regulären Tool-Pfad.
+`classification: "rate_limited"`, `extensionsCodes` wie `RATELIMITED` und
+`rateLimit.limited: true` sind Rate-Limit-Signale, keine Schema- oder
+Auth-Fehler. Nicht erschöpfte `rateLimit`-Header ohne `limited: true` sind nur
+Diagnosehinweise.
 
 ## Issue-Lookup
 
@@ -124,10 +126,14 @@ mutation AttachGitHubPR($issueId: String!, $url: String!, $title: String) {
 
 ## Lokaler Workpad-Fallback
 
-Wenn der reguläre Kommentar-Edit-Pfad wegen fehlendem Tool, HTTP 401/403 oder
-Auth-Ausfall nicht nutzbar ist, aktualisiere einen bestehenden Workpad-Kommentar
-lokal über den Tracker-Helfer. Der Body muss den Marker `## Symphony Workpad`
-enthalten und darf kein leerer Probe-/Placeholder-Body sein.
+Wenn der reguläre Kommentar-Edit-Pfad wegen fehlendem Tool, HTTP 401, HTTP 403
+ohne Rate-Limit-Signal oder Auth-Ausfall nicht nutzbar ist, aktualisiere einen
+bestehenden Workpad-Kommentar lokal über den Tracker-Helfer. HTTP 403 mit
+`RATELIMITED`, `classification: "rate_limited"` oder `rateLimit.limited: true`
+ist ein Rate-Limit-Signal und kein fehlender Linear-Zugriff. Nicht erschöpfte
+`rateLimit`-Header ohne `limited: true` sind nur Diagnosehinweise. Der Body muss
+den Marker `## Symphony Workpad` enthalten und darf kein leerer
+Probe-/Placeholder-Body sein.
 
 ```bash
 ISSUE_KEY=PRO-496 WORKPAD_BODY_FILE=/tmp/workpad.md mise exec -- mix run --no-start -e '

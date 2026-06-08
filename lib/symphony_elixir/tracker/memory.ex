@@ -123,12 +123,22 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   defp store_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
+    now = DateTime.utc_now()
+    comment = %{id: new_comment_id(), body: body, created_at: now, updated_at: now}
+
     comments =
       configured_comments()
-      |> Map.update(issue_id, [body], &[body | &1])
+      |> Map.update(issue_id, [comment], &prepend_comment(&1, comment))
 
     Application.put_env(:symphony_elixir, :memory_tracker_comments, comments)
     :ok
+  end
+
+  defp prepend_comment(comments, comment) when is_list(comments), do: [comment | comments]
+  defp prepend_comment(_comments, comment), do: [comment]
+
+  defp new_comment_id do
+    "memory-comment-#{System.unique_integer([:positive, :monotonic])}"
   end
 
   defp update_comment_entries(comments, comment_id, body) when is_list(comments) do
