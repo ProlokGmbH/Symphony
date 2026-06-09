@@ -135,6 +135,102 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server clears inherited Symphony runtime env for local Codex processes" do
+    previous_env =
+      Map.new(SymphonyElixir.TestSupport.symphony_runtime_env_keys(), fn key ->
+        {key, System.get_env(key)}
+      end)
+
+    Enum.each(SymphonyElixir.TestSupport.symphony_runtime_env_keys(), fn key ->
+      System.put_env(key, "/tmp/wrong/#{key}")
+    end)
+
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-env-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-ENV")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-env.trace")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      {
+        printf 'active=%s\\n' "${SYMPHONY_ACTIVE_REPO_ROOT:-}"
+        printf 'source=%s\\n' "${SYMPHONY_SOURCE_REPO:-}"
+        printf 'project=%s\\n' "${SYMPHONY_PROJECT_ROOT:-}"
+        printf 'worktrees=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
+        printf 'workflow=%s\\n' "${SYMPHONY_WORKFLOW_FILE:-}"
+        printf 'dialog=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE-unset}"
+      } > "$trace_file"
+
+      count=0
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-env"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-env"}}}'
+            printf '%s\\n' '{"method":"turn/completed","params":{}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-env",
+        identifier: "MT-ENV",
+        title: "Runtime env",
+        description: "Codex subprocess should receive clean Symphony runtime env",
+        state: "In Arbeit (AI)",
+        url: "https://example.org/issues/MT-ENV",
+        labels: []
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Env prompt", issue)
+
+      trace = File.read!(trace_file)
+
+      assert trace =~ "active=#{workspace}"
+      assert trace =~ "source=#{File.cwd!()}"
+      assert trace =~ "project=#{File.cwd!()}"
+      assert trace =~ "worktrees=#{SymphonyElixir.RuntimePaths.project_worktrees_root()}"
+      assert trace =~ "workflow=#{Workflow.workflow_file_path()}"
+      assert trace =~ "dialog=unset"
+      refute trace =~ "/tmp/wrong"
+    after
+      SymphonyElixir.TestSupport.restore_env_snapshot(previous_env)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server annotates tool calls with session and issue metadata" do
     test_root =
       Path.join(

@@ -3,8 +3,9 @@ defmodule SymphonyElixir.HookRunner do
 
   require Logger
 
+  @type env :: %{optional(String.t()) => String.t() | nil} | [{String.t(), String.t() | nil}]
   @type option ::
-          {:env, %{optional(String.t()) => String.t()}}
+          {:env, env()}
           | {:timeout_ms, pos_integer()}
           | {:log_context, %{optional(atom()) => term()}}
 

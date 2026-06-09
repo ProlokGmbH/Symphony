@@ -121,7 +121,7 @@ defmodule SymphonyElixir.Workspace do
           )
 
         case System.cmd("sh", ["-lc", script],
-               env: Enum.into(RuntimePaths.builtin_env(), []),
+               env: RuntimePaths.cleaned_builtin_system_env(),
                stderr_to_stdout: true
              ) do
           {_output, 0} ->
@@ -429,7 +429,7 @@ defmodule SymphonyElixir.Workspace do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["status", "--porcelain=v1", "--untracked-files=all"],
              cd: workspace,
-             env: Enum.into(RuntimePaths.builtin_env(), []),
+             env: RuntimePaths.cleaned_builtin_system_env(),
              stderr_to_stdout: true
            ) do
         {output, 0} ->
@@ -481,7 +481,7 @@ defmodule SymphonyElixir.Workspace do
     with :ok <- validate_workspace_path(workspace, nil) do
       case System.cmd("git", ["branch", "--show-current"],
              cd: workspace,
-             env: Enum.into(RuntimePaths.builtin_env(), []),
+             env: RuntimePaths.cleaned_builtin_system_env(),
              stderr_to_stdout: true
            ) do
         {output, 0} ->
@@ -573,7 +573,7 @@ defmodule SymphonyElixir.Workspace do
   defp local_git_add_all(workspace) when is_binary(workspace) do
     case System.cmd("git", ["add", "-A"],
            cd: workspace,
-           env: Enum.into(RuntimePaths.builtin_env(), []),
+           env: RuntimePaths.cleaned_builtin_system_env(),
            stderr_to_stdout: true
          ) do
       {_output, 0} ->
@@ -590,7 +590,7 @@ defmodule SymphonyElixir.Workspace do
            "git",
            ["commit" | commit_message_args(message)],
            cd: workspace,
-           env: Enum.into(RuntimePaths.builtin_env(), []),
+           env: RuntimePaths.cleaned_builtin_system_env(),
            stderr_to_stdout: true
          ) do
       {_output, 0} ->
@@ -789,7 +789,7 @@ defmodule SymphonyElixir.Workspace do
       |> System.cmd(
         ["rev-parse", "--path-format=absolute", "--git-path", @review_autocommit_marker_filename],
         cd: workspace,
-        env: Enum.into(RuntimePaths.builtin_env(), []),
+        env: RuntimePaths.cleaned_builtin_system_env(),
         stderr_to_stdout: true
       )
       |> handle_git_path_result(:local)
@@ -1074,7 +1074,7 @@ defmodule SymphonyElixir.Workspace do
       command,
       workspace,
       hook_name,
-      env: RuntimePaths.builtin_env(),
+      env: RuntimePaths.cleaned_builtin_system_env(),
       timeout_ms: Config.settings!().hooks.timeout_ms,
       log_context: %{
         issue_id: issue_context.issue_id,
@@ -1135,10 +1135,19 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp remote_hook_env_exports do
-    RuntimePaths.builtin_env()
-    |> Enum.map_join("\n", fn {key, value} ->
-      "export #{key}=#{shell_escape(value)}"
-    end)
+    unsets =
+      RuntimePaths.runtime_env_names()
+      |> Enum.map_join("\n", fn key -> "unset #{key}" end)
+
+    exports =
+      RuntimePaths.builtin_env()
+      |> Enum.map_join("\n", fn {key, value} ->
+        "export #{key}=#{shell_escape(value)}"
+      end)
+
+    [unsets, exports]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
   end
 
   defp validate_workspace_path(workspace, nil) when is_binary(workspace) do

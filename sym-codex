@@ -88,6 +88,20 @@ sym_codex_realpath() {
   return 1
 }
 
+sym_codex_trust_mise_config_for_process() {
+  local config_file="$1"
+
+  [[ -f "$config_file" ]] || return 0
+
+  case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
+    *":$config_file:"*)
+      ;;
+    *)
+      export MISE_TRUSTED_CONFIG_PATHS="$config_file${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+      ;;
+  esac
+}
+
 sym_codex_source_repo() {
   local script_source="${BASH_SOURCE[0]}"
   local resolved_source
@@ -154,10 +168,7 @@ sym_codex_run_mix() {
   fi
 
   if command -v mise >/dev/null 2>&1; then
-    if [[ -f "$config_file" ]]; then
-      mise trust -q -y "$config_file" >/dev/null
-    fi
-
+    sym_codex_trust_mise_config_for_process "$config_file"
     mise exec -- mix "$@"
   else
     mix "$@"
@@ -727,9 +738,9 @@ sym_codex_run() {
     sym_codex_die "cannot determine the local project root"
   fi
 
-  workflow_file="${SYMPHONY_WORKFLOW_FILE:-$source_repo/WORKFLOW.md}"
-  interactive_workflow_file="${SYMPHONY_WORKFLOW_INTERACTIVE_FILE:-$source_repo/WORKFLOW_INTERACTIVE.md}"
-  dialog_workflow_file="${SYMPHONY_WORKFLOW_DIALOG_FILE:-$source_repo/WORKFLOW_DIALOG.md}"
+  workflow_file="$source_repo/WORKFLOW.md"
+  interactive_workflow_file="$source_repo/WORKFLOW_INTERACTIVE.md"
+  dialog_workflow_file="$source_repo/WORKFLOW_DIALOG.md"
 
   if [[ -z "$issue_identifier" ]]; then
     issue_identifier="$(sym_codex_infer_issue_identifier_from_branch 2>/dev/null || true)"

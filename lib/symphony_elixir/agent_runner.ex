@@ -646,7 +646,7 @@ defmodule SymphonyElixir.AgentRunner do
   defp dialog_git_snapshot_command(workspace, args) when is_binary(workspace) and is_list(args) do
     case System.cmd("git", args,
            cd: workspace,
-           env: Enum.into(RuntimePaths.builtin_env(), []),
+           env: RuntimePaths.cleaned_builtin_system_env(),
            stderr_to_stdout: true
          ) do
       {output, 0} ->
