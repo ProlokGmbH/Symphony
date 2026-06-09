@@ -26,6 +26,8 @@ defmodule SymphonyElixir.TestSupport do
         only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
 
       setup do
+        runtime_env_snapshot = SymphonyElixir.TestSupport.scrub_symphony_runtime_env()
+
         SymphonyElixir.TestSupport.ensure_application_started()
 
         workflow_root =
@@ -48,6 +50,7 @@ defmodule SymphonyElixir.TestSupport do
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
           Application.delete_env(:symphony_elixir, :memory_tracker_comments)
+          SymphonyElixir.TestSupport.restore_env_snapshot(runtime_env_snapshot)
           File.rm_rf(workflow_root)
         end)
 
@@ -73,6 +76,25 @@ defmodule SymphonyElixir.TestSupport do
 
   def restore_env(key, nil), do: System.delete_env(key)
   def restore_env(key, value), do: System.put_env(key, value)
+
+  def symphony_runtime_env_keys do
+    SymphonyElixir.RuntimePaths.runtime_env_names()
+  end
+
+  def cleared_symphony_runtime_env do
+    Enum.map(symphony_runtime_env_keys(), &{&1, nil})
+  end
+
+  def scrub_symphony_runtime_env do
+    snapshot = Map.new(symphony_runtime_env_keys(), fn key -> {key, System.get_env(key)} end)
+    Enum.each(symphony_runtime_env_keys(), &System.delete_env/1)
+    snapshot
+  end
+
+  def restore_env_snapshot(snapshot) when is_map(snapshot) do
+    Enum.each(snapshot, fn {key, value} -> restore_env(key, value) end)
+    :ok
+  end
 
   def ensure_application_started do
     case Process.whereis(SymphonyElixir.Supervisor) do

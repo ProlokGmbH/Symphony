@@ -30,13 +30,15 @@ defmodule SymCodexMcpScriptTest do
       System.cmd(
         "bash",
         ["-lc", "cat \"$INPUT_FILE\" | \"$SCRIPT_PATH\""],
-        env: [
-          {"INPUT_FILE", input_file},
-          {"PATH", runtime_path},
-          {"SCRIPT_PATH", @script_path},
-          {"SYMPHONY_SOURCE_REPO", source_repo},
-          {"SYMPHONY_WORKFLOW_FILE", workflow_file}
-        ],
+        env:
+          SymphonyElixir.TestSupport.cleared_symphony_runtime_env() ++
+            [
+              {"INPUT_FILE", input_file},
+              {"PATH", runtime_path},
+              {"SCRIPT_PATH", @script_path},
+              {"SYMPHONY_SOURCE_REPO", source_repo},
+              {"SYMPHONY_WORKFLOW_FILE", workflow_file}
+            ],
         stderr_to_stdout: true
       )
 

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repo_root="$(cd "$script_dir/.." && pwd -P)"
+mise_config="$repo_root/mise.toml"
+
+runtime_env_vars=(
+  SYMPHONY_WORKFLOW_FILE
+  SYMPHONY_WORKFLOW_DIR
+  SYMPHONY_WORKFLOW_DIALOG_FILE
+  SYMPHONY_WORKFLOW_INTERACTIVE_FILE
+  SYMPHONY_ACTIVE_REPO_ROOT
+  SYMPHONY_SOURCE_REPO
+  SYMPHONY_PROJECT_ROOT
+  SYMPHONY_PROJECT_WORKTREES_ROOT
+)
+
+for env_var in "${runtime_env_vars[@]}"; do
+  unset "$env_var"
+done
+
+if [[ -f "$mise_config" ]]; then
+  case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
+    *":$mise_config:"*)
+      ;;
+    *)
+      export MISE_TRUSTED_CONFIG_PATHS="$mise_config${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+      ;;
+  esac
+fi
+
+cd "$repo_root"
+
+if command -v mise >/dev/null 2>&1; then
+  exec mise x -- mix "$@"
+fi
+
+exec mix "$@"

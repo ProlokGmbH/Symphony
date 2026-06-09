@@ -47,7 +47,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host, opts),
          {:ok, launch_cwd} <- resolve_launch_cwd(expanded_workspace, worker_host, opts),
-         {:ok, port} <- start_port(launch_cwd, worker_host) do
+         {:ok, port} <- start_port(launch_cwd, expanded_workspace, worker_host) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host, opts),
@@ -246,7 +246,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, nil) do
+  defp start_port(workspace, active_repo_root, nil) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -261,6 +261,11 @@ defmodule SymphonyElixir.Codex.AppServer do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(Config.local_codex_command())],
             cd: String.to_charlist(workspace),
+            env:
+              RuntimePaths.cleaned_builtin_port_env(%{
+                "SYMPHONY_ACTIVE_REPO_ROOT" => active_repo_root,
+                "SYMPHONY_SOURCE_REPO" => RuntimePaths.project_root()
+              }),
             line: @port_line_bytes
           ]
         )
@@ -269,7 +274,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, worker_host) when is_binary(worker_host) do
+  defp start_port(workspace, _active_repo_root, worker_host) when is_binary(worker_host) do
     remote_command = remote_launch_command(workspace)
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
   end

@@ -19,9 +19,15 @@ sym_codex_mcp_trust_mise_config() {
   local source_repo="$1"
   local config_file="$source_repo/mise.toml"
 
-  if [[ -f "$config_file" ]]; then
-    mise trust -q -y "$config_file" >/dev/null
-  fi
+  [[ -f "$config_file" ]] || return 0
+
+  case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
+    *":$config_file:"*)
+      ;;
+    *)
+      export MISE_TRUSTED_CONFIG_PATHS="$config_file${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+      ;;
+  esac
 }
 
 sym_codex_mcp_configure_mix_paths() {

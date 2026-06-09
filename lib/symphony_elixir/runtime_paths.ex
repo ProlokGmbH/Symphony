@@ -3,6 +3,20 @@ defmodule SymphonyElixir.RuntimePaths do
 
   alias SymphonyElixir.Workflow
 
+  @runtime_env_names [
+    "SYMPHONY_WORKFLOW_FILE",
+    "SYMPHONY_WORKFLOW_DIR",
+    "SYMPHONY_WORKFLOW_DIALOG_FILE",
+    "SYMPHONY_WORKFLOW_INTERACTIVE_FILE",
+    "SYMPHONY_ACTIVE_REPO_ROOT",
+    "SYMPHONY_SOURCE_REPO",
+    "SYMPHONY_PROJECT_ROOT",
+    "SYMPHONY_PROJECT_WORKTREES_ROOT"
+  ]
+
+  @spec runtime_env_names() :: [String.t()]
+  def runtime_env_names, do: @runtime_env_names
+
   @spec project_root() :: Path.t()
   def project_root do
     File.cwd!()
@@ -34,9 +48,49 @@ defmodule SymphonyElixir.RuntimePaths do
     }
   end
 
+  @spec cleaned_system_env(map()) :: [{String.t(), String.t() | nil}]
+  def cleaned_system_env(overrides \\ %{}) when is_map(overrides) do
+    normalized_overrides = stringify_env(overrides)
+
+    @runtime_env_names
+    |> Enum.reject(&Map.has_key?(normalized_overrides, &1))
+    |> Enum.map(&{&1, nil})
+    |> Kernel.++(Enum.to_list(normalized_overrides))
+  end
+
+  @spec cleaned_builtin_system_env(map()) :: [{String.t(), String.t() | nil}]
+  def cleaned_builtin_system_env(overrides \\ %{}) when is_map(overrides) do
+    builtin_env()
+    |> Map.merge(stringify_env(overrides))
+    |> cleaned_system_env()
+  end
+
+  @spec cleaned_builtin_port_env(map()) :: [{charlist(), charlist() | false}]
+  def cleaned_builtin_port_env(overrides \\ %{}) when is_map(overrides) do
+    normalized_overrides =
+      builtin_env()
+      |> Map.merge(stringify_env(overrides))
+
+    clears =
+      @runtime_env_names
+      |> Enum.reject(&Map.has_key?(normalized_overrides, &1))
+      |> Enum.map(&{String.to_charlist(&1), false})
+
+    values =
+      Enum.map(normalized_overrides, fn {name, value} ->
+        {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
+    clears ++ values
+  end
+
   @spec resolve_builtin_env(String.t()) :: String.t() | nil
   def resolve_builtin_env(name) when is_binary(name) do
     Map.get(builtin_env(), name)
+  end
+
+  defp stringify_env(env) when is_map(env) do
+    Map.new(env, fn {name, value} -> {to_string(name), to_string(value)} end)
   end
 
   defp project_worktrees_base_root do

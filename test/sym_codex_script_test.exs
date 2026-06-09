@@ -1,5 +1,5 @@
 defmodule SymCodexScriptTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   @script_source Path.expand("../sym-codex", __DIR__)
   @mcp_script_source Path.expand("../sym-codex-mcp", __DIR__)
@@ -85,6 +85,34 @@ defmodule SymCodexScriptTest do
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
     assert output =~ "manual-prompt-for-PRO-49"
+  end
+
+  test "sym-codex clears inherited Symphony runtime env while preserving explicit test env" do
+    previous_env =
+      Map.new(SymphonyElixir.TestSupport.symphony_runtime_env_keys(), fn key ->
+        {key, System.get_env(key)}
+      end)
+
+    Enum.each(SymphonyElixir.TestSupport.symphony_runtime_env_keys(), fn key ->
+      System.put_env(key, "/tmp/wrong/#{key}")
+    end)
+
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      SymphonyElixir.TestSupport.restore_env_snapshot(previous_env)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"], env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}])
+
+    assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
+    assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+    refute output =~ "/tmp/wrong"
   end
 
   test "sym-codex resumes dialog sessions in the project root" do
@@ -561,10 +589,12 @@ defmodule SymCodexScriptTest do
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         cd: repo_dir,
-        env: [
-          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
-          {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
-        ],
+        env:
+          SymphonyElixir.TestSupport.cleared_symphony_runtime_env() ++
+            [
+              {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+              {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
+            ],
         stderr_to_stdout: true
       )
 
@@ -611,10 +641,12 @@ defmodule SymCodexScriptTest do
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         cd: repo_dir,
-        env: [
-          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
-          {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
-        ],
+        env:
+          SymphonyElixir.TestSupport.cleared_symphony_runtime_env() ++
+            [
+              {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+              {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}
+            ],
         stderr_to_stdout: true
       )
 
@@ -812,13 +844,14 @@ defmodule SymCodexScriptTest do
 
   defp run_script(script_path, bin_dir, args \\ ["--observer"], opts \\ []) do
     env =
-      [
-        {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
-        {"SYM_CODEX_MODEL", nil},
-        {"SYM_CODEX_REASONING_EFFORT", nil},
-        {"SYM_CODEX_SERVICE_TIER", nil},
-        {"SYM_CODEX_HUMAN_SERVICE_TIER", nil}
-      ] ++ Keyword.get(opts, :env, [])
+      SymphonyElixir.TestSupport.cleared_symphony_runtime_env() ++
+        [
+          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+          {"SYM_CODEX_MODEL", nil},
+          {"SYM_CODEX_REASONING_EFFORT", nil},
+          {"SYM_CODEX_SERVICE_TIER", nil},
+          {"SYM_CODEX_HUMAN_SERVICE_TIER", nil}
+        ] ++ Keyword.get(opts, :env, [])
 
     system_opts = [env: env, stderr_to_stdout: true]
     system_opts = maybe_put_cd(system_opts, Keyword.get(opts, :cd))

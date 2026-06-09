@@ -4286,8 +4286,7 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_branch_update, ^issue_id, "main"}, 1_000
-        Process.sleep(500)
-        assert File.exists?(codex_stamp)
+        assert_file_exists_eventually!(codex_stamp)
         refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 100
         stop_orchestrator_and_workers(pid)
       end)
@@ -4395,7 +4394,7 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
-        assert File.exists?(codex_stamp)
+        assert_file_exists_eventually!(codex_stamp)
         stop_orchestrator_and_workers(pid)
       end)
     after
@@ -4486,7 +4485,7 @@ defmodule SymphonyElixir.CoreTest do
         send(pid, {:retry_issue, issue_id, retry_token})
 
         assert_receive {:memory_tracker_state_update, ^issue_id, "Freigabe Review"}, 1_000
-        assert File.exists?(codex_stamp)
+        assert_file_exists_eventually!(codex_stamp)
         stop_orchestrator_and_workers(pid)
       end)
     after
@@ -5187,6 +5186,19 @@ defmodule SymphonyElixir.CoreTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
+
+  defp assert_file_exists_eventually!(path, attempts \\ 100)
+
+  defp assert_file_exists_eventually!(path, attempts) when attempts > 0 do
+    if File.exists?(path) do
+      :ok
+    else
+      Process.sleep(50)
+      assert_file_exists_eventually!(path, attempts - 1)
+    end
+  end
+
+  defp assert_file_exists_eventually!(path, 0), do: flunk("expected file to exist: #{path}")
 
   defp no_findings_review_workpad do
     """

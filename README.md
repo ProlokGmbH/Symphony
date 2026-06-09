@@ -102,6 +102,12 @@ Das wichtigste Projekt-Gate ist:
 make all
 ```
 
+Das Makefile führt Mix über `scripts/mix-gate` aus. Der Wrapper entfernt für
+den Gate-Prozess bekannte geerbte `SYMPHONY_*`-Runtime-Variablen und ergänzt
+`MISE_TRUSTED_CONFIG_PATHS` prozesslokal um `<Checkout>/mise.toml`, falls die
+Datei existiert. Ein dauerhaftes `mise trust` ist für `make all` nicht
+erforderlich.
+
 Fuer die `@spec`-Pruefung steht zusaetzlich zur Verfuegung:
 
 ```bash
