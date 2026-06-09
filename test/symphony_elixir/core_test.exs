@@ -1436,6 +1436,130 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "reconcile enforces dialog and regular run mode origin invariants" do
+    scenarios = [
+      %{
+        suffix: "dialog-to-regular",
+        from_run_mode: :dialog,
+        from_state: "Todo (Dialog-AI)",
+        to_state: "In Arbeit (AI)",
+        assigned_to_worker: true,
+        expected: :stop
+      },
+      %{
+        suffix: "dialog-routed-away",
+        from_run_mode: :dialog,
+        from_state: "Todo (Dialog-AI)",
+        to_state: "Todo (Dialog-AI)",
+        assigned_to_worker: false,
+        expected: :stop
+      },
+      %{
+        suffix: "regular-to-dialog",
+        from_run_mode: :regular,
+        from_state: "In Arbeit (AI)",
+        to_state: "Todo (Dialog-AI)",
+        assigned_to_worker: true,
+        expected: :stop
+      },
+      %{
+        suffix: "dialog-stays-dialog",
+        from_run_mode: :dialog,
+        from_state: "Todo (Dialog-AI)",
+        to_state: "Todo (Dialog-AI)",
+        assigned_to_worker: true,
+        expected: :keep
+      }
+    ]
+
+    for %{
+          suffix: suffix,
+          from_run_mode: from_run_mode,
+          from_state: from_state,
+          to_state: to_state,
+          assigned_to_worker: assigned_to_worker,
+          expected: expected
+        } <- scenarios do
+      issue_id = "issue-run-mode-origin-#{suffix}"
+      identifier = "MT-ORIGIN-#{suffix}"
+
+      agent_pid =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      agent_ref = Process.monitor(agent_pid)
+
+      try do
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: agent_pid,
+              ref: nil,
+              identifier: identifier,
+              issue: %Issue{
+                id: issue_id,
+                identifier: identifier,
+                state: from_state,
+                assigned_to_worker: true
+              },
+              run_mode: from_run_mode,
+              started_at: DateTime.utc_now()
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          completed_states: %{},
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{}
+        }
+
+        issue = %Issue{
+          id: issue_id,
+          identifier: identifier,
+          state: to_state,
+          title: "Run mode origin #{suffix}",
+          description: "Reconciliation should enforce the expected runner",
+          labels: [],
+          assigned_to_worker: assigned_to_worker
+        }
+
+        updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+        case expected do
+          :stop ->
+            refute Map.has_key?(updated_state.running, issue_id)
+            refute MapSet.member?(updated_state.claimed, issue_id)
+            refute Map.has_key?(updated_state.completed_states, issue_id)
+            refute Map.has_key?(updated_state.retry_attempts, issue_id)
+            assert_receive {:DOWN, ^agent_ref, :process, ^agent_pid, _reason}
+
+          :keep ->
+            assert %{
+                     run_mode: ^from_run_mode,
+                     issue: %Issue{
+                       state: ^to_state,
+                       assigned_to_worker: ^assigned_to_worker
+                     }
+                   } = updated_state.running[issue_id]
+
+            assert MapSet.member?(updated_state.claimed, issue_id)
+            refute Map.has_key?(updated_state.completed_states, issue_id)
+            refute Map.has_key?(updated_state.retry_attempts, issue_id)
+            assert Process.alive?(agent_pid)
+            refute_receive {:DOWN, ^agent_ref, :process, ^agent_pid, _reason}, 50
+        end
+      after
+        if Process.alive?(agent_pid) do
+          Process.exit(agent_pid, :kill)
+        end
+
+        Process.demonitor(agent_ref, [:flush])
+      end
+    end
+  end
+
   test "reconcile stops running issue when it is reassigned away from this worker" do
     issue_id = "issue-reassigned"
 
