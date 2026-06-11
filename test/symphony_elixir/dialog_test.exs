@@ -793,7 +793,7 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
-  test "agent runner allows dialog answers when untracked log files change" do
+  test "agent runner finalizes untracked log files with a repository error" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-untracked-log-#{System.unique_integer([:positive])}")
 
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
@@ -835,7 +835,9 @@ defmodule SymphonyElixir.DialogTest do
 
       assert_receive {:memory_tracker_comment, "issue-dialog-untracked-log", body}, 1_000
       assert body =~ "### Antwort Symphony"
-      assert body =~ "Dirty answer"
+      assert body =~ "Repository"
+      assert body =~ "nicht erlaubt"
+      refute body =~ "Dirty answer"
       assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)
@@ -954,7 +956,7 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
-  test "agent runner finalizes ignored config changes with a repository error" do
+  test "agent runner allows dialog answers when ignored config changes" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-ignored-dirty-#{System.unique_integer([:positive])}")
 
     previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
@@ -997,9 +999,7 @@ defmodule SymphonyElixir.DialogTest do
 
       assert_receive {:memory_tracker_comment, "issue-dialog-ignored-dirty", body}, 1_000
       assert body =~ "### Antwort Symphony"
-      assert body =~ "Repository"
-      assert body =~ "nicht erlaubt"
-      refute body =~ "Dirty answer"
+      assert body =~ "Dirty answer"
       assert File.read!(dirty_file) == "dirty\n"
     after
       restore_app_env(:memory_tracker_issues, previous_memory_issues)

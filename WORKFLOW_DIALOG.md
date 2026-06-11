@@ -51,13 +51,12 @@ vergleichbaren Themen und die semantische Suche einbezogen werden.
 - Schreibe keine Antwortkommentare direkt in Linear. Gib deine Antwort als
   finale Antwort an Symphony zurück; Symphony veröffentlicht sie mit dem Header
   `### Antwort Symphony`.
-- Symphony prüft nach dem Dialog-Turn Änderungen an von Git versionierten
-  Dateien sowie an nicht erlaubten unversionierten oder ignorierten Pfaden.
-  Erwartbare Runtime-, Build- und Logartefakte unter bekannten Artefaktpfaden
-  wie `log/`, `_build/`, `deps/`, `node_modules/`, `.elixir_ls/`, `.mix/`,
-  `.cache/` und `tmp/` blockieren die Antwort nicht. Wenn verbotene
-  Repository-Änderungen zurückbleiben, veröffentlicht Symphony statt der
-  eigentlichen Antwort einen Fehlerhinweis und wartet auf einen neuen
+- Symphony prüft nach dem Dialog-Turn, ob das Repository nach normaler
+  Git-Semantik clean ist. Versionierte Änderungen und nicht ignorierte
+  unversionierte Dateien oder Verzeichnisse blockieren die Antwort; von Git
+  ignorierte Dateien und Verzeichnisse werden nicht separat geprüft. Wenn
+  Git-relevante Repository-Änderungen zurückbleiben, veröffentlicht Symphony
+  statt der eigentlichen Antwort einen Fehlerhinweis und wartet auf einen neuen
   Linear-Kommentar. Wenn während des fehlerhaften Turns bereits ein neuerer
   Benutzerkommentar eingetroffen ist, bleibt der Fehlerhinweis sichtbar, zählt
   aber nicht als abschließende Antwort auf diesen neueren Kommentar. Wenn
