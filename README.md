@@ -167,6 +167,6 @@ Wenn `Planung (AI)` oder die spätere Umsetzung Klärungsbedarf erkennt, verläu
 ## Zentrale Dateien
 
 - `WORKFLOW.md`: Workflow, Prompt-Vertrag und Runtime-Konfiguration
-- `AGENTS.md`: Repository-spezifische Regeln fuer Codex
-- `SPEC.md`: uebergeordnete Servicespezifikation
+- `AGENTS.md`: Repository-spezifische Regeln für Codex
+- `docs/`: ergänzende Implementierungsnotizen, aktuell zu Logging und Token Accounting
 - `.codex/skills/`: mitgelieferte Codex-Skills; `symphony-*`-Skills definieren gemeinsame Workflow-Abläufe, `sym-*`-Skills repositoryspezifische Ergänzungen
