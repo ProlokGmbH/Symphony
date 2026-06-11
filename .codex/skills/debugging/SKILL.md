@@ -17,15 +17,17 @@ description:
 
 ## Logquellen
 
-- Primäres Runtime-Log: `log/symphony.log`
-  - Der Standard kommt aus `SymphonyElixir.LogFile` (`log/symphony.log`).
+- Primäres Runtime-Log: `<logs-root>/log/symphony.log`
+  - Der Standard-Logs-Root ist der Projektroot; `SymphonyElixir.LogFile` hängt
+    immer `log/symphony.log` darunter an. `symphony --logs-root <path>` setzt
+    den Logs-Root für den Lauf um.
   - Enthält Orchestrator-, Agent-Runner- und Codex-app-server-Lifecycle-Logs.
-- Rotierte Runtime-Logs: `log/symphony.log*`
+- Rotierte Runtime-Logs: `<logs-root>/log/symphony.log*`
   - Prüfe sie, wenn der relevante Lauf älter ist.
-- Die Pfade `log/symphony.log*` sind relativ zum Projektroot des betroffenen
-  Tickets gemeint, nicht generell relativ zum Symphony-Orchestrator-Repository.
-  Wenn ein Ticket ein anderes Projekt betrifft, bestimme zuerst dessen
-  Projektroot und suche dort unter `<projektroot>/log/`.
+- In den Beispielbefehlen steht `log/symphony.log*` für den Default-Logs-Root
+  relativ zum Projektroot des betroffenen Tickets. Wenn der Lauf mit
+  `--logs-root` gestartet wurde, nutze stattdessen
+  `<logs-root>/log/symphony.log*`.
 
 ## Korrelationsschlüssel
 

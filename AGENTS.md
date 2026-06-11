@@ -11,7 +11,7 @@ Dieses Verzeichnis enthält den in Elixir geschriebenen Orchestrierungsdienst f�
 ## Projektspezifische Konventionen
 
 - Die Laufzeitkonfiguration wird über den Front-Matter von `WORKFLOW.md` via `SymphonyElixir.Workflow` und `SymphonyElixir.Config` geladen.
-- Halte die Implementierung nach Möglichkeit in Einklang mit [SPEC.md](SPEC.md).
+- Wenn [SPEC.md](SPEC.md) im Worktree vorhanden ist, halte die Implementierung nach Möglichkeit damit in Einklang.
   - Die Implementierung darf eine Obermenge der Spezifikation sein.
   - Die Implementierung darf der Spezifikation nicht widersprechen.
   - Wenn Implementierungsänderungen das beabsichtigte Verhalten wesentlich verändern, aktualisiere nach Möglichkeit die Spezifikation im selben Change, damit sie aktuell bleibt.
