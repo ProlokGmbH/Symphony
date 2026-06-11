@@ -11,7 +11,6 @@ defmodule SymphonyElixir.AgentRunner do
     Config,
     Dialog,
     Linear.Issue,
-    LogFile,
     PromptBuilder,
     RuntimePaths,
     Tracker,
@@ -46,17 +45,6 @@ defmodule SymphonyElixir.AgentRunner do
     "freigabe implementierung",
     "freigabe review"
   ]
-  @dialog_allowed_artifact_dirs [
-    "log",
-    "_build",
-    "deps",
-    "node_modules",
-    ".elixir_ls",
-    ".mix",
-    ".cache",
-    "tmp"
-  ]
-
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
@@ -615,27 +603,17 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp dialog_repo_status_snapshot(workspace) when is_binary(workspace) do
-    with {:ok, status} <- dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z", "--untracked-files=no"]),
-         {:ok, unstaged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--binary", "--no-ext-diff", "--no-color"]),
-         {:ok, staged_diff} <- dialog_git_snapshot_command(workspace, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color"]),
-         {:ok, untracked_paths} <- dialog_untracked_paths(workspace),
-         {:ok, ignored_paths} <- dialog_ignored_paths(workspace),
-         {:ok, untracked_files} <- dialog_file_hashes(workspace, untracked_paths),
-         {:ok, ignored_files} <- dialog_file_hashes(workspace, ignored_paths) do
-      {:ok,
-       %{
-         status: status,
-         unstaged_diff: dialog_snapshot_hash(unstaged_diff),
-         staged_diff: dialog_snapshot_hash(staged_diff),
-         untracked_files: untracked_files,
-         ignored_files: ignored_files
-       }}
-    end
+    dialog_git_snapshot_command(workspace, [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=normal",
+      "-z"
+    ])
   end
 
   defp ensure_dialog_repo_unchanged(workspace, before_repo_status) when is_binary(workspace) do
     with {:ok, after_repo_status} <- dialog_repo_status_snapshot(workspace) do
-      if after_repo_status == before_repo_status do
+      if after_repo_status == "" do
         :ok
       else
         {:error, {:dialog_repo_modified, before_repo_status, after_repo_status}}
@@ -655,142 +633,6 @@ defmodule SymphonyElixir.AgentRunner do
       {output, status} ->
         {:error, {:dialog_git_snapshot_failed, args, status, output}}
     end
-  end
-
-  defp dialog_untracked_paths(workspace) when is_binary(workspace) do
-    with {:ok, output} <- dialog_git_snapshot_command(workspace, ["ls-files", "--others", "--exclude-standard", "-z"]) do
-      paths =
-        output
-        |> String.split(<<0>>, trim: true)
-        |> Enum.reject(&dialog_allowed_artifact_path?(workspace, &1))
-        |> Enum.sort()
-
-      {:ok, paths}
-    end
-  end
-
-  defp dialog_ignored_paths(workspace) when is_binary(workspace) do
-    with {:ok, output} <-
-           dialog_git_snapshot_command(workspace, [
-             "ls-files",
-             "--others",
-             "--ignored",
-             "--exclude-standard",
-             "-z"
-           ]) do
-      paths =
-        output
-        |> String.split(<<0>>, trim: true)
-        |> Enum.reject(&dialog_allowed_artifact_path?(workspace, &1))
-        |> Enum.sort()
-
-      {:ok, paths}
-    end
-  end
-
-  defp dialog_file_hashes(workspace, paths) when is_binary(workspace) and is_list(paths) do
-    paths
-    |> Enum.reduce_while({:ok, []}, fn path, {:ok, acc} ->
-      case dialog_path_hash(workspace, path) do
-        {:ok, hash} -> {:cont, {:ok, [{path, hash} | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> then(fn
-      {:ok, hashes} -> {:ok, Enum.reverse(hashes)}
-      {:error, reason} -> {:error, reason}
-    end)
-  end
-
-  defp dialog_path_hash(workspace, path) when is_binary(workspace) and is_binary(path) do
-    absolute_path = Path.join(workspace, path)
-
-    case File.lstat(absolute_path) do
-      {:ok, stat} ->
-        dialog_path_hash_for_type(workspace, path, absolute_path, stat)
-
-      {:error, reason} ->
-        {:error, {:dialog_file_stat_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(_workspace, path, absolute_path, %{type: :regular}) do
-    case File.read(absolute_path) do
-      {:ok, contents} -> {:ok, dialog_snapshot_hash(contents)}
-      {:error, reason} -> {:error, {:dialog_file_read_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(_workspace, path, absolute_path, %{type: :symlink}) do
-    case File.read_link(absolute_path) do
-      {:ok, target} -> {:ok, dialog_snapshot_hash("symlink:" <> target)}
-      {:error, reason} -> {:error, {:dialog_symlink_read_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(workspace, path, absolute_path, %{type: :directory}) do
-    case File.ls(absolute_path) do
-      {:ok, entries} -> dialog_directory_hash(workspace, path, entries)
-      {:error, reason} -> {:error, {:dialog_directory_read_failed, path, reason}}
-    end
-  end
-
-  defp dialog_path_hash_for_type(_workspace, _path, _absolute_path, stat) do
-    {:ok, dialog_snapshot_hash(:erlang.term_to_binary({stat.type, stat.size, stat.mtime}))}
-  end
-
-  defp dialog_directory_hash(workspace, path, entries) when is_list(entries) do
-    entries
-    |> Enum.sort()
-    |> Enum.reduce_while({:ok, []}, &dialog_directory_entry_hash(workspace, path, &1, &2))
-    |> dialog_directory_hash_result()
-  end
-
-  defp dialog_directory_entry_hash(workspace, path, entry, {:ok, acc}) do
-    child_path = Path.join(path, entry)
-
-    case dialog_path_hash(workspace, child_path) do
-      {:ok, hash} -> {:cont, {:ok, [{entry, hash} | acc]}}
-      {:error, reason} -> {:halt, {:error, reason}}
-    end
-  end
-
-  defp dialog_directory_hash_result({:ok, hashes}) do
-    {:ok, dialog_snapshot_hash(:erlang.term_to_binary(Enum.reverse(hashes)))}
-  end
-
-  defp dialog_directory_hash_result({:error, reason}), do: {:error, reason}
-
-  defp dialog_allowed_artifact_path?(workspace, path) when is_binary(workspace) and is_binary(path) do
-    dialog_runtime_log_artifact?(workspace, path) or dialog_allowed_artifact_dir?(path)
-  end
-
-  defp dialog_allowed_artifact_dir?(path) when is_binary(path) do
-    case Path.split(path) do
-      [first_segment, _child | _rest] -> first_segment in @dialog_allowed_artifact_dirs
-      _other -> false
-    end
-  end
-
-  defp dialog_runtime_log_artifact?(workspace, path) when is_binary(workspace) and is_binary(path) do
-    absolute_path = Path.expand(path, workspace)
-
-    Enum.any?(dialog_runtime_log_files(workspace), fn log_file ->
-      absolute_path == log_file or String.starts_with?(absolute_path, log_file <> ".")
-    end)
-  end
-
-  defp dialog_runtime_log_files(workspace) when is_binary(workspace) do
-    [Application.get_env(:symphony_elixir, :log_file), LogFile.default_log_file(workspace)]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.map(&Path.expand(&1, workspace))
-    |> Enum.uniq()
-  end
-
-  defp dialog_snapshot_hash(contents) when is_binary(contents) do
-    contents
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
   end
 
   defp continue_run_codex_turns(:continue, turn_context, issue) when is_map(turn_context) do
