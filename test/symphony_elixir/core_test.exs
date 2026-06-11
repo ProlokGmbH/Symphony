@@ -321,20 +321,31 @@ defmodule SymphonyElixir.CoreTest do
 
     assert workflow =~ "Lokale Volltests werden in `Merge (AI)` nicht pauschal ausgeführt"
     assert workflow =~ "das vollständige lokale Gate bleibt Aufgabe von `Test (AI)`"
+    assert workflow =~ "GitHub-Checks mit `skipped` ersetzen keine bestandene CI"
+    assert workflow =~ "lokale Test-Evidenz aus `Test (AI)` bleibt dann das maßgebliche Gate"
+    assert workflow =~ "aktueller Branch `symphony/<Issue>`"
+    assert workflow =~ "PR-Head-SHA gleich"
+    assert workflow =~ "Duplicate-URL"
     assert workflow =~ "PR-Nummer oder PR-URL"
     assert workflow =~ "andere Merge-Dateiänderungen neue Änderungen erzeugen oder übernehmen"
     assert workflow =~ "der normale Merge-Pfad wird nur fortgesetzt"
     assert workflow =~ "Review-Feedback, ein CI-Fix oder eine andere Handlung"
 
     assert land_skill =~ "Lokale Volltests nicht pauschal wiederholen"
+    assert land_skill =~ "GitHub-Checks nach Policy bewerten"
     assert land_skill =~ "Keine pauschalen lokalen Volltests in `Merge (AI)` ausführen"
-    assert land_skill =~ ~r/PR-\/CI-Checks sind die maßgeblichen\s+Gates/
+    assert land_skill =~ "Test-Evidenz aus `Test (AI)` ist das maßgebliche lokale Gate"
+    assert land_skill =~ "PR-/Remote-Preflight"
+    assert land_skill =~ "PR-Head-SHA muss dem"
+    assert land_skill =~ "skipped by policy"
+    assert land_skill =~ "neutral akzeptiert"
     assert land_skill =~ ~r/im\s+Merge-Schritt übernommene Dateiänderungen/
     assert land_skill =~ "Review-Kommentare und Codex-Review-Issue-Kommentare prüfen"
     assert land_skill =~ "Feedback Dateiänderungen erfordert"
     assert land_skill =~ "File-changing Review-Fixes in `Merge (AI)`"
     assert land_skill =~ "Checks beobachten"
     assert land_skill =~ "Bei Fehlschlag Logs holen"
+    assert land_skill =~ "fehlende oder inkonsistente"
     assert land_skill =~ ~r/Pull\/Rebase oder Konfliktlösung\s+Dateien ändert, committen, pushen/
     assert land_skill =~ "Commit/Push veröffentlichen"
     assert land_skill =~ ~r/nach\s+`Test \(AI\)` zurückverschieben und stoppen/
@@ -345,6 +356,114 @@ defmodule SymphonyElixir.CoreTest do
     assert push_skill =~ "keine lokale"
     assert push_skill =~ "kein lokales Voll-Gate"
     assert push_skill =~ "nach `Test (AI)` zurückspringen und"
+    assert push_skill =~ "PR-Head-SHA"
+    assert push_skill =~ "Duplicate-/Already-exists"
+    assert push_skill =~ "idempotent"
+  end
+
+  test "land watch helper classifies check policy and merge preflight blockers" do
+    helper_path = Path.expand("../../.codex/skills/symphony-land/land_watch.py", __DIR__)
+
+    script = """
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location("land_watch", #{inspect(helper_path)})
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    def completed(name, conclusion):
+        return {
+            "name": name,
+            "status": "completed",
+            "conclusion": conclusion,
+            "completed_at": "2026-06-11T19:00:00Z",
+        }
+
+    skipped = module.summarize_checks([completed("ci", "skipped")])
+    assert not skipped.pending
+    assert not skipped.failed
+    assert module.check_summary_message(skipped) == "GitHub checks acceptable: 1 skipped by policy"
+
+    neutral = module.summarize_checks([completed("lint", "neutral")])
+    assert not neutral.pending
+    assert not neutral.failed
+    assert module.check_summary_message(neutral) == "GitHub checks acceptable: 1 neutral accepted"
+
+    mixed = module.summarize_checks([
+        completed("unit", "success"),
+        completed("ci", "skipped"),
+        completed("docs", "neutral"),
+    ])
+    assert not mixed.pending
+    assert not mixed.failed
+    assert module.check_summary_message(mixed) == (
+        "GitHub checks acceptable: 1 success, 1 skipped by policy, 1 neutral accepted"
+    )
+
+    failed = module.summarize_checks([completed("ci", "failure")])
+    assert not failed.pending
+    assert failed.failed
+    assert failed.failures == ["ci: failure"]
+
+    ok_pr = module.PrInfo(
+        number=42,
+        url="https://github.com/owner/repo/pull/42",
+        head_sha="abc123456789",
+        mergeable="MERGEABLE",
+        merge_state="CLEAN",
+    )
+    ok_evidence = module.MergePreflightEvidence(
+        branch="symphony/PRO-524",
+        local_head="abc123456789",
+        remote_branch_exists=True,
+        pr=ok_pr,
+    )
+    assert module.merge_preflight_failures(ok_evidence) == []
+
+    missing_remote = module.MergePreflightEvidence(
+        branch="symphony/PRO-524",
+        local_head="abc123456789",
+        remote_branch_exists=False,
+        pr=ok_pr,
+    )
+    assert any("origin/symphony/PRO-524 is missing" in failure for failure in module.merge_preflight_failures(missing_remote))
+
+    missing_pr = module.MergePreflightEvidence(
+        branch="symphony/PRO-524",
+        local_head="abc123456789",
+        remote_branch_exists=True,
+        pr=None,
+    )
+    assert any("No open GitHub PR" in failure for failure in module.merge_preflight_failures(missing_pr))
+
+    stale_pr = module.PrInfo(
+        number=42,
+        url="https://github.com/owner/repo/pull/42",
+        head_sha="def987654321",
+        mergeable="MERGEABLE",
+        merge_state="CLEAN",
+    )
+    stale_evidence = module.MergePreflightEvidence(
+        branch="symphony/PRO-524",
+        local_head="abc123456789",
+        remote_branch_exists=True,
+        pr=stale_pr,
+    )
+    assert any("PR head mismatch" in failure for failure in module.merge_preflight_failures(stale_evidence))
+    assert module.merge_preflight_failures(
+        module.MergePreflightEvidence(
+            branch="main",
+            local_head="abc123456789",
+            remote_branch_exists=True,
+            pr=ok_pr,
+        )
+    )[0].startswith("Current branch must be symphony/<Issue>")
+    """
+
+    {output, status} = System.cmd("python3", ["-c", script], stderr_to_stdout: true)
+    assert status == 0, output
   end
 
   test "repo-local symphony-linear skill documents schema-valid issue lookup patterns and fallback" do

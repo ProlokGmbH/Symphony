@@ -28,12 +28,42 @@ class PrInfo:
     merge_state: str | None
 
 
+@dataclass
+class CheckSummary:
+    pending: bool
+    failed: bool
+    failures: list[str]
+    accepted_counts: dict[str, int]
+
+
+@dataclass
+class MergePreflightEvidence:
+    branch: str
+    local_head: str
+    remote_branch_exists: bool
+    pr: PrInfo | None
+
+
 class RateLimitError(RuntimeError):
     pass
 
 
 def is_rate_limit_error(error: str) -> bool:
     return "HTTP 429" in error or "rate limit" in error.lower()
+
+
+async def run_git(*args: str) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return stdout.decode()
+    error = stderr.decode().strip() or stdout.decode().strip() or "git command failed"
+    raise RuntimeError(error)
 
 
 async def run_gh(*args: str) -> str:
@@ -62,13 +92,17 @@ async def run_gh(*args: str) -> str:
     raise RateLimitError(last_error)
 
 
-async def get_pr_info() -> PrInfo:
-    data = await run_gh(
-        "pr",
-        "view",
-        "--json",
-        "number,url,headRefOid,mergeable,mergeStateStatus",
+async def get_pr_info(branch: str | None = None) -> PrInfo:
+    args = ["pr", "view"]
+    if branch is not None:
+        args.append(branch)
+    args.extend(
+        [
+            "--json",
+            "number,url,headRefOid,mergeable,mergeStateStatus",
+        ],
     )
+    data = await run_gh(*args)
     parsed = json.loads(data)
     return PrInfo(
         number=parsed["number"],
@@ -198,13 +232,19 @@ def dedupe_check_runs(check_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(latest_by_name.values())
 
 
-def summarize_checks(check_runs: list[dict[str, Any]]) -> tuple[bool, bool, list[str]]:
+def summarize_checks(check_runs: list[dict[str, Any]]) -> CheckSummary:
     if not check_runs:
-        return True, False, ["no checks reported"]
+        return CheckSummary(
+            pending=True,
+            failed=False,
+            failures=["no checks reported"],
+            accepted_counts={},
+        )
     check_runs = dedupe_check_runs(check_runs)
     pending = False
     failed = False
     failures: list[str] = []
+    accepted_counts = {"success": 0, "skipped": 0, "neutral": 0}
     for check in check_runs:
         status = check.get("status")
         conclusion = check.get("conclusion")
@@ -212,10 +252,129 @@ def summarize_checks(check_runs: list[dict[str, Any]]) -> tuple[bool, bool, list
         if status != "completed":
             pending = True
             continue
-        if conclusion not in ("success", "skipped", "neutral"):
-            failed = True
-            failures.append(f"{name}: {conclusion}")
-    return pending, failed, failures
+        if conclusion in accepted_counts:
+            accepted_counts[conclusion] += 1
+            continue
+        if conclusion is None:
+            conclusion = "missing conclusion"
+        else:
+            conclusion = str(conclusion)
+        failed = True
+        failures.append(f"{name}: {conclusion}")
+    return CheckSummary(
+        pending=pending,
+        failed=failed,
+        failures=failures,
+        accepted_counts=accepted_counts,
+    )
+
+
+def check_summary_message(summary: CheckSummary) -> str:
+    success = summary.accepted_counts.get("success", 0)
+    skipped = summary.accepted_counts.get("skipped", 0)
+    neutral = summary.accepted_counts.get("neutral", 0)
+    parts: list[str] = []
+    if success:
+        parts.append(f"{success} success")
+    if skipped:
+        parts.append(f"{skipped} skipped by policy")
+    if neutral:
+        parts.append(f"{neutral} neutral accepted")
+    if skipped or neutral:
+        return f"GitHub checks acceptable: {', '.join(parts)}"
+    if success:
+        return f"GitHub checks passed: {', '.join(parts)}"
+    return "GitHub checks acceptable: no completed checks reported"
+
+
+async def current_branch() -> str:
+    return (await run_git("branch", "--show-current")).strip()
+
+
+async def local_head_sha() -> str:
+    return (await run_git("rev-parse", "HEAD")).strip()
+
+
+async def remote_branch_exists(branch: str) -> bool:
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "ls-remote",
+        "--exit-code",
+        "--heads",
+        "origin",
+        branch,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 2:
+        return False
+    error = stderr.decode().strip() or stdout.decode().strip() or "git ls-remote failed"
+    raise RuntimeError(error)
+
+
+def symphony_issue_branch(branch: str) -> bool:
+    return re.fullmatch(r"symphony/[A-Z][A-Z0-9]*-\d+", branch) is not None
+
+
+def short_sha(value: str) -> str:
+    return value[:12]
+
+
+def merge_preflight_failures(evidence: MergePreflightEvidence) -> list[str]:
+    failures: list[str] = []
+    if not symphony_issue_branch(evidence.branch):
+        failures.append(
+            f"Current branch must be symphony/<Issue>; got {evidence.branch or '<detached>'}",
+        )
+    if not evidence.remote_branch_exists:
+        failures.append(
+            f"Remote branch origin/{evidence.branch} is missing; run symphony-push from a clean, locally validated Test (AI) handoff before merge",
+        )
+    if evidence.pr is None:
+        failures.append(
+            "No open GitHub PR found for the current branch; run symphony-push to create or update it before merge",
+        )
+    elif evidence.pr.head_sha != evidence.local_head:
+        failures.append(
+            "PR head mismatch: "
+            f"local HEAD {short_sha(evidence.local_head)} != PR head {short_sha(evidence.pr.head_sha)}; "
+            "publish the current branch and rerun land_watch",
+        )
+    return failures
+
+
+async def collect_merge_preflight_evidence() -> MergePreflightEvidence:
+    branch = await current_branch()
+    local_head = await local_head_sha()
+    remote_exists = await remote_branch_exists(branch) if branch else False
+    pr = None
+    if remote_exists:
+        try:
+            pr = await get_pr_info(branch)
+        except RuntimeError:
+            pr = None
+    return MergePreflightEvidence(
+        branch=branch,
+        local_head=local_head,
+        remote_branch_exists=remote_exists,
+        pr=pr,
+    )
+
+
+async def require_merge_preflight() -> MergePreflightEvidence:
+    evidence = await collect_merge_preflight_evidence()
+    failures = merge_preflight_failures(evidence)
+    if failures:
+        print("Merge preflight failed:")
+        for failure in failures:
+            print(f"- {failure}")
+        raise SystemExit(6)
+    if evidence.pr is None:
+        raise RuntimeError("merge preflight did not load PR information")
+    return evidence
 
 
 def latest_review_request_at(comments: list[dict[str, Any]]) -> datetime | None:
@@ -559,21 +718,23 @@ async def wait_for_checks(head_sha: str, checks_done: asyncio.Event) -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         empty_seconds = 0
-        pending, failed, failures = summarize_checks(check_runs)
-        if failed:
+        summary = summarize_checks(check_runs)
+        if summary.failed:
             print("Checks failed:")
-            for failure in failures:
+            for failure in summary.failures:
                 print(f"- {failure}")
             raise SystemExit(3)
-        if not pending:
-            print("Checks passed")
+        if not summary.pending:
+            print(check_summary_message(summary))
             checks_done.set()
             return
         await asyncio.sleep(POLL_SECONDS)
 
 
 async def watch_pr() -> None:
-    pr = await get_pr_info()
+    evidence = await require_merge_preflight()
+    pr = evidence.pr
+    branch = evidence.branch
     if is_merge_conflicting(pr):
         print(
             "PR has merge conflicts. Resolve/rebase against main and push before "
@@ -587,7 +748,7 @@ async def watch_pr() -> None:
 
     async def head_monitor() -> None:
         while True:
-            current = await get_pr_info()
+            current = await get_pr_info(branch)
             if is_merge_conflicting(current):
                 print(
                     "PR has merge conflicts. Resolve/rebase against main and push "
