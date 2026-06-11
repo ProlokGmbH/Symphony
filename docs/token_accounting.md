@@ -17,6 +17,7 @@ It is based on the current Codex source in `codex-rs`, especially:
 - `total_token_usage` means "the cumulative total so far".
 - `thread/tokenUsage/updated` is the live streaming notification for token usage.
 - `turn/completed` carries final turn state, and turn-level usage is exposed separately from the live thread token stream.
+- Symphony accepts explicit `turn/completed` usage only as a fallback completion snapshot when no cumulative token total is present in the same update.
 - Generic `usage` fields are event-specific. Do not assume every `usage` payload is a cumulative thread total.
 
 ## Primary Source Semantics
@@ -202,29 +203,39 @@ So `total_tokens` can reflect context-window normalization behavior, not just a 
 
 For Symphony, `model_context_window` should be displayed or logged separately from spend.
 
-## Recommended Accounting Strategy For Symphony
+## Current Symphony Accounting Strategy
 
-Track usage per active Codex thread.
+Symphony tracks token totals in the active `Orchestrator` running entry and
+publishes them through the terminal dashboard and observability presenter. The
+state stores the latest reported input, output and total counters as
+`codex_last_reported_*` values, then applies only the positive difference from
+the next accepted report. That makes cumulative snapshots safe to replay and
+prevents a smaller later report from reducing or double-counting totals.
 
-For each thread, keep:
+For each active run, keep:
 
-- `absolute_total`: latest accepted absolute total snapshot
+- `codex_last_reported_input_tokens`
+- `codex_last_reported_output_tokens`
+- `codex_last_reported_total_tokens`
 - `accumulated_total`: the total you expose in UI/API
-- `last_seen_turn_id`
+- `session_id`: combined Codex thread/turn identifier for display and log correlation
 
 ### Preferred source order
 
-When a token-related event arrives, use this precedence:
+When a token-related event arrives, Symphony currently accepts these sources in
+this order:
 
-1. `thread/tokenUsage/updated.tokenUsage.total`
-2. `TokenCountEvent.info.total_token_usage`
+1. nested `TokenCountEvent.info.total_token_usage` in app-server
+   `codex/event/token_count` payloads
+2. `thread/tokenUsage/updated.tokenUsage.total`
+3. top-level `tokenUsage.total`
+4. explicit `turn/completed` `usage`, but only as a fallback completion snapshot
 
 Ignore these for accounting:
 
 - `thread/tokenUsage/updated.tokenUsage.last`
 - `TokenCountEvent.info.last_token_usage`
-- generic `usage` maps
-- turn-completed `usage`
+- generic `usage` maps whose event type or payload path does not prove cumulative or completion semantics
 
 Do not treat generic `params.usage` as equivalent to a cumulative thread total unless the event type makes that meaning explicit.
 
@@ -239,8 +250,10 @@ Do not treat generic `params.usage` as equivalent to a cumulative thread total u
 
 #### If no absolute total is present
 
-- Ignore the event for accounting.
-- Keep the last accepted absolute high-water mark unchanged.
+- If the event is explicitly `turn/completed` and carries an integer-like
+  `usage` map, treat that map as a completion snapshot.
+- Otherwise ignore the event for accounting and keep the last accepted
+  high-water mark unchanged.
 
 ### Why this matters
 
@@ -250,16 +263,17 @@ If you misclassify a per-turn `usage` payload as an absolute thread total, later
 
 ### Do
 
-- Prefer `thread/tokenUsage/updated` for live reporting.
+- Accept `thread/tokenUsage/updated` for live reporting.
 - Treat `tokenUsage.total` as authoritative for thread totals.
-- Key accounting by `thread_id`, not just issue id.
-- Expect one thread to span multiple turns when Symphony reuses a live Codex thread.
+- Preserve the latest accepted counters in the running entry so repeated or
+  out-of-order snapshots only add positive deltas.
+- Carry `session_id` in dashboard/API/log surfaces for correlation.
 
 ### Do not
 
 - Do not treat every `usage` map as absolute.
 - Do not count `tokenUsage.last` or `last_token_usage` into dashboard totals.
-- Do not add turn-completed `usage` on top of already-counted live thread totals unless you can prove it represents missing spend.
+- Do not add turn-completed `usage` on top of already-counted live thread totals; the monotonic delta calculation should only add missing spend.
 - Do not reset accounting just because a new turn starts on the same thread.
 
 ## Practical Interpretation For Symphony Logs
@@ -271,7 +285,8 @@ When reading raw app-server events:
 - `thread/tokenUsage/updated`
   - best source for live dashboard and API totals
 - `turn/completed`
-  - best used as end-of-turn state, not as an unconditional additive token event
+  - best used as end-of-turn state; Symphony can also use its explicit `usage`
+    as a fallback completion snapshot
 
 ## Why `total_token_usage` Is The Durable Choice
 
@@ -291,14 +306,18 @@ If Symphony documents token reporting externally, the contract should be:
 
 - Live token totals come from Codex thread-scoped cumulative usage.
 - Incremental usage may also be emitted, but Symphony does not use it for totals.
-- Turn-completed usage is event-specific and should not be assumed to be a fresh additive increment.
-- Reporting is thread-based, and multiple turns can occur on one thread.
+- Turn-completed usage is event-specific. Symphony may use explicit
+  `turn/completed` usage as a fallback snapshot, never as a fresh additive
+  increment.
+- Reporting exposes active-run totals with `session_id` correlation, and one
+  Codex thread can span multiple turns.
 
 ## Implementation Checklist
 
-- Prefer `thread/tokenUsage/updated.tokenUsage.total`
-- Fallback to `info.total_token_usage`
+- Accept `thread/tokenUsage/updated.tokenUsage.total` for live updates
+- Accept nested `info.total_token_usage` from `codex/event/token_count`
+- Fallback to explicit `turn/completed` `usage` only when no cumulative total was present
 - Ignore `last` for totals
-- Key totals by `thread_id`
+- Preserve accepted high-water counters in the running entry
 - Do not classify generic `usage` by field name alone
 - Do not double-count turn-completed usage after live updates
