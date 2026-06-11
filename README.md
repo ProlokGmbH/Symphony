@@ -151,7 +151,7 @@ Zusätzlich überspringt ein abgeschlossener `Review (AI)` ohne Findings den Fre
 | `Review (AI)` | AI | Gemeinsamer Review-/Fix-Zyklus mit repositoryspezifischen Review-Hinweisen. | ohne Findings und mit sauberem Workspace `Test (AI)`; mit Findings/Fixes/unklarer Evidenz ohne Skip `Freigabe Review`, mit Skip/`--yolo` `Test (AI)` |
 | `Freigabe Review` | Mensch | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus. | `Test (AI)` oder `In Arbeit (AI)` oder `Planung (AI)` |
 | `Test (AI)` | AI | Vor den Tests per Pull auf den spaeteren Merge-Stand synchronisieren und den Test-/Fix-Zyklus auf diesem Stand ausfuehren. | `Merge (AI)` |
-| `Merge (AI)` | AI | PR beobachten, gruene Checks abwarten und den Branch landen; bei mergebedingten Codeaenderungen zurueck nach `Test (AI)`. | `Review` |
+| `Merge (AI)` | AI | PR beobachten, GitHub-Checks gemäß Policy bewerten und den Branch landen; bei mergebedingten Codeänderungen zurück nach `Test (AI)`. | `Review` |
 | `BLOCKER` | Mensch | Kritische Abweichung oder externer Blocker; keine weitere Automatisierung, bis das Problem manuell geloest ist. | wartet auf menschliches Verschieben |
 | `Abbruch (AI)` | AI | Stoppt laufende Arbeit und fuehrt Cleanup aus. | `Abgebrochen` |
 | `Review` | Mensch | Manueller Endstatus nach dem Merge, bevor das Ticket ganz abgeschlossen wird. | `Fertig` |

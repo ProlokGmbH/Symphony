@@ -13,18 +13,29 @@ Nur im Merge-Schritt des Workflows verwenden.
 
 - PR für den aktuellen Branch finden.
 - Konfliktfreiheit zu `main` sicherstellen.
-- CI grün halten und behebbare Fehler autonom fixen.
+- GitHub-Checks gemäß Policy beobachten und behebbare Fehler autonom fixen.
 - Review-Feedback vor dem Merge bestätigen oder bearbeiten.
 - Lokale Volltests nicht pauschal wiederholen; `Test (AI)` bleibt der Status
   für das vollständige lokale Gate.
-- Erst nach grünem Zustand per Merge-Commit mergen.
+- GitHub-Checks nach Policy bewerten: `success` ist bestanden, `skipped` ist
+  bei bewusster Skip-Policy akzeptabel, `neutral` ist neutral akzeptiert,
+  echte Fehler bleiben blockierend. Skipped/neutral nie als bestandene CI
+  ausgeben.
+- Erst nach akzeptabler GitHub-Check-Policy, erledigtem Feedback und klarer
+  PR-/Merge-Evidenz per Merge-Commit mergen.
 
 ## Ablauf
 
-1. PR-Kontext laden: Branch, PR-Nummer, PR-Body, Issue-ID und Issue-Titel.
+1. PR-/Remote-Preflight ausführen: aktueller Branch muss
+   `symphony/<IssueId>` sein, `origin/<branch>` muss existieren, eine offene PR
+   für genau diesen Branch muss existieren und die PR-Head-SHA muss dem
+   lokalen `HEAD` entsprechen. Fehlenden Remote-Branch, fehlende PR oder
+   PR-Head-Mismatch nicht als mergefähig behandeln.
 2. Keine pauschalen lokalen Volltests in `Merge (AI)` ausführen. Vorhandene
-   Test-Evidenz aus `Test (AI)` und die PR-/CI-Checks sind die maßgeblichen
-   Gates für den normalen Merge-Pfad.
+   Test-Evidenz aus `Test (AI)` ist das maßgebliche lokale Gate. Wenn
+   GitHub-Checks durch bewusste Skip-Policy `skipped` sind, ersetzt das keine
+   bestandene CI, sondern ist nur zusammen mit der lokalen Test-Evidenz aus
+   `Test (AI)` mergefähig.
 3. Falls beim Eintritt offene Änderungen vorhanden sind, diese als im
    Merge-Schritt übernommene Dateiänderungen behandeln: mit `<Issue-Key>
    Merge (AI) Autocommit` plus kurzem Body committen, über `symphony-push`
@@ -39,11 +50,14 @@ Nur im Merge-Schritt des Workflows verwenden.
    Feedback Dateiänderungen erfordert, vor Codeänderungen die beabsichtigte
    Aktion antworten, den Fix umsetzen, committen, pushen, nach `Test (AI)`
    zurückverschieben und stoppen.
-8. Checks beobachten. Bei Fehlschlag Logs holen. Wenn eine Behebung
-   Dateiänderungen erfordert, Fix umsetzen, committen, pushen, nach
-   `Test (AI)` zurückverschieben und stoppen; reine CI-Neuläufe ohne
+8. Checks beobachten. `success` als bestanden melden, `skipped` als
+   „GitHub checks acceptable: skipped by policy“ oder Mischform ausgeben,
+   `neutral` als neutral akzeptiert ausgeben. Bei Fehlschlag Logs holen. Wenn
+   eine Behebung Dateiänderungen erfordert, Fix umsetzen, committen, pushen,
+   nach `Test (AI)` zurückverschieben und stoppen; reine CI-Neuläufe ohne
    Dateiänderungen dürfen weiter beobachtet werden.
-9. Wenn Checks grün und Feedback erledigt sind, mit Merge-Commit-Betreff
+9. Wenn GitHub-Checks bestanden oder gemäß Skip-/Neutral-Policy akzeptabel sind
+   und Feedback erledigt ist, mit Merge-Commit-Betreff
    `<IssueId>: <IssueTitle>` mergen.
 10. Nach erfolgreichem Merge vor jedem Statuswechsel im Workpad-Verlauf eine
     eindeutige Zeile im Format `Merge-Evidenz: PR #<nummer> gemergt,
@@ -58,7 +72,9 @@ und bevorzugt den Watch-Helper.
 python3 .codex/skills/symphony-land/land_watch.py
 ```
 
-Exit-Codes: `2` Review-Kommentare, `3` CI-Fehler, `4` PR-Head aktualisiert.
+Exit-Codes: `2` Review-Kommentare, `3` CI-Fehler, `4` PR-Head während des
+Watch-Laufs aktualisiert, `5` Merge-Konflikt, `6` fehlende oder inkonsistente
+PR-/Remote-Preflight-Evidenz.
 
 ## Review-Umgang
 
@@ -86,6 +102,13 @@ gh api -X POST /repos/{owner}/{repo}/pulls/<pr_number>/comments \
 ## Fehlerbehandlung
 
 - Instabile CI-Ausreißer nach Prüfung erneut beobachten.
+- Wenn `origin/<branch>` oder eine offene PR fehlt, nicht mergen. Nur aus einem
+  sauberen, lokal in `Test (AI)` validierten Stand per `symphony-push`
+  veröffentlichen beziehungsweise erstellen, danach PR-Kontext und PR-Head-SHA
+  erneut prüfen.
+- Wenn die PR-Head-SHA nicht dem lokalen `HEAD` entspricht, nicht mergen:
+  aktuellen Stand veröffentlichen oder lokalen Stand auf den PR-Head bringen,
+  danach erneut beobachten.
 - Auto-Fix-Commits von CI lokal übernehmen, bei Bedarf rebasen, mit eigenem
   Commit/Push veröffentlichen, nach `Test (AI)` zurückverschieben und stoppen.
 - Bei `mergeable: UNKNOWN` warten und erneut prüfen.
