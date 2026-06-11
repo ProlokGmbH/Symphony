@@ -603,7 +603,12 @@ defmodule SymphonyElixir.AgentRunner do
   end
 
   defp dialog_repo_status_snapshot(workspace) when is_binary(workspace) do
-    dialog_git_snapshot_command(workspace, ["status", "--porcelain=v1", "-z"])
+    dialog_git_snapshot_command(workspace, [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=normal",
+      "-z"
+    ])
   end
 
   defp ensure_dialog_repo_unchanged(workspace, before_repo_status) when is_binary(workspace) do

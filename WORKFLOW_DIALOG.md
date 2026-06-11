@@ -40,8 +40,8 @@ vergleichbaren Themen und die semantische Suche einbezogen werden.
   Code, Dokumentation oder Konfiguration des aktuellen Repositories vornehmen.
 - Du darfst Dateien im Repository lesen und Befehle zur Analyse ausführen, wenn
   das für die Antwort nötig ist.
-- Symphony prüft nach dem Turn, dass keine Code-, Dokumentations- oder
-  Konfigurationsänderungen im aktuellen Repository zurückbleiben.
+- Symphony prüft nach dem Turn, dass keine nach Git-Semantik relevanten
+  Repository-Änderungen im aktuellen Repository zurückbleiben.
 - Erstelle keinen Git-Worktree, führe keine Hooks aus und pflege kein Symphony
   Workpad.
 - Ändere keinen Issue-Status, außer im ausdrücklich bestätigten

@@ -793,6 +793,65 @@ defmodule SymphonyElixir.DialogTest do
     end
   end
 
+  test "agent runner blocks untracked changes even when git config hides them" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-dialog-untracked-hidden-#{System.unique_integer([:positive])}"
+      )
+
+    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_comments = Application.get_env(:symphony_elixir, :memory_tracker_comments)
+    previous_memory_recipient = Application.get_env(:symphony_elixir, :memory_tracker_recipient)
+
+    try do
+      project_root = Path.join(test_root, "project")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-untracked-hidden.trace")
+      dirty_file = Path.join(project_root, "dialog-hidden.txt")
+
+      File.mkdir_p!(project_root)
+      File.write!(Path.join(project_root, "README.md"), "clean\n")
+      git_cmd!(project_root, ["init", "-b", "main"])
+      git_cmd!(project_root, ["config", "user.name", "Dialog Test"])
+      git_cmd!(project_root, ["config", "user.email", "dialog-test@example.com"])
+      git_cmd!(project_root, ["config", "status.showUntrackedFiles", "no"])
+      git_cmd!(project_root, ["add", "README.md"])
+      git_cmd!(project_root, ["commit", "-m", "Initial commit"])
+
+      write_dirty_fake_codex!(codex_binary, trace_file, dirty_file)
+      write_dialog_workflow!("dialog prompt {{ issue.identifier }}")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = dialog_issue("issue-dialog-untracked-hidden", "MT-UHIDDEN")
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+      Application.put_env(:symphony_elixir, :memory_tracker_comments, %{})
+      Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+
+      File.cd!(project_root, fn ->
+        assert :ok = AgentRunner.run(issue, self())
+      end)
+
+      assert_receive {:memory_tracker_comment, "issue-dialog-untracked-hidden", body}, 1_000
+      assert body =~ "### Antwort Symphony"
+      assert body =~ "Repository"
+      assert body =~ "nicht erlaubt"
+      refute body =~ "Dirty answer"
+      assert File.read!(dirty_file) == "dirty\n"
+    after
+      restore_app_env(:memory_tracker_issues, previous_memory_issues)
+      restore_app_env(:memory_tracker_comments, previous_memory_comments)
+      restore_app_env(:memory_tracker_recipient, previous_memory_recipient)
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner finalizes untracked log files with a repository error" do
     test_root = Path.join(System.tmp_dir!(), "symphony-dialog-untracked-log-#{System.unique_integer([:positive])}")
 
