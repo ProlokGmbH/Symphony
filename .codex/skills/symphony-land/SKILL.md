@@ -13,7 +13,7 @@ Nur im Merge-Schritt des Workflows verwenden.
 
 - PR für den aktuellen Branch finden.
 - Konfliktfreiheit zu `main` sicherstellen.
-- CI grün halten und behebbare Fehler autonom fixen.
+- GitHub-Checks gemäß Policy beobachten und behebbare Fehler autonom fixen.
 - Review-Feedback vor dem Merge bestätigen oder bearbeiten.
 - Lokale Volltests nicht pauschal wiederholen; `Test (AI)` bleibt der Status
   für das vollständige lokale Gate.
@@ -21,7 +21,8 @@ Nur im Merge-Schritt des Workflows verwenden.
   bei bewusster Skip-Policy akzeptabel, `neutral` ist neutral akzeptiert,
   echte Fehler bleiben blockierend. Skipped/neutral nie als bestandene CI
   ausgeben.
-- Erst nach grünem Zustand per Merge-Commit mergen.
+- Erst nach akzeptabler GitHub-Check-Policy, erledigtem Feedback und klarer
+  PR-/Merge-Evidenz per Merge-Commit mergen.
 
 ## Ablauf
 

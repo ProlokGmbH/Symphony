@@ -438,6 +438,40 @@ defmodule SymphonyElixir.CoreTest do
     )
     assert any("No open GitHub PR" in failure for failure in module.merge_preflight_failures(missing_pr))
 
+    assert module.is_pr_not_found_error("no open pull requests found for branch")
+    assert not module.is_pr_not_found_error("HTTP 403: authentication required")
+
+    async def current_branch():
+        return "symphony/PRO-524"
+
+    async def local_head_sha():
+        return "abc123456789"
+
+    async def remote_branch_exists(_branch):
+        return True
+
+    async def pr_not_found(_branch):
+        raise module.PrNotFoundError("no open pull requests found for branch")
+
+    async def pr_lookup_failed(_branch):
+        raise RuntimeError("HTTP 403: authentication required")
+
+    module.current_branch = current_branch
+    module.local_head_sha = local_head_sha
+    module.remote_branch_exists = remote_branch_exists
+    module.get_pr_info = pr_not_found
+
+    no_pr_evidence = __import__("asyncio").run(module.collect_merge_preflight_evidence())
+    assert no_pr_evidence.pr is None
+
+    module.get_pr_info = pr_lookup_failed
+    try:
+        __import__("asyncio").run(module.collect_merge_preflight_evidence())
+    except RuntimeError as error:
+        assert "authentication required" in str(error)
+    else:
+        raise AssertionError("expected PR lookup errors to propagate")
+
     stale_pr = module.PrInfo(
         number=42,
         url="https://github.com/owner/repo/pull/42",
@@ -462,7 +496,7 @@ defmodule SymphonyElixir.CoreTest do
     )[0].startswith("Current branch must be symphony/<Issue>")
     """
 
-    {output, status} = System.cmd("python3", ["-c", script], stderr_to_stdout: true)
+    {output, status} = System.cmd("python3", ["-B", "-c", script], stderr_to_stdout: true)
     assert status == 0, output
   end
 

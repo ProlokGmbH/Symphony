@@ -48,8 +48,22 @@ class RateLimitError(RuntimeError):
     pass
 
 
+class PrNotFoundError(RuntimeError):
+    pass
+
+
 def is_rate_limit_error(error: str) -> bool:
     return "HTTP 429" in error or "rate limit" in error.lower()
+
+
+def is_pr_not_found_error(error: str) -> bool:
+    normalized = error.lower()
+    return (
+        "no open pull requests found" in normalized
+        or "no pull requests found" in normalized
+        or "no pull request found" in normalized
+        or "could not find any pull requests" in normalized
+    )
 
 
 async def run_git(*args: str) -> str:
@@ -102,7 +116,13 @@ async def get_pr_info(branch: str | None = None) -> PrInfo:
             "number,url,headRefOid,mergeable,mergeStateStatus",
         ],
     )
-    data = await run_gh(*args)
+    try:
+        data = await run_gh(*args)
+    except RuntimeError as exc:
+        error = str(exc)
+        if is_pr_not_found_error(error):
+            raise PrNotFoundError(error) from exc
+        raise
     parsed = json.loads(data)
     return PrInfo(
         number=parsed["number"],
@@ -354,7 +374,7 @@ async def collect_merge_preflight_evidence() -> MergePreflightEvidence:
     if remote_exists:
         try:
             pr = await get_pr_info(branch)
-        except RuntimeError:
+        except PrNotFoundError:
             pr = None
     return MergePreflightEvidence(
         branch=branch,
