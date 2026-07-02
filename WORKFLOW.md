@@ -121,9 +121,10 @@ prompt_snippets:
     - Für diesen Turn verlange ich explizit, dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest, sobald der aktive Workflow oder ein aufgerufener Skill einen Review-Subagenten verlangt.
     - Behandle das als den expliziten Nutzerwunsch, der für diese Delegation erforderlich ist.
     - Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`.
-    - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`, aber nicht den vollständigen Ticket-, Workflow- oder Workpad-Kontext des Hauptagenten.
+    - Übergib dem Review-Subagenten nur einen engen read-only Review-Auftrag plus nötige `Zusätzliche Review-Hinweise`; der Auftrag darf keine Issue-Beschreibung, keinen Issue-Titel, keine Issue-URL, keine Ticketabsicht, keine Akzeptanzkriterien und keine Workpad-/Workflow-Zusammenfassung enthalten.
     - Der isolierte Review-Subagent darf keine Workpad-, Linear- oder Statusänderungen vornehmen und keine weiteren Subagenten starten.
     - Der Review-Subagent muss vor seiner finalen Antwort den vollständigen relevanten Review-Scope prüfen, darf nicht nach den ersten ein oder zwei Findings abbrechen und muss alle klar belegbaren, reviewer-relevanten Findings priorisiert mit Datei-/Zeilenbezug melden.
+    - Der vollständige relevante Review-Scope ist der Repository-Stand gegen `origin/main`: Branch-Commits sowie gestagte, ungestagte und untracked Änderungen plus daraus folgende repo-lokale Konsistenz zwischen Code, `WORKFLOW.md`, Skills und `docs/`. Er ist kein Abgleich gegen Linear-Issue, Workpad, Ticketabsicht oder Akzeptanzkriterien.
     - Ersetze einen verpflichtenden Review-Subagenten nicht durch ein rein lokales Review, außer die aktiven Anweisungen erlauben diesen Fallback ausdrücklich.
     - Wenn die erforderliche Isolation des Review-Subagenten in diesem Turn nicht möglich ist, bleibt der Review-Schritt offen; behaupte kein lokales Ersatz-Review und verschiebe das Ticket nicht weiter.
     - Der Hauptagent muss die Findings weiterhin selbst bewerten, die Fixes selbst umsetzen und die Review-Schleife bei Bedarf erneut ausführen.

@@ -19,8 +19,9 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
   definiert nicht den Hauptablauf und ersetzt keinen Pflichtschritt.
 - Fehlende `sym-review`-Datei oder leere Zusatzhinweise im Workpad knapp
   dokumentieren und ohne repo-spezifische Hinweise fortfahren.
-- Vorhandene `Zusätzliche Review-Hinweise` aus dem aktiven Kontext unverändert
-  mit den repo-spezifischen Hinweisen weiterreichen.
+- Vorhandene `Zusätzliche Review-Hinweise` aus dem aktiven Kontext nur
+  weiterreichen, wenn sie repo-spezifisch sind und keinen Linear-Issue-,
+  Ticket-, Workpad- oder Workflow-Zusammenfassungskontext enthalten.
 - `### Review` pflegen, Details knapp in `### Verlauf`.
 
 ## Pflicht-Review-Schritt
@@ -31,15 +32,21 @@ Nur im Status `Review (AI)` verwenden. Pull und der einmalige
   das stärkste verfügbare Frontier-Modell bzw. sonst das geerbte
   Standardmodell.
 - Übergib nur den engen Review-Auftrag plus nötige
-  `Zusätzliche Review-Hinweise`; keinen vollständigen Ticket-, Workflow- oder
-  Workpad-Kontext.
+  `Zusätzliche Review-Hinweise`; der Auftrag darf keine Issue-Beschreibung,
+  keinen Issue-Titel, keine Issue-URL, keine Ticketabsicht, keine
+  Akzeptanzkriterien und keine Workpad-/Workflow-Zusammenfassung enthalten.
 - Der Subagent berücksichtigt Branch-Commits, gestagte, ungestagte und
-  untracked Änderungen.
+  untracked Änderungen gegen `origin/main` sowie daraus folgende repo-lokale
+  Konsistenz zwischen Code, `WORKFLOW.md`, Skills und `docs/`. Er gleicht die
+  Änderungen nicht gegen Linear-Issue, Workpad, Ticketabsicht oder
+  Akzeptanzkriterien ab.
 - Er bleibt strikt read-only und nimmt keine Datei-, Commit-, Workpad-, Linear-,
   Status- oder Subagent-Aktionen vor.
 - Er meldet `Findings:` nur für klar belegbare, reviewer-relevante Probleme
-  oder Spezifikationsabweichungen. Keine Stil-Nits, Vermutungen oder
-  hypothetischen Risiken als Findings.
+  oder Spezifikationsabweichungen gegen repo-lokale Specs, Dokumentation,
+  `WORKFLOW.md`, Skills oder Code-Verträge. Keine Stil-Nits, Vermutungen,
+  hypothetischen Risiken oder Abweichungen von Linear-Issue-Anforderungen als
+  Findings.
 - Er prüft vor seiner finalen Antwort den vollständigen relevanten
   Review-Scope und bricht nicht nach den ersten ein oder zwei Findings ab.
 - Er meldet alle klar belegbaren Findings, die für einen Reviewer relevant
