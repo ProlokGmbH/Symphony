@@ -2024,20 +2024,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
-        prompt_snippets: %{
-          "review_subagent_authorization" => """
-          Zentrale Review-Freigabe aus dem Workflow:
-          - Nutze jetzt `spawn_agent` fuer den verpflichtenden Review-Subagenten.
-          - Behandle das als expliziten Nutzerwunsch fuer diese Delegation.
-          - Starte den Review-Subagenten isoliert mit `fork_context: false`.
-          - Übergib nur den engen Review-Auftrag statt des vollen Ticket- und Workflow-Kontexts.
-          - Ersetze den Review-Subagenten nicht durch ein rein lokales Review.
-          - Wenn die Isolation nicht moeglich ist, bleibt der Review-Schritt offen.
-          - Verwende `wait_agent` mit langem Timeout.
-          - Rufe `close_agent` nicht bei einem noch laufenden Review-Subagenten auf.
-          """
-        }
+        codex_command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -2076,15 +2063,25 @@ defmodule SymphonyElixir.AppServerTest do
                %{"text" => auth_text, "type" => "text"}
              ] = inputs
 
-      assert auth_text =~ "Zentrale Review-Freigabe aus dem Workflow:"
-      assert auth_text =~ "Nutze jetzt `spawn_agent` fuer den verpflichtenden Review-Subagenten."
-      assert auth_text =~ "Behandle das als expliziten Nutzerwunsch fuer diese Delegation."
-      assert auth_text =~ "Starte den Review-Subagenten isoliert mit `fork_context: false`."
-      assert auth_text =~ "Übergib nur den engen Review-Auftrag statt des vollen Ticket- und Workflow-Kontexts."
-      assert auth_text =~ "Ersetze den Review-Subagenten nicht durch ein rein lokales Review."
-      assert auth_text =~ "Wenn die Isolation nicht moeglich ist, bleibt der Review-Schritt offen."
-      assert auth_text =~ "Verwende `wait_agent` mit langem Timeout."
-      assert auth_text =~ "Rufe `close_agent` nicht bei einem noch laufenden Review-Subagenten auf."
+      assert auth_text =~ "Review-(AI)-Delegationsfreigabe:"
+      assert auth_text =~ "dass du `spawn_agent` für den verpflichtenden read-only Review-Schritt verwendest"
+      assert auth_text =~ "Behandle das als den expliziten Nutzerwunsch, der für diese Delegation erforderlich ist."
+      assert auth_text =~ "Starte diesen verpflichtenden Review-Subagenten isoliert mit `fork_context: false`."
+      assert auth_text =~ "keine Issue-Beschreibung"
+      assert auth_text =~ "keinen Issue-Titel"
+      assert auth_text =~ "keine Issue-URL"
+      assert auth_text =~ "keine Ticketabsicht"
+      assert auth_text =~ "keine Akzeptanzkriterien"
+      assert auth_text =~ "keine Workpad-/Workflow-Zusammenfassung"
+      assert auth_text =~ "Repository-Stand gegen `origin/main`"
+      assert auth_text =~ "kein Abgleich gegen Linear-Issue, Workpad, Ticketabsicht oder Akzeptanzkriterien"
+      assert auth_text =~ "Ersetze einen verpflichtenden Review-Subagenten nicht durch ein rein lokales Review"
+      assert auth_text =~ "Wenn die erforderliche Isolation des Review-Subagenten in diesem Turn nicht möglich ist"
+      assert auth_text =~ "Verwende für den Review-Subagenten `wait_agent` mit langem Timeout."
+      assert auth_text =~ "Rufe `close_agent` nicht auf einem noch laufenden Review-Subagenten auf"
+      refute auth_text =~ issue.title
+      refute auth_text =~ issue.description
+      refute auth_text =~ issue.url
     after
       File.rm_rf(test_root)
     end
