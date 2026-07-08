@@ -169,6 +169,7 @@ defmodule SymphonyElixir.AppServerTest do
         printf 'worktrees=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
         printf 'workflow=%s\\n' "${SYMPHONY_WORKFLOW_FILE:-}"
         printf 'dialog=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE-unset}"
+        printf 'labels=%s\\n' "${SYMPHONY_ISSUE_LABELS_JSON:-}"
       } > "$trace_file"
 
       count=0
@@ -211,7 +212,7 @@ defmodule SymphonyElixir.AppServerTest do
         description: "Codex subprocess should receive clean Symphony runtime env",
         state: "In Arbeit (AI)",
         url: "https://example.org/issues/MT-ENV",
-        labels: []
+        labels: [" Requires Manual Review ", "Skip \"Freigabe Review\""]
       }
 
       assert {:ok, _result} = AppServer.run(workspace, "Env prompt", issue)
@@ -225,6 +226,16 @@ defmodule SymphonyElixir.AppServerTest do
       assert trace =~ "workflow=#{Workflow.workflow_file_path()}"
       assert trace =~ "dialog=unset"
       refute trace =~ "/tmp/wrong"
+
+      labels_json =
+        trace
+        |> String.split("\n", trim: true)
+        |> Enum.find_value(fn
+          "labels=" <> value -> value
+          _ -> nil
+        end)
+
+      assert Jason.decode!(labels_json) == [" Requires Manual Review ", "Skip \"Freigabe Review\""]
     after
       SymphonyElixir.TestSupport.restore_env_snapshot(previous_env)
       File.rm_rf(test_root)
@@ -1905,7 +1916,7 @@ defmodule SymphonyElixir.AppServerTest do
         description: "Validate ssh-backed codex startup",
         state: "In Progress",
         url: "https://example.org/issues/MT-REMOTE",
-        labels: ["backend"]
+        labels: ["Requires Manual Review", "backend"]
       }
 
       assert {:ok, _result} =
@@ -1925,6 +1936,9 @@ defmodule SymphonyElixir.AppServerTest do
       assert argv_line =~ remote_workspace
       assert argv_line =~ "exec "
       assert argv_line =~ "fake-remote-codex app-server"
+      assert argv_line =~ "SYMPHONY_ISSUE_LABELS_JSON="
+      assert argv_line =~ "Requires Manual Review"
+      assert argv_line =~ "backend"
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",

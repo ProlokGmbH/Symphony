@@ -15,6 +15,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   @max_stream_log_bytes 1_000
   @post_turn_completion_drain_ms 500
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
+  @issue_labels_env "SYMPHONY_ISSUE_LABELS_JSON"
 
   @type session :: %{
           port: port(),
@@ -31,7 +32,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace, opts) do
+    with {:ok, session} <- start_session(workspace, Keyword.put(opts, :issue, issue)) do
       try do
         run_turn(session, prompt, issue, opts)
       after
@@ -47,7 +48,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host, opts),
          {:ok, launch_cwd} <- resolve_launch_cwd(expanded_workspace, worker_host, opts),
-         {:ok, port} <- start_port(launch_cwd, expanded_workspace, worker_host) do
+         {:ok, port} <- start_port(launch_cwd, expanded_workspace, worker_host, app_server_issue_env(Keyword.get(opts, :issue))) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host, opts),
@@ -246,7 +247,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, active_repo_root, nil) do
+  defp start_port(workspace, active_repo_root, nil, issue_env) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -262,10 +263,12 @@ defmodule SymphonyElixir.Codex.AppServer do
             args: [~c"-lc", String.to_charlist(Config.local_codex_command())],
             cd: String.to_charlist(workspace),
             env:
-              RuntimePaths.cleaned_builtin_port_env(%{
+              %{
                 "SYMPHONY_ACTIVE_REPO_ROOT" => active_repo_root,
                 "SYMPHONY_SOURCE_REPO" => RuntimePaths.project_root()
-              }),
+              }
+              |> Map.merge(issue_env)
+              |> RuntimePaths.cleaned_builtin_port_env(),
             line: @port_line_bytes
           ]
         )
@@ -274,17 +277,32 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, _active_repo_root, worker_host) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace)
+  defp start_port(workspace, _active_repo_root, worker_host, issue_env) when is_binary(worker_host) do
+    remote_command = remote_launch_command(workspace, issue_env)
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
   end
 
-  defp remote_launch_command(workspace) when is_binary(workspace) do
+  defp remote_launch_command(workspace, issue_env) when is_binary(workspace) and is_map(issue_env) do
     [
       "cd #{shell_escape(workspace)}",
+      remote_export_command(issue_env),
       "exec #{Config.settings!().codex.command}"
     ]
     |> Enum.join(" && ")
+  end
+
+  defp remote_export_command(issue_env) when is_map(issue_env) do
+    issue_env
+    |> Enum.sort_by(fn {name, _value} -> name end)
+    |> Enum.map_join(" && ", fn {name, value} -> "export #{name}=#{shell_escape(value)}" end)
+  end
+
+  defp app_server_issue_env(%{labels: labels}) when is_list(labels) do
+    %{@issue_labels_env => Jason.encode!(labels)}
+  end
+
+  defp app_server_issue_env(_issue) do
+    %{@issue_labels_env => "[]"}
   end
 
   defp port_metadata(port, worker_host) when is_port(port) do

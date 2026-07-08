@@ -10,6 +10,7 @@ defmodule SymphonyElixir.RuntimePathsTest do
 
     assert RuntimePaths.runtime_env_names() == SymphonyElixir.TestSupport.symphony_runtime_env_keys()
     assert default_env_map["SYMPHONY_SOURCE_REPO"] == nil
+    assert default_env_map["SYMPHONY_ISSUE_LABELS_JSON"] == nil
     assert env_map["SYMPHONY_SOURCE_REPO"] == "/tmp/source"
     assert env_map["SYMPHONY_WORKFLOW_FILE"] == nil
     assert env_map["SYMPHONY_PROJECT_ROOT"] == nil
@@ -25,6 +26,7 @@ defmodule SymphonyElixir.RuntimePathsTest do
     assert env_map["SYMPHONY_WORKFLOW_DIR"] == Path.dirname(RuntimePaths.workflow_file())
     assert env_map["SYMPHONY_WORKFLOW_FILE"] == RuntimePaths.workflow_file()
     assert env_map["SYMPHONY_SOURCE_REPO"] == nil
+    assert env_map["SYMPHONY_ISSUE_LABELS_JSON"] == nil
   end
 
   test "cleaned_builtin_port_env uses charlists and false for cleared variables" do
@@ -36,6 +38,7 @@ defmodule SymphonyElixir.RuntimePathsTest do
     assert env_map[~c"SYMPHONY_SOURCE_REPO"] == ~c"/tmp/source"
     assert env_map[~c"SYMPHONY_PROJECT_ROOT"] == String.to_charlist(File.cwd!())
     assert env_map[~c"SYMPHONY_WORKFLOW_FILE"] == String.to_charlist(RuntimePaths.workflow_file())
+    assert env_map[~c"SYMPHONY_ISSUE_LABELS_JSON"] == false
     assert env_map[~c"SYMPHONY_WORKFLOW_DIALOG_FILE"] == false
     assert env_map[~c"SYMPHONY_WORKFLOW_INTERACTIVE_FILE"] == false
   end

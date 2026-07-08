@@ -56,10 +56,18 @@ Nur im Merge-Schritt des Workflows verwenden.
    eine Behebung Dateiänderungen erfordert, Fix umsetzen, committen, pushen,
    nach `Test (AI)` zurückverschieben und stoppen; reine CI-Neuläufe ohne
    Dateiänderungen dürfen weiter beobachtet werden.
-9. Wenn GitHub-Checks bestanden oder gemäß Skip-/Neutral-Policy akzeptabel sind
+9. Wenn das Linear-Label `Requires Manual Review` gesetzt ist, nach sauberer
+   PR-/Remote-Preflight-Evidenz, erledigtem Review-Feedback und akzeptablen
+   GitHub-Checks ein gültiges menschliches GitHub-Approval auf der aktuellen
+   PR-Head-SHA verlangen. `--yolo` und `Skip "Freigabe Review"` dürfen dieses
+   externe Merge-Gate nicht umgehen. Bei fehlendem Approval keinen Merge
+   versuchen und keine Merge-Evidenz erzeugen; den Blocker im Workpad
+   dokumentieren, das Issue nach `BLOCKER` verschieben und stoppen. Keine
+   Review-Requests, GitHub-Kommentare oder Label-Entfernungen erzeugen.
+10. Wenn GitHub-Checks bestanden oder gemäß Skip-/Neutral-Policy akzeptabel sind
    und Feedback erledigt ist, mit Merge-Commit-Betreff
    `<IssueId>: <IssueTitle>` mergen.
-10. Nach erfolgreichem Merge vor jedem Statuswechsel im Workpad-Verlauf eine
+11. Nach erfolgreichem Merge vor jedem Statuswechsel im Workpad-Verlauf eine
     eindeutige Zeile im Format `Merge-Evidenz: PR #<nummer> gemergt,
     Merge-Commit <sha>.` dokumentieren.
 
@@ -74,7 +82,14 @@ python3 .codex/skills/symphony-land/land_watch.py
 
 Exit-Codes: `2` Review-Kommentare, `3` CI-Fehler, `4` PR-Head während des
 Watch-Laufs aktualisiert, `5` Merge-Konflikt, `6` fehlende oder inkonsistente
-PR-/Remote-Preflight-Evidenz.
+PR-/Remote-Preflight-Evidenz, `7` fehlendes gültiges manuelles GitHub-Approval
+bei gesetztem Label `Requires Manual Review`.
+
+Bei Exit-Code `7` nennt die Helper-Ausgabe PR-Nummer oder URL, aktuelle
+Head-SHA, das Label `Requires Manual Review` und die Aufforderung, ein
+manuelles GitHub-Review durchzuführen und das Linear-Issue danach wieder nach
+`Merge (AI)` zu verschieben. Diese Meldung im Workpad dokumentieren und das
+Issue nach `BLOCKER` verschieben.
 
 ## Review-Umgang
 

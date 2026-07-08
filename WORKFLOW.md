@@ -643,10 +643,23 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 6. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie und verschiebe das Issue nach `Test (AI)`. Beende den Turn danach sofort; der normale Merge-Pfad wird nur fortgesetzt, wenn `Merge (AI)` keine Dateien verändert oder übernimmt.
 7. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 8. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-9. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
+9. Wenn das Label `Requires Manual Review` gesetzt ist, greift nach sauberem
+   PR-/Remote-Preflight, Mergebarkeitsprüfung, Review-Feedback-Prüfung und
+   akzeptablen GitHub-Checks ein zusätzliches externes GitHub-Merge-Gate.
+   Symphony darf erst mergen, wenn ein menschliches GitHub-Approval eines
+   Nicht-Autors auf der aktuellen PR-Head-SHA vorliegt. `--yolo` und
+   `Skip "Freigabe Review"` dürfen dieses Gate nicht umgehen. Bei fehlendem
+   gültigem Approval darf kein Merge-Versuch ausgeführt und keine
+   Merge-Evidenz erzeugt werden; dokumentiere im Workpad PR-Nummer oder URL,
+   aktuelle Head-SHA, das Label `Requires Manual Review` und den Hinweis, dass
+   ein manuelles GitHub-Review angefordert und durchgeführt werden muss.
+   Fordere außerdem auf, das Issue nach erfolgtem GitHub-Review wieder nach
+   `Merge (AI)` zu verschieben, verschiebe das Issue nach `BLOCKER` und
+   beende den Turn.
+10. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
    eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
    gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
-10. Falls ein erneuter Pull/Rebase, die Konfliktlösung, Review-Feedback, ein CI-Fix oder eine andere Handlung in `Merge (AI)` zu Dateiänderungen führt oder Dateiänderungen übernimmt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
+11. Falls ein erneuter Pull/Rebase, die Konfliktlösung, Review-Feedback, ein CI-Fix oder eine andere Handlung in `Merge (AI)` zu Dateiänderungen führt oder Dateiänderungen übernimmt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 
