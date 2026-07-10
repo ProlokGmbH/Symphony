@@ -15,6 +15,8 @@ defmodule SymphonyElixir.Codex.AppServer do
   @max_stream_log_bytes 1_000
   @post_turn_completion_drain_ms 500
   @non_interactive_tool_input_answer "This is a non-interactive session. Operator input is unavailable."
+  @issue_id_env "SYMPHONY_ISSUE_ID"
+  @issue_identifier_env "SYMPHONY_ISSUE_IDENTIFIER"
   @issue_labels_env "SYMPHONY_ISSUE_LABELS_JSON"
 
   @type session :: %{
@@ -297,13 +299,22 @@ defmodule SymphonyElixir.Codex.AppServer do
     |> Enum.map_join(" && ", fn {name, value} -> "export #{name}=#{shell_escape(value)}" end)
   end
 
-  defp app_server_issue_env(%{labels: labels}) when is_list(labels) do
-    %{@issue_labels_env => Jason.encode!(labels)}
+  defp app_server_issue_env(issue) when is_map(issue) do
+    %{@issue_labels_env => issue_labels_json(issue)}
+    |> put_issue_env(@issue_id_env, Map.get(issue, :id))
+    |> put_issue_env(@issue_identifier_env, Map.get(issue, :identifier))
   end
 
   defp app_server_issue_env(_issue) do
     %{@issue_labels_env => "[]"}
   end
+
+  defp issue_labels_json(%{labels: labels}) when is_list(labels), do: Jason.encode!(labels)
+  defp issue_labels_json(_issue), do: "[]"
+
+  defp put_issue_env(env, _name, nil), do: env
+  defp put_issue_env(env, name, value) when is_binary(value), do: Map.put(env, name, value)
+  defp put_issue_env(env, name, value), do: Map.put(env, name, to_string(value))
 
   defp port_metadata(port, worker_host) when is_port(port) do
     base_metadata =

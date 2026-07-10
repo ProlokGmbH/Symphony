@@ -169,6 +169,8 @@ defmodule SymphonyElixir.AppServerTest do
         printf 'worktrees=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
         printf 'workflow=%s\\n' "${SYMPHONY_WORKFLOW_FILE:-}"
         printf 'dialog=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE-unset}"
+        printf 'issue_id=%s\\n' "${SYMPHONY_ISSUE_ID:-}"
+        printf 'issue_identifier=%s\\n' "${SYMPHONY_ISSUE_IDENTIFIER:-}"
         printf 'labels=%s\\n' "${SYMPHONY_ISSUE_LABELS_JSON:-}"
       } > "$trace_file"
 
@@ -225,6 +227,8 @@ defmodule SymphonyElixir.AppServerTest do
       assert trace =~ "worktrees=#{SymphonyElixir.RuntimePaths.project_worktrees_root()}"
       assert trace =~ "workflow=#{Workflow.workflow_file_path()}"
       assert trace =~ "dialog=unset"
+      assert trace =~ "issue_id=issue-env"
+      assert trace =~ "issue_identifier=MT-ENV"
       refute trace =~ "/tmp/wrong"
 
       labels_json =
@@ -1937,6 +1941,8 @@ defmodule SymphonyElixir.AppServerTest do
       assert argv_line =~ "exec "
       assert argv_line =~ "fake-remote-codex app-server"
       assert argv_line =~ "SYMPHONY_ISSUE_LABELS_JSON="
+      assert argv_line =~ "SYMPHONY_ISSUE_IDENTIFIER="
+      assert argv_line =~ "MT-REMOTE"
       assert argv_line =~ "Requires Manual Review"
       assert argv_line =~ "backend"
 

@@ -35,6 +35,8 @@ erl_crash.dump
 *.swp
 *.swo
 *~
+__pycache__/
+*.pyc
 
 # IDE folders.
 .idea/

@@ -547,11 +547,47 @@ defmodule SymphonyElixir.CoreTest do
         " requires manual review ",
         "backend",
     ]
+    assert module.issue_labels_from_env("not-json") == []
+    assert module.issue_labels_from_refresh_output(
+        "Compiling 3 files (.ex)\\n[\\\"Requires Manual Review\\\"]\\n"
+    ) == ["Requires Manual Review"]
+    refresh_source = __import__("inspect").getsource(module.run_tracker_label_refresh)
+    assert refresh_source.index('issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")') < (
+        refresh_source.index("EnvFile.load")
+    )
+    assert "fetch_issue_by_identifier(issue_identifier)" in refresh_source
+    assert "cwd=repo_root" in refresh_source
     assert module.requires_manual_review([" requires manual review "])
     assert module.requires_manual_review(["REQUIRES MANUAL REVIEW"])
     assert not module.requires_manual_review(['Require \"Freigabe Review\"'])
     assert not module.requires_manual_review(["Benötigt Freigabe Review"])
     assert not module.requires_manual_review(["Skip \\"Freigabe Review\\""])
+
+    async def live_labels():
+        return ["Requires Manual Review"]
+
+    async def missing_live_labels():
+        return None
+
+    os.environ.pop(module.ISSUE_IDENTIFIER_ENV, None)
+    module.fetch_current_issue_labels = live_labels
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == ["backend"]
+    os.environ[module.ISSUE_IDENTIFIER_ENV] = "PRO-580"
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == [
+        "Requires Manual Review",
+    ]
+    module.fetch_current_issue_labels = missing_live_labels
+    try:
+        __import__("asyncio").run(module.current_issue_labels(["backend"]))
+    except module.LabelRefreshError as error:
+        assert "Could not refresh current Linear issue labels" in str(error)
+    else:
+        raise AssertionError("expected label refresh failure to block")
+    os.environ.pop(module.ISSUE_IDENTIFIER_ENV, None)
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == ["backend"]
+    os.environ[module.SOURCE_REPO_ENV] = "/tmp/symphony-source"
+    assert __import__("asyncio").run(module.source_repo_root()) == "/tmp/symphony-source"
+    os.environ.pop(module.SOURCE_REPO_ENV, None)
 
     assert module.has_valid_manual_approval(
         [review("reviewer", "APPROVED")],

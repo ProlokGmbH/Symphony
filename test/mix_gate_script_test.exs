@@ -17,6 +17,9 @@ defmodule MixGateScriptTest do
     printf 'workflow=%s\\n' "${SYMPHONY_WORKFLOW_FILE-unset}"
     printf 'workflow_dir=%s\\n' "${SYMPHONY_WORKFLOW_DIR-unset}"
     printf 'source=%s\\n' "${SYMPHONY_SOURCE_REPO-unset}"
+    printf 'issue_id=%s\\n' "${SYMPHONY_ISSUE_ID-unset}"
+    printf 'issue_identifier=%s\\n' "${SYMPHONY_ISSUE_IDENTIFIER-unset}"
+    printf 'labels=%s\\n' "${SYMPHONY_ISSUE_LABELS_JSON-unset}"
     printf 'project=%s\\n' "${SYMPHONY_PROJECT_ROOT-unset}"
     """)
 
@@ -31,6 +34,9 @@ defmodule MixGateScriptTest do
         {"SYMPHONY_WORKFLOW_FILE", "/tmp/wrong/WORKFLOW.md"},
         {"SYMPHONY_WORKFLOW_DIR", "/tmp/wrong"},
         {"SYMPHONY_SOURCE_REPO", "/tmp/wrong-source"},
+        {"SYMPHONY_ISSUE_ID", "issue-wrong"},
+        {"SYMPHONY_ISSUE_IDENTIFIER", "MT-WRONG"},
+        {"SYMPHONY_ISSUE_LABELS_JSON", ~s([{"name":"Requires Manual Review"}])},
         {"SYMPHONY_PROJECT_ROOT", "/tmp/wrong-project"}
       ]
 
@@ -41,6 +47,9 @@ defmodule MixGateScriptTest do
     assert output =~ "workflow=unset"
     assert output =~ "workflow_dir=unset"
     assert output =~ "source=unset"
+    assert output =~ "issue_id=unset"
+    assert output =~ "issue_identifier=unset"
+    assert output =~ "labels=unset"
     assert output =~ "project=unset"
   end
 end

@@ -64,6 +64,9 @@ Nur im Merge-Schritt des Workflows verwenden.
    versuchen und keine Merge-Evidenz erzeugen; den Blocker im Workpad
    dokumentieren, das Issue nach `BLOCKER` verschieben und stoppen. Keine
    Review-Requests, GitHub-Kommentare oder Label-Entfernungen erzeugen.
+   Wenn der aktuelle Linear-Labelstand im App-Server-Kontext nicht sicher
+   verifiziert werden kann, ebenfalls vor jedem Merge-Versuch als eigener
+   Label-Lookup-Blocker nach `BLOCKER` stoppen.
 10. Wenn GitHub-Checks bestanden oder gemäß Skip-/Neutral-Policy akzeptabel sind
    und Feedback erledigt ist, mit Merge-Commit-Betreff
    `<IssueId>: <IssueTitle>` mergen.
@@ -83,13 +86,17 @@ python3 .codex/skills/symphony-land/land_watch.py
 Exit-Codes: `2` Review-Kommentare, `3` CI-Fehler, `4` PR-Head während des
 Watch-Laufs aktualisiert, `5` Merge-Konflikt, `6` fehlende oder inkonsistente
 PR-/Remote-Preflight-Evidenz, `7` fehlendes gültiges manuelles GitHub-Approval
-bei gesetztem Label `Requires Manual Review`.
+bei gesetztem Label `Requires Manual Review` oder nicht verifizierbarer
+aktueller Linear-Labelstand im App-Server-Kontext.
 
-Bei Exit-Code `7` nennt die Helper-Ausgabe PR-Nummer oder URL, aktuelle
-Head-SHA, das Label `Requires Manual Review` und die Aufforderung, ein
-manuelles GitHub-Review durchzuführen und das Linear-Issue danach wieder nach
-`Merge (AI)` zu verschieben. Diese Meldung im Workpad dokumentieren und das
-Issue nach `BLOCKER` verschieben.
+Bei Exit-Code `7` nennt die Helper-Ausgabe PR-Nummer oder URL und aktuelle
+Head-SHA. Wenn `Requires Manual Review` gesetzt ist, nennt sie zusätzlich das
+Label und die Aufforderung, ein manuelles GitHub-Review durchzuführen und das
+Linear-Issue danach wieder nach `Merge (AI)` zu verschieben. Wenn der aktuelle
+Labelstand nicht verifiziert werden konnte, nennt sie stattdessen den
+Label-Lookup-Fehler und fordert zur Wiederholung nach behobenem Lookup auf.
+Diese Meldung im Workpad dokumentieren und das Issue nach `BLOCKER`
+verschieben.
 
 ## Review-Umgang
 

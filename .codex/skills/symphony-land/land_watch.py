@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -19,6 +20,8 @@ CODEX_BOTS = {
 MAX_GH_RETRIES = 5
 BASE_GH_BACKOFF_SECONDS = 2
 MANUAL_REVIEW_LABEL = "Requires Manual Review"
+SOURCE_REPO_ENV = "SYMPHONY_SOURCE_REPO"
+ISSUE_IDENTIFIER_ENV = "SYMPHONY_ISSUE_IDENTIFIER"
 MANUAL_REVIEW_LABEL_ENV = "SYMPHONY_ISSUE_LABELS_JSON"
 MANUAL_REVIEW_BLOCKER_EXIT = 7
 DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
@@ -55,6 +58,10 @@ class RateLimitError(RuntimeError):
 
 
 class PrNotFoundError(RuntimeError):
+    pass
+
+
+class LabelRefreshError(RuntimeError):
     pass
 
 
@@ -468,15 +475,119 @@ def is_bot_user(user: dict[str, Any]) -> bool:
 
 def issue_labels_from_env(value: str | None = None) -> list[str]:
     raw = os.environ.get(MANUAL_REVIEW_LABEL_ENV, "[]") if value is None else value
+    return issue_labels_from_json(raw) or []
+
+
+def issue_labels_from_json(raw: str | None) -> list[str] | None:
     if not raw:
         return []
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        return []
+        return None
     if not isinstance(parsed, list):
-        return []
+        return None
     return [label for label in parsed if isinstance(label, str)]
+
+
+async def current_issue_labels(snapshot_labels: list[str] | None = None) -> list[str]:
+    snapshot = issue_labels_from_env() if snapshot_labels is None else snapshot_labels
+    if current_issue_identifier() is None:
+        return snapshot
+    live_labels = await fetch_current_issue_labels()
+    if live_labels is None:
+        raise LabelRefreshError("Could not refresh current Linear issue labels before merge.")
+    return live_labels
+
+
+def current_issue_identifier() -> str | None:
+    issue_identifier = os.environ.get(ISSUE_IDENTIFIER_ENV)
+    if issue_identifier is None or not issue_identifier.strip():
+        return None
+    return issue_identifier
+
+
+async def fetch_current_issue_labels() -> list[str] | None:
+    if current_issue_identifier() is None:
+        return None
+    try:
+        output = await run_tracker_label_refresh()
+    except RuntimeError as error:
+        raise LabelRefreshError(
+            "Could not refresh current Linear issue labels before merge: "
+            f"{error}",
+        ) from error
+    labels = issue_labels_from_refresh_output(output)
+    if labels is None:
+        raise LabelRefreshError(
+            "Could not parse refreshed Linear issue labels before merge.",
+        )
+    return labels
+
+
+def issue_labels_from_refresh_output(output: str) -> list[str] | None:
+    for line in reversed(output.splitlines()):
+        labels = issue_labels_from_json(line.strip())
+        if labels is not None:
+            return labels
+    return None
+
+
+async def run_tracker_label_refresh() -> str:
+    repo_root = await source_repo_root()
+    elixir = """
+issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")
+
+repo_root =
+  case System.get_env("SYMPHONY_SOURCE_REPO") do
+    value when is_binary(value) ->
+      case String.trim(value) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+
+    _ ->
+      nil
+  end ||
+    System.cmd("git", ["rev-parse", "--show-toplevel"])
+    |> elem(0)
+    |> String.trim()
+
+:ok = SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)
+{:ok, _} = Application.ensure_all_started(:req)
+
+case SymphonyElixir.Tracker.fetch_issue_by_identifier(issue_identifier) do
+  {:ok, issue} ->
+    IO.puts(Jason.encode!(Map.get(issue, :labels, [])))
+
+  {:error, reason} ->
+    IO.warn("failed to refresh Linear issue labels: #{inspect(reason)}")
+    System.halt(1)
+end
+"""
+    command = (
+        ["mise", "exec", "--", "mix", "run", "--no-start", "-e", elixir]
+        if shutil.which("mise")
+        else ["mix", "run", "--no-start", "-e", elixir]
+    )
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=repo_root,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return stdout.decode()
+    error = stderr.decode().strip() or stdout.decode().strip() or "label refresh failed"
+    raise RuntimeError(error)
+
+
+async def source_repo_root() -> str:
+    source_repo = os.environ.get(SOURCE_REPO_ENV)
+    if source_repo is not None and source_repo.strip():
+        return source_repo.strip()
+    return (await run_git("rev-parse", "--show-toplevel")).strip()
 
 
 def normalize_label_name(label: str) -> str:
@@ -736,6 +847,15 @@ def manual_review_blocker_message(pr: PrInfo) -> str:
     )
 
 
+def label_refresh_blocker_message(pr: PrInfo, error: LabelRefreshError) -> str:
+    return (
+        "Could not verify current Linear labels before merge. "
+        f"PR #{pr.number}: {pr.url}; current head SHA: {pr.head_sha}; "
+        f"unable to determine whether Linear label `{MANUAL_REVIEW_LABEL}` is set. "
+        f"{error} Restore Linear label lookup, then move the Linear issue back to `Merge (AI)`."
+    )
+
+
 def raise_on_missing_manual_review_approval(
     labels: list[str],
     pr: PrInfo,
@@ -912,7 +1032,11 @@ async def watch_pr() -> None:
         if exc:
             raise exc
 
-    labels = issue_labels_from_env()
+    try:
+        labels = await current_issue_labels()
+    except LabelRefreshError as error:
+        print(label_refresh_blocker_message(pr, error))
+        raise SystemExit(MANUAL_REVIEW_BLOCKER_EXIT) from error
     if requires_manual_review(labels):
         current = await get_pr_info(branch)
         if is_merge_conflicting(current):
