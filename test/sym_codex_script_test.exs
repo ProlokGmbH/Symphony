@@ -251,9 +251,32 @@ defmodule SymCodexScriptTest do
                ]
              )
 
-    assert output =~ "--model gpt-5.5"
+    assert output =~ "--model gpt-5.6-sol"
     assert output =~ "--config service_tier=priority"
     assert output =~ "--config model_reasoning_effort=high"
+  end
+
+  test "sym-codex passes the new reasoning effort values through unchanged" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root} =
+      build_script_worktree_fixture!("PRO-49")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    for reasoning_effort <- ["max", "ultra"] do
+      File.write!(
+        Path.join(repo_dir, ".env"),
+        "SYM_CODEX_REASONING_EFFORT=#{reasoning_effort}\n"
+      )
+
+      assert {output, 0} =
+               run_script(Path.join(repo_dir, "sym-codex"), bin_dir, ["PRO-49"], env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}])
+
+      assert output =~ "--config model_reasoning_effort=#{reasoning_effort}"
+    end
   end
 
   test "sym-codex uses the same root env launch profile for every workflow step" do
@@ -371,7 +394,7 @@ defmodule SymCodexScriptTest do
       File.rm_rf(workspace_root)
     end)
 
-    File.write!(Path.join(repo_dir, ".env"), """
+    File.write!(Path.join(worktree, ".env"), """
     SYM_CODEX_MODEL=gpt-5.5
     SYM_CODEX_REASONING_EFFORT=high
     SYM_CODEX_SERVICE_TIER=flex
@@ -473,7 +496,7 @@ defmodule SymCodexScriptTest do
                env: [{"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root}]
              )
 
-    assert output =~ "--model gpt-5.5"
+    assert output =~ "--model gpt-5.6-sol"
     assert output =~ "--config model_reasoning_effort=high"
     refute output =~ "--model gpt-5.4-mini"
     refute output =~ "--config model_reasoning_effort=low"

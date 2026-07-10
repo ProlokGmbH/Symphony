@@ -70,8 +70,9 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
    Das von `sym-codex` verwendete Codex-Startprofil wird dagegen aus `.env`
    und optional `.env.local` im aktiven Symphony-Checkout geladen, nicht aus
    `.symphony/.env(.local)`. Unterstützt werden:
-   - `SYM_CODEX_MODEL`, Standard `gpt-5.5`
-   - `SYM_CODEX_REASONING_EFFORT`, Standard `high`
+   - `SYM_CODEX_MODEL`, Standard `gpt-5.6-sol`
+   - `SYM_CODEX_REASONING_EFFORT`, Standard `high`; zusätzliche unterstützte
+     Werte umfassen `max` und `ultra`
    - `SYM_CODEX_SERVICE_TIER`, Standard `flex`
    - `SYM_CODEX_HUMAN_SERVICE_TIER`, Standard `priority`
 
