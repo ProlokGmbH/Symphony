@@ -518,6 +518,162 @@ defmodule SymphonyElixir.CoreTest do
     assert status == 0, output
   end
 
+  test "land watch helper enforces manual review label approval rules" do
+    helper_path = Path.expand("../../.codex/skills/symphony-land/land_watch.py", __DIR__)
+
+    script = """
+    import importlib.util
+    import os
+    import sys
+
+    spec = importlib.util.spec_from_file_location("land_watch", #{inspect(helper_path)})
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    def user(login, kind="User"):
+        return {"login": login, "type": kind}
+
+    def review(login, state, commit_id="head-sha", submitted_at="2026-07-08T10:00:00Z", kind="User", body=""):
+        return {
+            "user": user(login, kind),
+            "state": state,
+            "commit_id": commit_id,
+            "submitted_at": submitted_at,
+            "body": body,
+        }
+
+    assert module.issue_labels_from_env('[\" requires manual review \", \"backend\"]') == [
+        " requires manual review ",
+        "backend",
+    ]
+    assert module.issue_labels_from_env("not-json") == []
+    assert module.issue_labels_from_refresh_output(
+        "Compiling 3 files (.ex)\\n[\\\"Requires Manual Review\\\"]\\n"
+    ) == ["Requires Manual Review"]
+    refresh_source = __import__("inspect").getsource(module.run_tracker_label_refresh)
+    assert refresh_source.index('issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")') < (
+        refresh_source.index("EnvFile.load")
+    )
+    assert "fetch_issue_by_identifier(issue_identifier)" in refresh_source
+    assert "cwd=repo_root" in refresh_source
+    assert module.requires_manual_review([" requires manual review "])
+    assert module.requires_manual_review(["REQUIRES MANUAL REVIEW"])
+    assert not module.requires_manual_review(['Require \"Freigabe Review\"'])
+    assert not module.requires_manual_review(["Benötigt Freigabe Review"])
+    assert not module.requires_manual_review(["Skip \\"Freigabe Review\\""])
+
+    async def live_labels():
+        return ["Requires Manual Review"]
+
+    async def missing_live_labels():
+        return None
+
+    os.environ.pop(module.ISSUE_IDENTIFIER_ENV, None)
+    module.fetch_current_issue_labels = live_labels
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == ["backend"]
+    os.environ[module.ISSUE_IDENTIFIER_ENV] = "PRO-580"
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == [
+        "Requires Manual Review",
+    ]
+    module.fetch_current_issue_labels = missing_live_labels
+    try:
+        __import__("asyncio").run(module.current_issue_labels(["backend"]))
+    except module.LabelRefreshError as error:
+        assert "Could not refresh current Linear issue labels" in str(error)
+    else:
+        raise AssertionError("expected label refresh failure to block")
+    os.environ.pop(module.ISSUE_IDENTIFIER_ENV, None)
+    assert __import__("asyncio").run(module.current_issue_labels(["backend"])) == ["backend"]
+    os.environ[module.SOURCE_REPO_ENV] = "/tmp/symphony-source"
+    assert __import__("asyncio").run(module.source_repo_root()) == "/tmp/symphony-source"
+    os.environ.pop(module.SOURCE_REPO_ENV, None)
+
+    assert module.has_valid_manual_approval(
+        [review("reviewer", "APPROVED")],
+        "head-sha",
+        "author",
+    )
+    assert module.has_valid_manual_approval(
+        [
+            review("reviewer", "CHANGES_REQUESTED", submitted_at="2026-07-08T10:00:00Z"),
+            review("reviewer", "APPROVED", submitted_at="2026-07-08T10:05:00Z"),
+        ],
+        "head-sha",
+        "author",
+    )
+    assert not module.has_valid_manual_approval(
+        [
+            review("reviewer", "APPROVED", submitted_at="2026-07-08T10:00:00Z"),
+            review("reviewer", "CHANGES_REQUESTED", submitted_at="2026-07-08T10:05:00Z"),
+        ],
+        "head-sha",
+        "author",
+    )
+    assert not module.has_valid_manual_approval(
+        [review("reviewer", "APPROVED", commit_id="old-sha")],
+        "head-sha",
+        "author",
+    )
+    assert not module.has_valid_manual_approval(
+        [review("author", "APPROVED")],
+        "head-sha",
+        "author",
+    )
+    assert not module.has_valid_manual_approval(
+        [review("github-actions[bot]", "APPROVED", kind="Bot")],
+        "head-sha",
+        "author",
+    )
+
+    pr = module.PrInfo(
+        number=42,
+        url="https://github.com/owner/repo/pull/42",
+        head_sha="head-sha",
+        mergeable="MERGEABLE",
+        merge_state="CLEAN",
+        author_login="author",
+    )
+    module.raise_on_missing_manual_review_approval(
+        ["Requires Manual Review"],
+        pr,
+        [review("reviewer", "APPROVED")],
+    )
+
+    missing_approval_labels = ["Skip \\"Freigabe Review\\"", "Requires Manual Review"]
+    os.environ["SYMPHONY_YOLO"] = "true"
+    try:
+        module.raise_on_missing_manual_review_approval(missing_approval_labels, pr, [])
+    except SystemExit as error:
+        assert error.code == module.MANUAL_REVIEW_BLOCKER_EXIT
+    else:
+        raise AssertionError("expected missing approval to block")
+    finally:
+        os.environ.pop("SYMPHONY_YOLO", None)
+
+    blocker = module.manual_review_blocker_message(pr)
+    assert "PR #42" in blocker
+    assert "head-sha" in blocker
+    assert "`Requires Manual Review`" in blocker
+    assert "`Merge (AI)`" in blocker
+
+    blocking_reviews = module.filter_blocking_reviews(
+        [review("reviewer", "CHANGES_REQUESTED")],
+        None,
+    )
+    assert len(blocking_reviews) == 1
+    try:
+        module.raise_on_human_feedback([], [], blocking_reviews, None)
+    except SystemExit as error:
+        assert error.code == 2
+    else:
+        raise AssertionError("expected CHANGES_REQUESTED to stay review feedback")
+    """
+
+    {output, status} = System.cmd("python3", ["-B", "-c", script], stderr_to_stdout: true)
+    assert status == 0, output
+  end
+
   test "repo-local symphony-linear skill documents schema-valid issue lookup patterns and fallback" do
     skill_path = Path.expand("../../.codex/skills/symphony-linear/SKILL.md", __DIR__)
     skill = File.read!(skill_path)
@@ -11355,6 +11511,8 @@ defmodule SymphonyElixir.CoreTest do
 
       run_case.("issue-review-skip-handoff", "MT-REVIEW-SKIP", [~s(skip "freigabe review")], false)
       run_case.("issue-review-yolo-handoff", "MT-REVIEW-YOLO", [], true)
+      run_case.("issue-review-skip-manual-label-handoff", "MT-REVIEW-SKIP-MANUAL", [~s(skip "freigabe review"), "Requires Manual Review"], false)
+      run_case.("issue-review-yolo-manual-label-handoff", "MT-REVIEW-YOLO-MANUAL", ["Requires Manual Review"], true)
     after
       restore_app_env(:yolo, previous_yolo)
       restore_app_env(:memory_tracker_comments, previous_memory_comments)

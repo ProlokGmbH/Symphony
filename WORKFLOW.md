@@ -312,7 +312,7 @@ werden dabei weiter in Tabellenreihenfolge aufgelöst.
 | `Review (AI)` | Ja | Vor `symphony-review` `symphony-pull` ausführen; beim ersten Eintritt offene Workspace-Änderungen einmalig mit einem issue-bezogenen Autocommit sichern. Abschlussstatus nach Review-Ergebnis sowie `--yolo` oder `Skip "Freigabe Review"`. | `Freigabe Review` |
 | `Freigabe Review` | Nein | Manueller Freigabepunkt der reviewten Version vor dem Test-/Merge-Zyklus; ohne Skip-Label keine weitere automatische Aktion. | Warten auf menschliches Verschieben |
 | `Test (AI)` | Ja | Branch vor den Tests per `symphony-pull` auf den späteren PR-Merge-Stand synchronisieren und danach `symphony-test` ausführen. | `Merge (AI)` |
-| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull, Konfliktlösung oder andere Merge-Dateiänderungen neue Änderungen erzeugen oder übernehmen, nach `Test (AI)` zurückspringen. | `Review` |
+| `Merge (AI)` | Ja | Merge-Ablauf mit `symphony-land` ausführen; automatische Commits sind hier zulässig. Wenn Pull, Konfliktlösung oder andere Merge-Dateiänderungen neue Änderungen erzeugen oder übernehmen, nach `Test (AI)` zurückspringen. Wenn `Requires Manual Review` ohne gültiges GitHub-Approval blockiert oder der aktuelle Linear-Labelstand nicht verifizierbar ist, nach `BLOCKER` verschieben. | `Review`; bei Merge-Dateiänderungen `Test (AI)`; bei fehlendem gültigem Manual-Review-Approval oder nicht verifizierbarem Labelstand `BLOCKER` |
 | `BLOCKER` | Nein | Kritische Abweichung oder externer Blocker; keine weitere automatische Aktion, bis ein Mensch das Problem löst und das Ticket weiter verschiebt. | Warten auf menschliches Verschieben |
 | `Abbruch (AI)` | Ja | Laufende Arbeit sofort abbrechen und Cleanup ausführen. | `Abgebrochen` |
 | `Review` | Nein | Terminaler Übergabestatus nach dem Merge; keine weitere automatische Aktion, manuelles Verschieben nach `Fertig` bleibt beim Benutzer. | - |
@@ -643,10 +643,28 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
 6. Falls beim Eintritt oder während des Merge-Ablaufs offene Änderungen vorhanden sind, committe sie ausschließlich in diesem Status mit der Commit-Nachricht im Format `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie und verschiebe das Issue nach `Test (AI)`. Beende den Turn danach sofort; der normale Merge-Pfad wird nur fortgesetzt, wenn `Merge (AI)` keine Dateien verändert oder übernimmt.
 7. Das Workpad dient in diesem Status primär der Fortschritts- und Merge-Dokumentation. Es bleibt zulässig, dort festgehaltenen Ticketkontext, Plan-Entscheidungen und Übergabenotizen als Hintergrund für Merge- und Review-Entscheidungen zu lesen. Gleiche die aktuelle Implementierung nicht gegen frühere Workpad-Einträge ab. Erzeuge keine Implementierungsänderungen und nimm kein Zurückrollen bestehender Implementierung allein vor, um Details des Workpads zu erfüllen.
 8. Führe anschließend den Skill `symphony-land` in einer Schleife aus, bis die PR gemergt ist. `gh pr merge` nicht direkt aufrufen.
-9. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
+9. Wenn das Label `Requires Manual Review` gesetzt ist, greift nach sauberem
+   PR-/Remote-Preflight, Mergebarkeitsprüfung, Review-Feedback-Prüfung und
+   akzeptablen GitHub-Checks ein zusätzliches externes GitHub-Merge-Gate.
+   Symphony darf erst mergen, wenn ein menschliches GitHub-Approval eines
+   Nicht-Autors auf der aktuellen PR-Head-SHA vorliegt. `--yolo` und
+   `Skip "Freigabe Review"` dürfen dieses Gate nicht umgehen. Bei fehlendem
+   gültigem Approval darf kein Merge-Versuch ausgeführt und keine
+   Merge-Evidenz erzeugt werden; dokumentiere im Workpad PR-Nummer oder URL,
+   aktuelle Head-SHA, das Label `Requires Manual Review` und den Hinweis, dass
+   ein manuelles GitHub-Review angefordert und durchgeführt werden muss.
+   Fordere außerdem auf, das Issue nach erfolgtem GitHub-Review wieder nach
+   `Merge (AI)` zu verschieben, verschiebe das Issue nach `BLOCKER` und
+   beende den Turn.
+   Wenn der aktuelle Linear-Labelstand im App-Server-Kontext nicht sicher
+   geprüft werden kann, ist das ein eigener fail-closed Blocker vor dem Merge:
+   dokumentiere PR-Nummer oder URL, aktuelle Head-SHA, den nicht verifizierbaren
+   Labelstand und die notwendige Wiederholung nach behobenem Label-Lookup,
+   verschiebe nach `BLOCKER` und beende den Turn.
+10. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
    eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
    gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
-10. Falls ein erneuter Pull/Rebase, die Konfliktlösung, Review-Feedback, ein CI-Fix oder eine andere Handlung in `Merge (AI)` zu Dateiänderungen führt oder Dateiänderungen übernimmt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
+11. Falls ein erneuter Pull/Rebase, die Konfliktlösung, Review-Feedback, ein CI-Fix oder eine andere Handlung in `Merge (AI)` zu Dateiänderungen führt oder Dateiänderungen übernimmt, committe diese mit `<Issue-Key> Merge (AI) Autocommit` plus kurzem Body, pushe sie, verschiebe das Issue nach `Test (AI)` und beende den Turn, damit die Tests auf dem neuen Stand in einer neuen Codex-Session erneut durchlaufen.
 
 ### Abschluss und nächster Status
 

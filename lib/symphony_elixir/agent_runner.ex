@@ -639,7 +639,7 @@ defmodule SymphonyElixir.AgentRunner do
     workspace = turn_context.workspace
     worker_host = turn_context.worker_host
 
-    case AppServer.start_session(workspace, worker_host: worker_host) do
+    case AppServer.start_session(workspace, worker_host: worker_host, issue: issue) do
       {:ok, session} ->
         run_context = %{
           app_session: session,

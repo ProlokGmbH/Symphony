@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import asyncio
 import json
+import os
 import random
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -17,6 +19,12 @@ CODEX_BOTS = {
 }
 MAX_GH_RETRIES = 5
 BASE_GH_BACKOFF_SECONDS = 2
+MANUAL_REVIEW_LABEL = "Requires Manual Review"
+SOURCE_REPO_ENV = "SYMPHONY_SOURCE_REPO"
+ISSUE_IDENTIFIER_ENV = "SYMPHONY_ISSUE_IDENTIFIER"
+MANUAL_REVIEW_LABEL_ENV = "SYMPHONY_ISSUE_LABELS_JSON"
+MANUAL_REVIEW_BLOCKER_EXIT = 7
+DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
 
 
 @dataclass
@@ -26,6 +34,7 @@ class PrInfo:
     head_sha: str
     mergeable: str | None
     merge_state: str | None
+    author_login: str | None = None
 
 
 @dataclass
@@ -49,6 +58,10 @@ class RateLimitError(RuntimeError):
 
 
 class PrNotFoundError(RuntimeError):
+    pass
+
+
+class LabelRefreshError(RuntimeError):
     pass
 
 
@@ -113,7 +126,7 @@ async def get_pr_info(branch: str | None = None) -> PrInfo:
     args.extend(
         [
             "--json",
-            "number,url,headRefOid,mergeable,mergeStateStatus",
+            "number,url,headRefOid,mergeable,mergeStateStatus,author",
         ],
     )
     try:
@@ -124,12 +137,14 @@ async def get_pr_info(branch: str | None = None) -> PrInfo:
             raise PrNotFoundError(error) from exc
         raise
     parsed = json.loads(data)
+    author = parsed.get("author") or {}
     return PrInfo(
         number=parsed["number"],
         url=parsed["url"],
         head_sha=parsed["headRefOid"],
         mergeable=parsed.get("mergeable"),
         merge_state=parsed.get("mergeStateStatus"),
+        author_login=author.get("login"),
     )
 
 
@@ -458,6 +473,132 @@ def is_bot_user(user: dict[str, Any]) -> bool:
     return login.endswith("[bot]")
 
 
+def issue_labels_from_env(value: str | None = None) -> list[str]:
+    raw = os.environ.get(MANUAL_REVIEW_LABEL_ENV, "[]") if value is None else value
+    return issue_labels_from_json(raw) or []
+
+
+def issue_labels_from_json(raw: str | None) -> list[str] | None:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    return [label for label in parsed if isinstance(label, str)]
+
+
+async def current_issue_labels(snapshot_labels: list[str] | None = None) -> list[str]:
+    snapshot = issue_labels_from_env() if snapshot_labels is None else snapshot_labels
+    if current_issue_identifier() is None:
+        return snapshot
+    live_labels = await fetch_current_issue_labels()
+    if live_labels is None:
+        raise LabelRefreshError("Could not refresh current Linear issue labels before merge.")
+    return live_labels
+
+
+def current_issue_identifier() -> str | None:
+    issue_identifier = os.environ.get(ISSUE_IDENTIFIER_ENV)
+    if issue_identifier is None or not issue_identifier.strip():
+        return None
+    return issue_identifier
+
+
+async def fetch_current_issue_labels() -> list[str] | None:
+    if current_issue_identifier() is None:
+        return None
+    try:
+        output = await run_tracker_label_refresh()
+    except RuntimeError as error:
+        raise LabelRefreshError(
+            "Could not refresh current Linear issue labels before merge: "
+            f"{error}",
+        ) from error
+    labels = issue_labels_from_refresh_output(output)
+    if labels is None:
+        raise LabelRefreshError(
+            "Could not parse refreshed Linear issue labels before merge.",
+        )
+    return labels
+
+
+def issue_labels_from_refresh_output(output: str) -> list[str] | None:
+    for line in reversed(output.splitlines()):
+        labels = issue_labels_from_json(line.strip())
+        if labels is not None:
+            return labels
+    return None
+
+
+async def run_tracker_label_refresh() -> str:
+    repo_root = await source_repo_root()
+    elixir = """
+issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")
+
+repo_root =
+  case System.get_env("SYMPHONY_SOURCE_REPO") do
+    value when is_binary(value) ->
+      case String.trim(value) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+
+    _ ->
+      nil
+  end ||
+    System.cmd("git", ["rev-parse", "--show-toplevel"])
+    |> elem(0)
+    |> String.trim()
+
+:ok = SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)
+{:ok, _} = Application.ensure_all_started(:req)
+
+case SymphonyElixir.Tracker.fetch_issue_by_identifier(issue_identifier) do
+  {:ok, issue} ->
+    IO.puts(Jason.encode!(Map.get(issue, :labels, [])))
+
+  {:error, reason} ->
+    IO.warn("failed to refresh Linear issue labels: #{inspect(reason)}")
+    System.halt(1)
+end
+"""
+    command = (
+        ["mise", "exec", "--", "mix", "run", "--no-start", "-e", elixir]
+        if shutil.which("mise")
+        else ["mix", "run", "--no-start", "-e", elixir]
+    )
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=repo_root,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return stdout.decode()
+    error = stderr.decode().strip() or stdout.decode().strip() or "label refresh failed"
+    raise RuntimeError(error)
+
+
+async def source_repo_root() -> str:
+    source_repo = os.environ.get(SOURCE_REPO_ENV)
+    if source_repo is not None and source_repo.strip():
+        return source_repo.strip()
+    return (await run_git("rev-parse", "--show-toplevel")).strip()
+
+
+def normalize_label_name(label: str) -> str:
+    return label.strip().lower()
+
+
+def requires_manual_review(labels: list[str]) -> bool:
+    canonical = normalize_label_name(MANUAL_REVIEW_LABEL)
+    return any(normalize_label_name(label) == canonical for label in labels)
+
+
 def is_codex_reply_body(body: str) -> bool:
     return body.startswith("[codex]")
 
@@ -634,6 +775,103 @@ def dedupe_reviews(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(latest_by_user.values())
 
 
+def latest_decisive_reviews(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_by_user: dict[str, dict[str, Any]] = {}
+    for review in reviews:
+        state = review_state(review)
+        if state not in DECISIVE_REVIEW_STATES:
+            continue
+        user_login = review.get("user", {}).get("login")
+        if not user_login:
+            continue
+        user_key = user_login.lower()
+        timestamp = review_timestamp(review)
+        if user_key not in latest_by_user:
+            latest_by_user[user_key] = review
+            continue
+        existing = latest_by_user[user_key]
+        existing_timestamp = review_timestamp(existing)
+        if timestamp is None:
+            continue
+        if existing_timestamp is None or timestamp > existing_timestamp:
+            latest_by_user[user_key] = review
+    return list(latest_by_user.values())
+
+
+def review_state(review: dict[str, Any]) -> str | None:
+    state = review.get("state")
+    return state.upper() if isinstance(state, str) else None
+
+
+def same_login(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    return left.lower() == right.lower()
+
+
+def is_valid_manual_approval_review(
+    review: dict[str, Any],
+    head_sha: str,
+    author_login: str | None,
+) -> bool:
+    user = review.get("user", {})
+    reviewer_login = user.get("login")
+    return (
+        review_state(review) == "APPROVED"
+        and isinstance(reviewer_login, str)
+        and reviewer_login != ""
+        and not is_bot_user(user)
+        and not same_login(reviewer_login, author_login)
+        and review.get("commit_id") == head_sha
+    )
+
+
+def has_valid_manual_approval(
+    reviews: list[dict[str, Any]],
+    head_sha: str,
+    author_login: str | None,
+) -> bool:
+    return any(
+        is_valid_manual_approval_review(review, head_sha, author_login)
+        for review in latest_decisive_reviews(reviews)
+    )
+
+
+def manual_review_blocker_message(pr: PrInfo) -> str:
+    return (
+        "Manual GitHub approval required before merge. "
+        f"PR #{pr.number}: {pr.url}; current head SHA: {pr.head_sha}; "
+        f"Linear label `{MANUAL_REVIEW_LABEL}` is set. "
+        "Ask a human GitHub reviewer other than the PR author to review and "
+        "approve the current PR head, then move the Linear issue back to `Merge (AI)`."
+    )
+
+
+def label_refresh_blocker_message(pr: PrInfo, error: LabelRefreshError) -> str:
+    return (
+        "Could not verify current Linear labels before merge. "
+        f"PR #{pr.number}: {pr.url}; current head SHA: {pr.head_sha}; "
+        f"unable to determine whether Linear label `{MANUAL_REVIEW_LABEL}` is set. "
+        f"{error} Restore Linear label lookup, then move the Linear issue back to `Merge (AI)`."
+    )
+
+
+def raise_on_missing_manual_review_approval(
+    labels: list[str],
+    pr: PrInfo,
+    reviews: list[dict[str, Any]],
+) -> None:
+    if not requires_manual_review(labels):
+        return
+    if has_valid_manual_approval(reviews, pr.head_sha, pr.author_login):
+        print(
+            f"Manual GitHub approval gate passed for PR #{pr.number} at {short_sha(pr.head_sha)}.",
+        )
+        return
+    print(manual_review_blocker_message(pr))
+    raise SystemExit(MANUAL_REVIEW_BLOCKER_EXIT)
+
+
 def filter_blocking_reviews(
     reviews: list[dict[str, Any]],
     review_requested_at: datetime | None,
@@ -793,6 +1031,36 @@ async def watch_pr() -> None:
         exc = task.exception()
         if exc:
             raise exc
+
+    try:
+        labels = await current_issue_labels()
+    except LabelRefreshError as error:
+        print(label_refresh_blocker_message(pr, error))
+        raise SystemExit(MANUAL_REVIEW_BLOCKER_EXIT) from error
+    if requires_manual_review(labels):
+        current = await get_pr_info(branch)
+        if is_merge_conflicting(current):
+            print(
+                "PR has merge conflicts. Resolve/rebase against main and push "
+                "before running land_watch again.",
+            )
+            raise SystemExit(5)
+        if current.head_sha != head_sha:
+            print("PR head updated; pull/amend/force-push to retrigger CI")
+            raise SystemExit(4)
+        (
+            issue_comments,
+            review_comments,
+            reviews,
+            review_request_at,
+        ) = await fetch_review_context(current.number)
+        raise_on_human_feedback(
+            issue_comments,
+            review_comments,
+            reviews,
+            review_request_at,
+        )
+        raise_on_missing_manual_review_approval(labels, current, reviews)
 
 
 if __name__ == "__main__":
