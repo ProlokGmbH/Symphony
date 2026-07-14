@@ -37,6 +37,98 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "thread/start accepts a response after the former five-second read timeout" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-delayed-thread-start-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-DELAYED-THREAD")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      while IFS= read -r line; do
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"thread/start"'*)
+            sleep 6
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-delayed"}}}'
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      started_at = System.monotonic_time(:millisecond)
+      assert {:ok, session} = AppServer.start_session(workspace)
+
+      try do
+        assert session.thread_id == "thread-delayed"
+        assert System.monotonic_time(:millisecond) - started_at > 5_000
+      after
+        AppServer.stop_session(session)
+      end
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "thread/start returns response_timeout when the response remains absent" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-thread-start-timeout-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-THREAD-TIMEOUT")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      while IFS= read -r line; do
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"thread/start"'*)
+            sleep 1
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        codex_read_timeout_ms: 100
+      )
+
+      assert {:error, :response_timeout} = AppServer.start_session(workspace)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server allows the source repo cwd only when explicitly requested" do
     test_root =
       Path.join(
