@@ -186,7 +186,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:thread_sandbox, :string, default: "workspace-write")
       field(:turn_sandbox_policy, :map)
       field(:turn_timeout_ms, :integer, default: 3_600_000)
-      field(:read_timeout_ms, :integer, default: 5_000)
+      field(:read_timeout_ms, :integer, default: 10_000)
       field(:stall_timeout_ms, :integer, default: 300_000)
     end
 
