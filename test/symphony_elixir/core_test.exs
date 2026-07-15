@@ -556,7 +556,8 @@ defmodule SymphonyElixir.CoreTest do
         refresh_source.index("EnvFile.load")
     )
     assert "fetch_issue_by_identifier(issue_identifier)" in refresh_source
-    assert "cwd=repo_root" in refresh_source
+    assert "cwd=workflow_root" in refresh_source
+    assert "env=child_env" in refresh_source
     assert module.requires_manual_review([" requires manual review "])
     assert module.requires_manual_review(["REQUIRES MANUAL REVIEW"])
     assert not module.requires_manual_review(['Require \"Freigabe Review\"'])
@@ -668,6 +669,102 @@ defmodule SymphonyElixir.CoreTest do
         assert error.code == 2
     else:
         raise AssertionError("expected CHANGES_REQUESTED to stay review feedback")
+    """
+
+    {output, status} = System.cmd("python3", ["-B", "-c", script], stderr_to_stdout: true)
+    assert status == 0, output
+  end
+
+  test "land watch label refresh separates workflow and source roots" do
+    helper_path = Path.expand("../../.codex/skills/symphony-land/land_watch.py", __DIR__)
+
+    script = """
+    import asyncio
+    import importlib.util
+    import os
+    import pathlib
+    import sys
+    import tempfile
+
+    spec = importlib.util.spec_from_file_location("land_watch", #{inspect(helper_path)})
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    with tempfile.TemporaryDirectory() as test_root:
+        root = pathlib.Path(test_root)
+        workflow_root = root / "workflow"
+        source_root = root / "target"
+        trace_path = root / "refresh.trace"
+        (workflow_root / "lib").mkdir(parents=True)
+        (source_root / ".symphony").mkdir(parents=True)
+
+        (workflow_root / "mix.exs").write_text('''
+    defmodule LabelRefreshFixture.MixProject do
+      use Mix.Project
+
+      def project do
+        [app: :req, version: "0.1.0", elixir: "~> 1.19"]
+      end
+    end
+    ''')
+        (workflow_root / "lib" / "label_refresh_fixture.ex").write_text('''
+    defmodule SymphonyElixir.EnvFile do
+      def config_dir(repo_root), do: Path.join(repo_root, ".symphony")
+
+      def load(config_dir, override_existing: true) do
+        [key, value] =
+          config_dir
+          |> Path.join(".env")
+          |> File.read!()
+          |> String.trim()
+          |> String.split("=", parts: 2)
+
+        System.put_env(key, value)
+
+        File.write!(
+          System.fetch_env!("REFRESH_TRACE"),
+          "cwd=" <> File.cwd!() <> "\\nconfig_dir=" <> config_dir <> "\\n"
+        )
+
+        :ok
+      end
+    end
+
+    defmodule SymphonyElixir.Tracker do
+      def fetch_issue_by_identifier(identifier) do
+        File.write!(
+          System.fetch_env!("REFRESH_TRACE"),
+          "issue=" <> identifier <> "\\n",
+          [:append]
+        )
+
+        {:ok, %{labels: [System.fetch_env!("PROJECT_CONFIG_SENTINEL")]}}
+      end
+    end
+
+    defmodule Jason do
+      def encode!(labels), do: inspect(labels)
+    end
+    ''')
+        (source_root / ".symphony" / ".env").write_text(
+            "PROJECT_CONFIG_SENTINEL=loaded-from-target\\n"
+        )
+
+        assert not (source_root / "mix.exs").exists()
+        os.environ[module.WORKFLOW_DIR_ENV] = str(workflow_root)
+        os.environ[module.SOURCE_REPO_ENV] = str(source_root)
+        os.environ[module.ISSUE_IDENTIFIER_ENV] = "PRO-603"
+        os.environ["REFRESH_TRACE"] = str(trace_path)
+        module.shutil.which = lambda command: None if command == "mise" else None
+
+        output = asyncio.run(module.run_tracker_label_refresh())
+        trace = trace_path.read_text()
+
+        assert module.issue_labels_from_refresh_output(output) == ["loaded-from-target"]
+        assert f"cwd={workflow_root}" in trace
+        assert f"config_dir={source_root / '.symphony'}" in trace
+        assert "issue=PRO-603" in trace
     """
 
     {output, status} = System.cmd("python3", ["-B", "-c", script], stderr_to_stdout: true)

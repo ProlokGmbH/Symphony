@@ -21,6 +21,7 @@ MAX_GH_RETRIES = 5
 BASE_GH_BACKOFF_SECONDS = 2
 MANUAL_REVIEW_LABEL = "Requires Manual Review"
 SOURCE_REPO_ENV = "SYMPHONY_SOURCE_REPO"
+WORKFLOW_DIR_ENV = "SYMPHONY_WORKFLOW_DIR"
 ISSUE_IDENTIFIER_ENV = "SYMPHONY_ISSUE_IDENTIFIER"
 MANUAL_REVIEW_LABEL_ENV = "SYMPHONY_ISSUE_LABELS_JSON"
 MANUAL_REVIEW_BLOCKER_EXIT = 7
@@ -534,7 +535,8 @@ def issue_labels_from_refresh_output(output: str) -> list[str] | None:
 
 
 async def run_tracker_label_refresh() -> str:
-    repo_root = await source_repo_root()
+    source_root = await source_repo_root()
+    workflow_root = await workflow_execution_root()
     elixir = """
 issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")
 
@@ -570,9 +572,12 @@ end
         if shutil.which("mise")
         else ["mix", "run", "--no-start", "-e", elixir]
     )
+    child_env = os.environ.copy()
+    child_env[SOURCE_REPO_ENV] = source_root
     proc = await asyncio.create_subprocess_exec(
         *command,
-        cwd=repo_root,
+        cwd=workflow_root,
+        env=child_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -588,6 +593,21 @@ async def source_repo_root() -> str:
     if source_repo is not None and source_repo.strip():
         return source_repo.strip()
     return (await run_git("rev-parse", "--show-toplevel")).strip()
+
+
+async def workflow_execution_root() -> str:
+    workflow_dir = os.environ.get(WORKFLOW_DIR_ENV)
+    workflow_root = (
+        workflow_dir.strip()
+        if workflow_dir is not None and workflow_dir.strip()
+        else (await run_git("rev-parse", "--show-toplevel")).strip()
+    )
+    if not os.path.isfile(os.path.join(workflow_root, "mix.exs")):
+        raise RuntimeError(
+            "Could not find a Symphony Mix project for label refresh at "
+            f"{workflow_root}",
+        )
+    return workflow_root
 
 
 def normalize_label_name(label: str) -> str:

@@ -662,6 +662,11 @@ Den Merge-Ablauf mit `symphony-land` abschließen, erforderliche Auto-Commits in
    dokumentiere PR-Nummer oder URL, aktuelle Head-SHA, den nicht verifizierbaren
    Labelstand und die notwendige Wiederholung nach behobenem Label-Lookup,
    verschiebe nach `BLOCKER` und beende den Turn.
+   Der Live-Refresh startet `mix run` aus dem durch `SYMPHONY_WORKFLOW_DIR`
+   bezeichneten Symphony-Mix-Kontext. Env- und Tracker-Konfiguration werden
+   davon getrennt weiterhin aus dem durch `SYMPHONY_SOURCE_REPO` bezeichneten
+   Zielrepo geladen; der injizierte `SYMPHONY_ISSUE_LABELS_JSON`-Snapshot ist
+   kein Ersatz für diesen Live-Lookup.
 10. Nach erfolgreichem PR-Merge dokumentiere vor jedem Abschluss nach `Review`
    eine eindeutige `Merge-Evidenz` im Workpad-Verlauf: PR-Nummer oder PR-URL,
    gemergter Zustand und Merge-Commit-SHA müssen enthalten sein.
