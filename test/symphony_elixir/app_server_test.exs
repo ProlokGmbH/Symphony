@@ -37,7 +37,8 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
-  test "thread/start accepts a response after the former five-second read timeout" do
+  @tag timeout: 25_000
+  test "thread/start accepts a response after the former ten-second read timeout" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -59,7 +60,7 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           *'"method":"thread/start"'*)
-            sleep 6
+            sleep 11
             printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-delayed"}}}'
             ;;
         esac
@@ -78,7 +79,7 @@ defmodule SymphonyElixir.AppServerTest do
 
       try do
         assert session.thread_id == "thread-delayed"
-        assert System.monotonic_time(:millisecond) - started_at > 5_000
+        assert System.monotonic_time(:millisecond) - started_at > 10_000
       after
         AppServer.stop_session(session)
       end

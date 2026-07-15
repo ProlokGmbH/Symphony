@@ -179,7 +179,7 @@ defmodule SymphonyElixir.TestSupport do
           codex_thread_sandbox: "workspace-write",
           codex_turn_sandbox_policy: nil,
           codex_turn_timeout_ms: 3_600_000,
-          codex_read_timeout_ms: 10_000,
+          codex_read_timeout_ms: 30_000,
           codex_stall_timeout_ms: 300_000,
           hook_after_create: nil,
           hook_before_run: nil,

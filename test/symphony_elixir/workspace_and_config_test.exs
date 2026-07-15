@@ -1756,7 +1756,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
            }
 
     assert config.codex.turn_timeout_ms == 3_600_000
-    assert config.codex.read_timeout_ms == 10_000
+    assert config.codex.read_timeout_ms == 30_000
     assert config.codex.stall_timeout_ms == 300_000
     assert config.server.port == 4_000
     assert config.server.host == "127.0.0.1"

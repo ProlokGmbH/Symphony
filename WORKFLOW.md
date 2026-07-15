@@ -72,7 +72,7 @@ codex:
     exit 127
   approval_policy: never
   thread_sandbox: danger-full-access
-  read_timeout_ms: 10000
+  read_timeout_ms: 30000
   turn_sandbox_policy:
     type: dangerFullAccess
 prompt_snippets:
