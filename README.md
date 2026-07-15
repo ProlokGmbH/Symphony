@@ -89,6 +89,15 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
 
 Der Wrapper `./symphony` prüft beim Start zunächst, ob der aktuelle Git-Upstream einen neueren Commit enthält. Wenn eine neue Version verfügbar ist, fragt Symphony `Neue Symphony Version verfügbar. Update ausführen j/n?`; bei Zustimmung führt das Autoupdate im Hintergrund `git pull --ff-only` und anschließend `make all` aus und zeigt währenddessen `Symphony Update läuft…`. Danach verlinkt der Wrapper die mitgelieferten Skills sowie `sym-codex` und `sym-watch` in deine lokalen Codex- und Bin-Verzeichnisse und startet `bin/symphony`. Ohne Git-Upstream, ohne neues Update oder bei lokalen Checkout-Änderungen startet Symphony ohne Update. Das Dashboard ist standardmäßig unter `http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Startport überschrieben werden. Wenn dieser Port bereits belegt ist, verwendet Symphony automatisch den nächsten freien Port.
 
+`SYMPHONY_WORKFLOW_DIR` bezeichnet dabei den Symphony-Checkout mit dem
+ausführbaren Mix-Projekt, während `SYMPHONY_WORKFLOW_FILE` die aktuell geladene
+Workflowdatei bezeichnet und unabhängig davon an einem anderen Ort liegen
+kann. Reguläre Läufe auf SSH-Workern setzen wie die Remote-Workspace-Hooks
+voraus, dass Symphony- und Projektroot auf dem Worker unter denselben absoluten
+Pfaden verfügbar sind. Die isolierten Docker-Worker der Live-E2E-Tests prüfen
+nur den hook-freien SSH-/App-Server-Transport und bilden keinen vollständigen
+Repository-, Test- oder Merge-Worker ab.
+
 Nach jedem abgeschlossenen Linear-Poll plant Symphony den nächsten automatischen Refresh mit `polling.interval_ms` multipliziert mit der Anzahl laufender `bin/symphony`-Instanzen. Der konfigurierte Wert bleibt das Basisintervall; der Initial-Poll und manuelle Refresh-Anforderungen bleiben unmittelbar.
 
 Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen. Review-Findings müssen weiterhin vom Hauptagenten behandelt und dokumentiert werden; nach dieser Behandlung überspringt `--yolo` aber auch `Freigabe Review`.

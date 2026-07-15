@@ -136,14 +136,39 @@ den Marker `## Symphony Workpad` enthalten und darf kein leerer
 Probe-/Placeholder-Body sein.
 
 ```bash
-ISSUE_KEY=PRO-496 WORKPAD_BODY_FILE=/tmp/workpad.md mise exec -- mix run --no-start -e '
-repo_root = System.cmd("git", ["rev-parse", "--show-toplevel"]) |> elem(0) |> String.trim()
-:ok = SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)
+source_repo="${SYMPHONY_SOURCE_REPO:-}"
+if [ -z "${source_repo//[[:space:]]/}" ]; then
+  source_repo="$(git rev-parse --show-toplevel)"
+fi
+
+(
+cd "$SYMPHONY_WORKFLOW_DIR"
+SYMPHONY_SOURCE_REPO="$source_repo" ISSUE_KEY=PRO-496 WORKPAD_BODY_FILE=/tmp/workpad.md mise exec -- mix run --no-start -e '
+case System.get_env("SYMPHONY_WORKFLOW_FILE") do
+  value when is_binary(value) ->
+    case String.trim(value) do
+      "" -> :ok
+      workflow_file -> SymphonyElixir.Workflow.set_workflow_file_path(workflow_file)
+    end
+
+  _ ->
+    :ok
+end
+
+source_repo = System.fetch_env!("SYMPHONY_SOURCE_REPO") |> String.trim()
+
+:ok =
+  SymphonyElixir.EnvFile.load(
+    SymphonyElixir.EnvFile.config_dir(source_repo),
+    override_existing: true
+  )
+
 {:ok, _} = Application.ensure_all_started(:req)
 {:ok, issue} = SymphonyElixir.Tracker.fetch_issue_by_identifier(System.fetch_env!("ISSUE_KEY"))
 body = File.read!(System.fetch_env!("WORKPAD_BODY_FILE"))
 :ok = SymphonyElixir.Workpad.update_tracker_workpad(issue.id, body)
 '
+)
 ```
 
 Erstelle einen separaten Blocker-Kommentar nur dann, wenn sowohl der reguläre

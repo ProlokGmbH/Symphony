@@ -260,6 +260,7 @@ defmodule SymphonyElixir.AppServerTest do
         printf 'source=%s\\n' "${SYMPHONY_SOURCE_REPO:-}"
         printf 'project=%s\\n' "${SYMPHONY_PROJECT_ROOT:-}"
         printf 'worktrees=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
+        printf 'workflow_dir=%s\\n' "${SYMPHONY_WORKFLOW_DIR:-}"
         printf 'workflow=%s\\n' "${SYMPHONY_WORKFLOW_FILE:-}"
         printf 'dialog=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE-unset}"
         printf 'issue_id=%s\\n' "${SYMPHONY_ISSUE_ID:-}"
@@ -318,6 +319,7 @@ defmodule SymphonyElixir.AppServerTest do
       assert trace =~ "source=#{File.cwd!()}"
       assert trace =~ "project=#{File.cwd!()}"
       assert trace =~ "worktrees=#{SymphonyElixir.RuntimePaths.project_worktrees_root()}"
+      assert trace =~ "workflow_dir=#{SymphonyElixir.RuntimePaths.workflow_dir()}"
       assert trace =~ "workflow=#{Workflow.workflow_file_path()}"
       assert trace =~ "dialog=unset"
       assert trace =~ "issue_id=issue-env"
@@ -2033,6 +2035,11 @@ defmodule SymphonyElixir.AppServerTest do
       assert argv_line =~ remote_workspace
       assert argv_line =~ "exec "
       assert argv_line =~ "fake-remote-codex app-server"
+      assert argv_line =~ "SYMPHONY_ACTIVE_REPO_ROOT="
+      assert argv_line =~ "SYMPHONY_SOURCE_REPO="
+      assert argv_line =~ SymphonyElixir.RuntimePaths.project_root()
+      assert argv_line =~ "SYMPHONY_WORKFLOW_DIR="
+      assert argv_line =~ SymphonyElixir.RuntimePaths.workflow_dir()
       assert argv_line =~ "SYMPHONY_ISSUE_LABELS_JSON="
       assert argv_line =~ "SYMPHONY_ISSUE_IDENTIFIER="
       assert argv_line =~ "MT-REMOTE"

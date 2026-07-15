@@ -84,6 +84,8 @@ defmodule SymCodexScriptTest do
     assert output =~ ~s(mcp_servers.symphony_linear.command="#{repo_dir}/sym-codex-mcp")
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+    assert output =~ "runtime_workflow_dir=#{repo_dir}"
+    assert output =~ "runtime_issue_identifier=PRO-49"
     assert output =~ "manual-prompt-for-PRO-49"
   end
 
@@ -112,6 +114,7 @@ defmodule SymCodexScriptTest do
 
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+    assert output =~ "runtime_workflow_dir=#{repo_dir}"
     refute output =~ "/tmp/wrong"
   end
 
@@ -547,6 +550,9 @@ defmodule SymCodexScriptTest do
     assert output =~ ~s(SYMPHONY_SOURCE_REPO="#{repo_dir}")
     assert output =~ ~s(SYMPHONY_PROJECT_ROOT="#{project_root}")
     assert output =~ ~s(SYMPHONY_WORKFLOW_FILE="#{repo_dir}/WORKFLOW.md")
+    assert output =~ "runtime_workflow_dir=#{repo_dir}"
+    assert output =~ "runtime_source_repo=#{project_root}"
+    assert output =~ "runtime_issue_identifier=PRO-28"
   end
 
   test "sym-codex infers the issue identifier from an external project worktree" do
@@ -733,7 +739,17 @@ defmodule SymCodexScriptTest do
     File.mkdir_p!(bin_dir)
     File.cp!(@script_source, Path.join(repo_dir, "sym-codex"))
     File.cp!(@mcp_script_source, Path.join(repo_dir, "sym-codex-mcp"))
-    File.write!(codex_path, "#!/usr/bin/env bash\nprintf 'codex-stub pwd=%s args=%s\\n' \"$PWD\" \"$*\"\n")
+
+    File.write!(codex_path, """
+    #!/usr/bin/env bash
+    printf 'codex-stub pwd=%s args=%s runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s\\n' \
+      "$PWD" \
+      "$*" \
+      "${SYMPHONY_WORKFLOW_DIR:-}" \
+      "${SYMPHONY_SOURCE_REPO:-}" \
+      "${SYMPHONY_ISSUE_IDENTIFIER:-}"
+    """)
+
     create_venv_fixture!(repo_dir, "repo")
 
     File.write!(mix_path, """
@@ -912,7 +928,13 @@ defmodule SymCodexScriptTest do
 
     File.write!(venv_codex_path, """
     #!/usr/bin/env bash
-    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label}\\n' "$PWD" "$*" "${VIRTUAL_ENV:-}"
+    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label} runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s\\n' \\
+      "$PWD" \\
+      "$*" \\
+      "${VIRTUAL_ENV:-}" \\
+      "${SYMPHONY_WORKFLOW_DIR:-}" \\
+      "${SYMPHONY_SOURCE_REPO:-}" \\
+      "${SYMPHONY_ISSUE_IDENTIFIER:-}"
     """)
 
     File.write!(venv_python_path, """
