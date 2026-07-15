@@ -2255,7 +2255,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert logged_project_root == project_root
     assert logged_worktrees_root == workspace_root
-    assert logged_workflow_dir == Path.dirname(Workflow.workflow_file_path())
+    assert logged_workflow_dir == SymphonyElixir.RuntimePaths.workflow_dir()
     assert logged_workflow_file == Workflow.workflow_file_path()
   end
 

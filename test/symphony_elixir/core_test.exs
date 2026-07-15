@@ -173,10 +173,14 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Wenn ein frischer Branch benötigt wird, erstelle oder verwende genau `symphony/{{ issue.identifier }}` von `origin/main`."
     assert prompt =~ "Wenn kein regulärer Kommentar-Edit-Pfad verfügbar ist"
     assert prompt =~ "mise exec -- mix run --no-start -e"
+    assert prompt =~ "Source-/Config-Root zuerst im ursprünglichen Zielrepo-Kontext"
+    assert prompt =~ "dort vor jedem Verzeichniswechsel `git rev-parse --show-toplevel`"
+    assert prompt =~ "Mix-Child anschließend aus `SYMPHONY_WORKFLOW_DIR`"
+    assert prompt =~ "durch `SYMPHONY_WORKFLOW_FILE` bezeichnete Workflowkonfiguration"
     assert prompt =~ "git rev-parse --show-toplevel"
 
     assert prompt =~
-             "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(repo_root), override_existing: true)"
+             "SymphonyElixir.EnvFile.load(SymphonyElixir.EnvFile.config_dir(source_repo), override_existing: true)"
 
     assert prompt =~ "Application.ensure_all_started(:req)"
     assert prompt =~ "vollständig paginierter `workpad_exists?/1`-Prüfung"
@@ -556,6 +560,9 @@ defmodule SymphonyElixir.CoreTest do
         refresh_source.index("EnvFile.load")
     )
     assert "fetch_issue_by_identifier(issue_identifier)" in refresh_source
+    assert refresh_source.index("Workflow.set_workflow_file_path") < (
+        refresh_source.index("EnvFile.load")
+    )
     assert "cwd=workflow_root" in refresh_source
     assert "env=child_env" in refresh_source
     assert module.requires_manual_review([" requires manual review "])
@@ -695,9 +702,11 @@ defmodule SymphonyElixir.CoreTest do
         root = pathlib.Path(test_root)
         workflow_root = root / "workflow"
         source_root = root / "target"
+        active_workflow = root / "external" / "WORKFLOW.md"
         trace_path = root / "refresh.trace"
         (workflow_root / "lib").mkdir(parents=True)
         (source_root / ".symphony").mkdir(parents=True)
+        active_workflow.parent.mkdir(parents=True)
 
         (workflow_root / "mix.exs").write_text('''
     defmodule LabelRefreshFixture.MixProject do
@@ -709,6 +718,26 @@ defmodule SymphonyElixir.CoreTest do
     end
     ''')
         (workflow_root / "lib" / "label_refresh_fixture.ex").write_text('''
+    defmodule SymphonyElixir.Workflow do
+      def set_workflow_file_path(workflow_file) do
+        [key, value] =
+          workflow_file
+          |> File.read!()
+          |> String.trim()
+          |> String.split("=", parts: 2)
+
+        System.put_env(key, value)
+
+        File.write!(
+          System.fetch_env!("REFRESH_TRACE"),
+          "workflow_file=" <> workflow_file <> "\\n",
+          [:append]
+        )
+
+        :ok
+      end
+    end
+
     defmodule SymphonyElixir.EnvFile do
       def config_dir(repo_root), do: Path.join(repo_root, ".symphony")
 
@@ -724,7 +753,8 @@ defmodule SymphonyElixir.CoreTest do
 
         File.write!(
           System.fetch_env!("REFRESH_TRACE"),
-          "cwd=" <> File.cwd!() <> "\\nconfig_dir=" <> config_dir <> "\\n"
+          "cwd=" <> File.cwd!() <> "\\nconfig_dir=" <> config_dir <> "\\n",
+          [:append]
         )
 
         :ok
@@ -739,7 +769,13 @@ defmodule SymphonyElixir.CoreTest do
           [:append]
         )
 
-        {:ok, %{labels: [System.fetch_env!("PROJECT_CONFIG_SENTINEL")]}}
+        {:ok,
+         %{
+           labels: [
+             System.fetch_env!("PROJECT_CONFIG_SENTINEL"),
+             System.fetch_env!("WORKFLOW_CONFIG_SENTINEL")
+           ]
+         }}
       end
     end
 
@@ -750,9 +786,13 @@ defmodule SymphonyElixir.CoreTest do
         (source_root / ".symphony" / ".env").write_text(
             "PROJECT_CONFIG_SENTINEL=loaded-from-target\\n"
         )
+        active_workflow.write_text(
+            "WORKFLOW_CONFIG_SENTINEL=loaded-from-external-workflow\\n"
+        )
 
         assert not (source_root / "mix.exs").exists()
         os.environ[module.WORKFLOW_DIR_ENV] = str(workflow_root)
+        os.environ[module.WORKFLOW_FILE_ENV] = str(active_workflow)
         os.environ[module.SOURCE_REPO_ENV] = str(source_root)
         os.environ[module.ISSUE_IDENTIFIER_ENV] = "PRO-603"
         os.environ["REFRESH_TRACE"] = str(trace_path)
@@ -761,8 +801,12 @@ defmodule SymphonyElixir.CoreTest do
         output = asyncio.run(module.run_tracker_label_refresh())
         trace = trace_path.read_text()
 
-        assert module.issue_labels_from_refresh_output(output) == ["loaded-from-target"]
+        assert module.issue_labels_from_refresh_output(output) == [
+            "loaded-from-target",
+            "loaded-from-external-workflow",
+        ]
         assert f"cwd={workflow_root}" in trace
+        assert f"workflow_file={active_workflow}" in trace
         assert f"config_dir={source_root / '.symphony'}" in trace
         assert "issue=PRO-603" in trace
     """
@@ -782,6 +826,17 @@ defmodule SymphonyElixir.CoreTest do
     assert skill =~ "orientieren willst, splitte den Identifier in"
     assert skill =~ "Nutze keinen Fallback `issues(filter: { identifier: ... })`"
     assert skill =~ "wie `links` in die erste Anfrage aufzunehmen."
+    assert skill =~ ~S|source_repo="${SYMPHONY_SOURCE_REPO:-}"|
+    assert skill =~ ~S|source_repo="$(git rev-parse --show-toplevel)"|
+    assert skill =~ ~S|cd "$SYMPHONY_WORKFLOW_DIR"|
+    {source_index, _length} = :binary.match(skill, ~S|source_repo="${SYMPHONY_SOURCE_REPO:-}"|)
+    {cd_index, _length} = :binary.match(skill, ~S|cd "$SYMPHONY_WORKFLOW_DIR"|)
+    assert source_index < cd_index
+
+    assert skill =~ ~S|SYMPHONY_SOURCE_REPO="$source_repo" ISSUE_KEY=PRO-496|
+    assert skill =~ "SymphonyElixir.Workflow.set_workflow_file_path"
+    assert skill =~ "System.fetch_env!(\"SYMPHONY_SOURCE_REPO\")"
+    assert skill =~ "SymphonyElixir.EnvFile.config_dir(source_repo)"
     refute skill =~ "query IssueByIdentifier($identifier: String!)"
     refute skill =~ "links {\n"
   end

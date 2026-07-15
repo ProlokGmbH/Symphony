@@ -22,6 +22,7 @@ BASE_GH_BACKOFF_SECONDS = 2
 MANUAL_REVIEW_LABEL = "Requires Manual Review"
 SOURCE_REPO_ENV = "SYMPHONY_SOURCE_REPO"
 WORKFLOW_DIR_ENV = "SYMPHONY_WORKFLOW_DIR"
+WORKFLOW_FILE_ENV = "SYMPHONY_WORKFLOW_FILE"
 ISSUE_IDENTIFIER_ENV = "SYMPHONY_ISSUE_IDENTIFIER"
 MANUAL_REVIEW_LABEL_ENV = "SYMPHONY_ISSUE_LABELS_JSON"
 MANUAL_REVIEW_BLOCKER_EXIT = 7
@@ -539,6 +540,17 @@ async def run_tracker_label_refresh() -> str:
     workflow_root = await workflow_execution_root()
     elixir = """
 issue_identifier = System.fetch_env!("SYMPHONY_ISSUE_IDENTIFIER")
+
+case System.get_env("SYMPHONY_WORKFLOW_FILE") do
+  value when is_binary(value) ->
+    case String.trim(value) do
+      "" -> :ok
+      workflow_file -> SymphonyElixir.Workflow.set_workflow_file_path(workflow_file)
+    end
+
+  _ ->
+    :ok
+end
 
 repo_root =
   case System.get_env("SYMPHONY_SOURCE_REPO") do

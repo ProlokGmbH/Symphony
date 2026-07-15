@@ -32,7 +32,7 @@ defmodule SymphonyElixir.RuntimePaths do
 
   @spec workflow_dir() :: Path.t()
   def workflow_dir do
-    Workflow.workflow_file_path()
+    Workflow.default_workflow_file_path()
     |> Path.dirname()
   end
 

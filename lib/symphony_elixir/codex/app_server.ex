@@ -265,11 +265,8 @@ defmodule SymphonyElixir.Codex.AppServer do
             args: [~c"-lc", String.to_charlist(Config.local_codex_command())],
             cd: String.to_charlist(workspace),
             env:
-              %{
-                "SYMPHONY_ACTIVE_REPO_ROOT" => active_repo_root,
-                "SYMPHONY_SOURCE_REPO" => RuntimePaths.project_root()
-              }
-              |> Map.merge(issue_env)
+              active_repo_root
+              |> app_server_runtime_env(issue_env)
               |> RuntimePaths.cleaned_builtin_port_env(),
             line: @port_line_bytes
           ]
@@ -279,9 +276,19 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, _active_repo_root, worker_host, issue_env) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace, issue_env)
+  defp start_port(workspace, active_repo_root, worker_host, issue_env) when is_binary(worker_host) do
+    remote_command = remote_launch_command(workspace, app_server_runtime_env(active_repo_root, issue_env))
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
+  end
+
+  defp app_server_runtime_env(active_repo_root, issue_env)
+       when is_binary(active_repo_root) and is_map(issue_env) do
+    RuntimePaths.builtin_env()
+    |> Map.merge(%{
+      "SYMPHONY_ACTIVE_REPO_ROOT" => active_repo_root,
+      "SYMPHONY_SOURCE_REPO" => RuntimePaths.project_root()
+    })
+    |> Map.merge(issue_env)
   end
 
   defp remote_launch_command(workspace, issue_env) when is_binary(workspace) and is_map(issue_env) do

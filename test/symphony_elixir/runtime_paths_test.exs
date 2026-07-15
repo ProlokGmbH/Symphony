@@ -24,8 +24,9 @@ defmodule SymphonyElixir.RuntimePathsTest do
     assert env_map["SYMPHONY_ACTIVE_REPO_ROOT"] == "/tmp/active"
     assert env_map["SYMPHONY_PROJECT_ROOT"] == File.cwd!()
     assert env_map["SYMPHONY_PROJECT_WORKTREES_ROOT"] == RuntimePaths.project_worktrees_root()
-    assert env_map["SYMPHONY_WORKFLOW_DIR"] == Path.dirname(RuntimePaths.workflow_file())
+    assert env_map["SYMPHONY_WORKFLOW_DIR"] == Path.dirname(Workflow.default_workflow_file_path())
     assert env_map["SYMPHONY_WORKFLOW_FILE"] == RuntimePaths.workflow_file()
+    refute env_map["SYMPHONY_WORKFLOW_DIR"] == Path.dirname(RuntimePaths.workflow_file())
     assert env_map["SYMPHONY_SOURCE_REPO"] == nil
     assert env_map["SYMPHONY_ISSUE_IDENTIFIER"] == nil
     assert env_map["SYMPHONY_ISSUE_LABELS_JSON"] == nil
@@ -44,5 +45,22 @@ defmodule SymphonyElixir.RuntimePathsTest do
     assert env_map[~c"SYMPHONY_ISSUE_LABELS_JSON"] == false
     assert env_map[~c"SYMPHONY_WORKFLOW_DIALOG_FILE"] == false
     assert env_map[~c"SYMPHONY_WORKFLOW_INTERACTIVE_FILE"] == false
+  end
+
+  test "workflow dir remains the Symphony Mix root for an external workflow file" do
+    external_workflow =
+      Path.join(
+        System.tmp_dir!(),
+        "external-symphony-workflow-#{System.unique_integer([:positive])}.md"
+      )
+
+    File.write!(external_workflow, "---\n---\n")
+    Workflow.set_workflow_file_path(external_workflow)
+
+    on_exit(fn -> File.rm(external_workflow) end)
+
+    assert RuntimePaths.workflow_file() == external_workflow
+    assert RuntimePaths.workflow_dir() == File.cwd!()
+    assert File.regular?(Path.join(RuntimePaths.workflow_dir(), "mix.exs"))
   end
 end

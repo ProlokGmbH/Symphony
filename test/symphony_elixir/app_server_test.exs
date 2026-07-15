@@ -2035,6 +2035,11 @@ defmodule SymphonyElixir.AppServerTest do
       assert argv_line =~ remote_workspace
       assert argv_line =~ "exec "
       assert argv_line =~ "fake-remote-codex app-server"
+      assert argv_line =~ "SYMPHONY_ACTIVE_REPO_ROOT="
+      assert argv_line =~ "SYMPHONY_SOURCE_REPO="
+      assert argv_line =~ SymphonyElixir.RuntimePaths.project_root()
+      assert argv_line =~ "SYMPHONY_WORKFLOW_DIR="
+      assert argv_line =~ SymphonyElixir.RuntimePaths.workflow_dir()
       assert argv_line =~ "SYMPHONY_ISSUE_LABELS_JSON="
       assert argv_line =~ "SYMPHONY_ISSUE_IDENTIFIER="
       assert argv_line =~ "MT-REMOTE"
