@@ -12,6 +12,7 @@ WORKFLOW_FILE="$PROJECT_DIR/WORKFLOW.md"
 WORKFLOW_INTERACTIVE_FILE="$PROJECT_DIR/WORKFLOW_INTERACTIVE.md"
 WORKFLOW_DIALOG_FILE="$PROJECT_DIR/WORKFLOW_DIALOG.md"
 AUTOUPDATE_PATH="$PROJECT_DIR/autoupdate"
+MIX_RUNTIME_PATH="$PROJECT_DIR/scripts/mix-runtime"
 CODEX_LINK_PATH="$USER_BIN_DIR/sym-codex"
 CODEX_TARGET_PATH="$PROJECT_DIR/sym-codex"
 WATCH_LINK_PATH="$USER_BIN_DIR/sym-watch"
@@ -28,9 +29,34 @@ symphony_shell_escape() {
   printf '%q' "$1"
 }
 
+unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
+
+if ! command -v mise >/dev/null 2>&1; then
+  echo "symphony: mise not found in PATH" >&2
+  exit 127
+fi
+
+if ! command -v flock >/dev/null 2>&1; then
+  echo "symphony: flock not found in PATH" >&2
+  exit 127
+fi
+
+if [ ! -x "$MIX_RUNTIME_PATH" ]; then
+  echo "symphony: Mix-Preflight fehlt oder ist nicht ausführbar: $MIX_RUNTIME_PATH" >&2
+  exit 1
+fi
+
+START_LOCK_PATH="$("$MIX_RUNTIME_PATH" lock-path "$PROJECT_DIR")"
+exec {START_LOCK_FD}>"$START_LOCK_PATH"
+flock "$START_LOCK_FD"
+
 if [ -x "$AUTOUPDATE_PATH" ]; then
   "$AUTOUPDATE_PATH" "$PROJECT_DIR"
 fi
+
+"$MIX_RUNTIME_PATH" build "$PROJECT_DIR"
+flock -u "$START_LOCK_FD"
+exec {START_LOCK_FD}>&-
 
 mkdir -p "$USER_SKILLS_DIR"
 mkdir -p "$USER_BIN_DIR"
@@ -89,11 +115,6 @@ for user_skill in "$USER_SKILLS_DIR"/symphony-*; do
   fi
 done
 shopt -u nullglob
-
-if ! command -v mise >/dev/null 2>&1; then
-  echo "symphony: mise not found in PATH" >&2
-  exit 127
-fi
 
 export SYMPHONY_WORKFLOW_FILE="$WORKFLOW_FILE"
 export SYMPHONY_WORKFLOW_INTERACTIVE_FILE="$WORKFLOW_INTERACTIVE_FILE"

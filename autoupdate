@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
+
 PROJECT_DIR="${1:-}"
 
 if [ -z "$PROJECT_DIR" ]; then

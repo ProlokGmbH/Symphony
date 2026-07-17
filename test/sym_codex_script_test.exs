@@ -3,6 +3,7 @@ defmodule SymCodexScriptTest do
 
   @script_source Path.expand("../sym-codex", __DIR__)
   @mcp_script_source Path.expand("../sym-codex-mcp", __DIR__)
+  @mix_runtime_source Path.expand("../scripts/mix-runtime", __DIR__)
   @interactive_workflow_source Path.expand("../WORKFLOW_INTERACTIVE.md", __DIR__)
 
   test "sym-codex reaches codex when invoked directly from the script repository" do
@@ -35,6 +36,42 @@ defmodule SymCodexScriptTest do
 
     assert output =~ "codex-stub"
     assert output =~ "pwd=#{worktree}"
+  end
+
+  test "sym-codex keeps Mix artifacts local to the invoking Symphony worktree" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir, workspace_root: workspace_root, worktree: worktree} =
+      build_script_worktree_fixture!("PRO-608")
+
+    foreign_deps = Path.join(repo_dir, "deps")
+    foreign_build = Path.join(repo_dir, "_build")
+    File.write!(Path.join(repo_dir, "mix.lock"), "newer lock version\n")
+    File.mkdir_p!(foreign_deps)
+    File.mkdir_p!(foreign_build)
+    File.write!(Path.join(foreign_deps, "sentinel"), "newer lock deps\n")
+    File.write!(Path.join(foreign_build, "sentinel"), "newer lock build\n")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+      File.rm_rf(workspace_root)
+    end)
+
+    assert {output, 0} =
+             run_script(Path.join(worktree, "sym-codex"), bin_dir, ["PRO-608"],
+               cd: worktree,
+               env: [
+                 {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
+                 {"MIX_DEPS_PATH", foreign_deps},
+                 {"MIX_BUILD_ROOT", foreign_build},
+                 {"MIX_BUILD_PATH", foreign_build}
+               ]
+             )
+
+    assert output =~ "mix_deps=unset mix_build_root=unset mix_build_path=unset"
+    assert File.ls!(foreign_deps) == ["sentinel"]
+    assert File.ls!(foreign_build) == ["sentinel"]
+    assert File.exists?(Path.join(worktree, "deps/sym-codex-touch"))
+    assert File.exists?(Path.join(worktree, "_build/sym-codex-touch"))
   end
 
   test "sym-codex follows a symlink back to the script repository" do
@@ -736,24 +773,39 @@ defmodule SymCodexScriptTest do
     mise_path = Path.join(bin_dir, "mise")
 
     File.mkdir_p!(repo_dir)
+    File.mkdir_p!(Path.join(repo_dir, "scripts"))
     File.mkdir_p!(bin_dir)
     File.cp!(@script_source, Path.join(repo_dir, "sym-codex"))
     File.cp!(@mcp_script_source, Path.join(repo_dir, "sym-codex-mcp"))
+    File.cp!(@mix_runtime_source, Path.join(repo_dir, "scripts/mix-runtime"))
 
     File.write!(codex_path, """
     #!/usr/bin/env bash
-    printf 'codex-stub pwd=%s args=%s runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s\\n' \
+    printf 'codex-stub pwd=%s args=%s runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \
       "$PWD" \
       "$*" \
       "${SYMPHONY_WORKFLOW_DIR:-}" \
       "${SYMPHONY_SOURCE_REPO:-}" \
-      "${SYMPHONY_ISSUE_IDENTIFIER:-}"
+      "${SYMPHONY_ISSUE_IDENTIFIER:-}" \
+      "${MIX_DEPS_PATH-unset}" \
+      "${MIX_BUILD_ROOT-unset}" \
+      "${MIX_BUILD_PATH-unset}"
     """)
 
     create_venv_fixture!(repo_dir, "repo")
 
     File.write!(mix_path, """
     #!/usr/bin/env bash
+    deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
+    build_path="${MIX_BUILD_PATH:-${MIX_BUILD_ROOT:-$PWD/_build}}"
+    mkdir -p "$deps_path" "$build_path"
+    printf '%s\\n' "$1" >> "$deps_path/sym-codex-touch"
+    printf '%s\\n' "$1" >> "$build_path/sym-codex-touch"
+
+    if [ "$1" = "deps.loadpaths" ]; then
+      exit 0
+    fi
+
     if [ "$1" = "compile" ]; then
       exit 0
     fi
@@ -826,10 +878,12 @@ defmodule SymCodexScriptTest do
     File.chmod!(codex_path, 0o755)
     File.chmod!(mix_path, 0o755)
     File.chmod!(mise_path, 0o755)
+    File.chmod!(Path.join(repo_dir, "scripts/mix-runtime"), 0o755)
     File.write!(Path.join(repo_dir, "WORKFLOW.md"), "")
     File.cp!(@interactive_workflow_source, Path.join(repo_dir, "WORKFLOW_INTERACTIVE.md"))
     File.write!(Path.join(repo_dir, "WORKFLOW_DIALOG.md"), "---\n---\ndialog={{ issue.identifier }}\n")
     File.write!(Path.join(repo_dir, "mix.exs"), "")
+    File.write!(Path.join(repo_dir, "mix.lock"), "old lock version\n")
 
     %{repo_dir: repo_dir, bin_dir: bin_dir}
   end
@@ -928,13 +982,16 @@ defmodule SymCodexScriptTest do
 
     File.write!(venv_codex_path, """
     #!/usr/bin/env bash
-    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label} runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s\\n' \\
+    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label} runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \\
       "$PWD" \\
       "$*" \\
       "${VIRTUAL_ENV:-}" \\
       "${SYMPHONY_WORKFLOW_DIR:-}" \\
       "${SYMPHONY_SOURCE_REPO:-}" \\
-      "${SYMPHONY_ISSUE_IDENTIFIER:-}"
+      "${SYMPHONY_ISSUE_IDENTIFIER:-}" \\
+      "${MIX_DEPS_PATH-unset}" \\
+      "${MIX_BUILD_ROOT-unset}" \\
+      "${MIX_BUILD_PATH-unset}"
     """)
 
     File.write!(venv_python_path, """

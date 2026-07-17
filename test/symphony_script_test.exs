@@ -2,6 +2,7 @@ defmodule SymphonyScriptTest do
   use ExUnit.Case, async: true
 
   @script_source Path.expand("../symphony", __DIR__)
+  @mix_runtime_source Path.expand("../scripts/mix-runtime", __DIR__)
 
   test "symphony creates local bin symlinks for helper scripts" do
     %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
@@ -52,6 +53,134 @@ defmodule SymphonyScriptTest do
 
     assert String.starts_with?(output, "autoupdate project=#{repo_dir}\n")
     assert output =~ "symphony-stub args=--port 4001\n"
+  end
+
+  test "symphony repairs dependencies and builds the binary before launching" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 0} =
+             run_script(repo_dir, home_dir, bin_dir, [], env: [{"SYMPHONY_TEST_DEPS_LOADPATHS_STATUS", "1"}])
+
+    assert output =~ "symphony-stub"
+
+    assert File.read!(Path.join(repo_dir, ".mix-calls")) ==
+             "deps.loadpaths\ndeps.get\ncompile\nescript.build\n"
+  end
+
+  test "symphony clears inherited Mix artifact paths before preflight and launch" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 0} =
+             run_script(repo_dir, home_dir, bin_dir, [],
+               env: [
+                 {"MIX_DEPS_PATH", "/tmp/foreign-deps"},
+                 {"MIX_BUILD_ROOT", "/tmp/foreign-build-root"},
+                 {"MIX_BUILD_PATH", "/tmp/foreign-build-path"}
+               ]
+             )
+
+    assert output =~ "symphony-stub mix_deps=unset mix_build_root=unset mix_build_path=unset"
+  end
+
+  test "symphony fails before polling when the local build cannot be repaired" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 9} =
+             run_script(repo_dir, home_dir, bin_dir, [], env: [{"SYMPHONY_TEST_COMPILE_STATUS", "9"}])
+
+    refute output =~ "symphony-stub"
+    assert File.read!(Path.join(repo_dir, ".mix-calls")) == "deps.loadpaths\ncompile\n"
+  end
+
+  test "symphony fails before polling when dependency repair fails" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 7} =
+             run_script(repo_dir, home_dir, bin_dir, [],
+               env: [
+                 {"SYMPHONY_TEST_DEPS_LOADPATHS_STATUS", "1"},
+                 {"SYMPHONY_TEST_DEPS_GET_STATUS", "7"}
+               ]
+             )
+
+    refute output =~ "symphony-stub"
+    assert File.read!(Path.join(repo_dir, ".mix-calls")) == "deps.loadpaths\ndeps.get\n"
+  end
+
+  test "symphony fails before polling when the escript build fails" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 6} =
+             run_script(repo_dir, home_dir, bin_dir, [], env: [{"SYMPHONY_TEST_ESCRIPT_STATUS", "6"}])
+
+    refute output =~ "symphony-stub"
+
+    assert File.read!(Path.join(repo_dir, ".mix-calls")) ==
+             "deps.loadpaths\ncompile\nescript.build\n"
+  end
+
+  test "parallel starts serialize autoupdate and Mix build work" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+    autoupdate_path = Path.join(repo_dir, "autoupdate")
+
+    File.write!(autoupdate_path, """
+    #!/usr/bin/env bash
+    marker="$1/.autoupdate-running"
+    if ! mkdir "$marker" 2>/dev/null; then
+      printf 'autoupdate overlap\n' >&2
+      exit 8
+    fi
+    sleep 0.2
+    rmdir "$marker"
+    """)
+
+    File.chmod!(autoupdate_path, 0o755)
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    tasks =
+      for _ <- 1..2 do
+        Task.async(fn -> run_script(repo_dir, home_dir, bin_dir, []) end)
+      end
+
+    results = Enum.map(tasks, &Task.await(&1, 5_000))
+
+    assert Enum.all?(results, fn {_output, status} -> status == 0 end)
+    refute Enum.any?(results, fn {output, _status} -> output =~ "overlap" end)
   end
 
   test "symphony issue symlink points the local codex command at the matching issue symlink" do
@@ -157,10 +286,12 @@ defmodule SymphonyScriptTest do
 
     File.mkdir_p!(repo_dir)
     File.mkdir_p!(Path.join(repo_dir, "bin"))
+    File.mkdir_p!(Path.join(repo_dir, "scripts"))
     File.mkdir_p!(Path.join(repo_dir, ".codex/skills/symphony-test"))
     File.mkdir_p!(bin_dir)
 
     File.cp!(@script_source, Path.join(repo_dir, "symphony"))
+    File.cp!(@mix_runtime_source, Path.join(repo_dir, "scripts/mix-runtime"))
     File.write!(Path.join(repo_dir, "sym-codex"), "#!/usr/bin/env bash\n")
     File.write!(Path.join(repo_dir, "sym-watch"), "#!/usr/bin/env bash\n")
 
@@ -175,6 +306,10 @@ defmodule SymphonyScriptTest do
     printf 'symphony-stub workflow_dialog_file=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE:-}"
     printf 'symphony-stub workflow_dir=%s\\n' "${SYMPHONY_WORKFLOW_DIR:-}"
     printf 'symphony-stub worktrees_root=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
+    printf 'symphony-stub mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \
+      "${MIX_DEPS_PATH-unset}" \
+      "${MIX_BUILD_ROOT-unset}" \
+      "${MIX_BUILD_PATH-unset}"
     printf 'symphony-stub args=%s\\n' "$*"
     """)
 
@@ -184,7 +319,34 @@ defmodule SymphonyScriptTest do
       exit 0
     fi
 
+    if [ "$1" = "exec" ] && [ "$2" = "--" ]; then
+      shift 2
+      exec "$@"
+    fi
+
     printf 'unexpected mise args=%s\\n' "$*" >&2
+    exit 1
+    """)
+
+    File.write!(Path.join(bin_dir, "mix"), """
+    #!/usr/bin/env bash
+    printf '%s\\n' "$1" >> "$PWD/.mix-calls"
+
+    case "$1" in
+      deps.loadpaths)
+        exit "${SYMPHONY_TEST_DEPS_LOADPATHS_STATUS:-0}"
+        ;;
+      deps.get)
+        exit "${SYMPHONY_TEST_DEPS_GET_STATUS:-0}"
+        ;;
+      compile)
+        exit "${SYMPHONY_TEST_COMPILE_STATUS:-0}"
+        ;;
+      escript.build)
+        exit "${SYMPHONY_TEST_ESCRIPT_STATUS:-0}"
+        ;;
+    esac
+
     exit 1
     """)
 
@@ -192,7 +354,9 @@ defmodule SymphonyScriptTest do
     File.chmod!(Path.join(repo_dir, "sym-codex"), 0o755)
     File.chmod!(Path.join(repo_dir, "sym-watch"), 0o755)
     File.chmod!(Path.join(repo_dir, "bin/symphony"), 0o755)
+    File.chmod!(Path.join(repo_dir, "scripts/mix-runtime"), 0o755)
     File.chmod!(Path.join(bin_dir, "mise"), 0o755)
+    File.chmod!(Path.join(bin_dir, "mix"), 0o755)
 
     %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir}
   end
@@ -204,10 +368,11 @@ defmodule SymphonyScriptTest do
   defp run_script_path(script_path, home_dir, bin_dir, args, opts) do
     cmd_opts =
       [
-        env: [
-          {"HOME", home_dir},
-          {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}
-        ],
+        env:
+          [
+            {"HOME", home_dir},
+            {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}
+          ] ++ Keyword.get(opts, :env, []),
         stderr_to_stdout: true
       ]
       |> maybe_put_cd(Keyword.get(opts, :cd))
