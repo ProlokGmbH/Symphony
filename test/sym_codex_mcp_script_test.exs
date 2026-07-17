@@ -2,9 +2,79 @@ defmodule SymCodexMcpScriptTest do
   use ExUnit.Case
 
   @script_path Path.expand("../sym-codex-mcp", __DIR__)
+  @mix_runtime_source Path.expand("../scripts/mix-runtime", __DIR__)
+
+  test "sym-codex-mcp keeps Mix artifacts local to its source checkout" do
+    root_dir = Path.join(System.tmp_dir!(), "sym-codex-mcp-isolation-#{System.unique_integer([:positive])}")
+    source_repo = Path.join(root_dir, "old-worktree")
+    bin_dir = Path.join(root_dir, "bin")
+    foreign_deps = Path.join(root_dir, "main/deps")
+    foreign_build = Path.join(root_dir, "main/_build")
+
+    File.mkdir_p!(Path.join(source_repo, "scripts"))
+    File.mkdir_p!(bin_dir)
+    File.mkdir_p!(foreign_deps)
+    File.mkdir_p!(foreign_build)
+    File.cp!(@mix_runtime_source, Path.join(source_repo, "scripts/mix-runtime"))
+    File.chmod!(Path.join(source_repo, "scripts/mix-runtime"), 0o755)
+    File.write!(Path.join(source_repo, "mix.exs"), "")
+    File.write!(Path.join(source_repo, "WORKFLOW.md"), "")
+    File.write!(Path.join(foreign_deps, "sentinel"), "newer lock deps\n")
+    File.write!(Path.join(foreign_build, "sentinel"), "newer lock build\n")
+
+    File.write!(Path.join(bin_dir, "mix"), """
+    #!/usr/bin/env bash
+    deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
+    build_root="${MIX_BUILD_ROOT:-$PWD/_build}"
+    mkdir -p "$deps_path" "$build_root"
+    printf '%s\\n' "$1" >> "$deps_path/sym-codex-mcp-touch"
+    printf '%s\\n' "$1" >> "$build_root/sym-codex-mcp-touch"
+
+    case "$1" in
+      deps.loadpaths|compile)
+        exit 0
+        ;;
+      run)
+        exit 0
+        ;;
+    esac
+
+    exit 1
+    """)
+
+    File.write!(Path.join(bin_dir, "mise"), """
+    #!/usr/bin/env bash
+    if [ "$1" = "exec" ] && [ "$2" = "--" ]; then
+      shift 2
+      exec "$@"
+    fi
+    exit 1
+    """)
+
+    File.chmod!(Path.join(bin_dir, "mix"), 0o755)
+    File.chmod!(Path.join(bin_dir, "mise"), 0o755)
+
+    on_exit(fn -> File.rm_rf(root_dir) end)
+
+    assert {_output, 0} =
+             System.cmd("bash", [@script_path],
+               env: [
+                 {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
+                 {"SYMPHONY_SOURCE_REPO", source_repo},
+                 {"MIX_DEPS_PATH", foreign_deps},
+                 {"MIX_BUILD_ROOT", foreign_build}
+               ],
+               stderr_to_stdout: true
+             )
+
+    assert File.ls!(foreign_deps) == ["sentinel"]
+    assert File.ls!(foreign_build) == ["sentinel"]
+    assert File.exists?(Path.join(source_repo, "deps/sym-codex-mcp-touch"))
+    assert File.exists?(Path.join(source_repo, "_build/sym-codex-mcp-touch"))
+  end
 
   test "sym-codex-mcp serves initialize and tools/list over stdio" do
-    source_repo = build_clean_source_repo!()
+    source_repo = Path.expand("..", __DIR__)
     workflow_file = Path.join(source_repo, "WORKFLOW.md")
     runtime_path = elixir_runtime_path!()
 
@@ -23,7 +93,6 @@ defmodule SymCodexMcpScriptTest do
 
     on_exit(fn ->
       File.rm(input_file)
-      remove_clean_source_repo!(source_repo)
     end)
 
     {output, 0} =
@@ -85,33 +154,6 @@ defmodule SymCodexMcpScriptTest do
                }
              }
            ]
-  end
-
-  defp build_clean_source_repo! do
-    source_repo =
-      Path.join(System.tmp_dir!(), "sym-codex-mcp-source-#{System.unique_integer([:positive])}")
-
-    repo_root = Path.expand("..", __DIR__)
-
-    assert {_, 0} =
-             System.cmd(
-               "git",
-               ["-C", repo_root, "worktree", "add", "--detach", source_repo, "HEAD"],
-               stderr_to_stdout: true
-             )
-
-    source_repo
-  end
-
-  defp remove_clean_source_repo!(source_repo) do
-    repo_root = Path.expand("..", __DIR__)
-
-    assert {_, 0} =
-             System.cmd(
-               "git",
-               ["-C", repo_root, "worktree", "remove", "--force", source_repo],
-               stderr_to_stdout: true
-             )
   end
 
   defp elixir_runtime_path! do

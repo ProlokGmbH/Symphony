@@ -71,54 +71,27 @@ sym_watch_source_repo() {
 
 sym_watch_run_mix() {
   local source_repo="$1"
-  local config_file="$source_repo/mise.toml"
-  local common_dir=""
-  local shared_repo=""
+  local mix_runtime="$source_repo/scripts/mix-runtime"
   shift
 
-  if [[ -z "${MIX_DEPS_PATH:-}" ]]; then
-    common_dir="$(git -C "$source_repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-
-    if [[ -n "$common_dir" ]]; then
-      shared_repo="$(
-        cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
-      )" || shared_repo=""
-
-      if [[ -n "$shared_repo" && -d "$shared_repo/deps" ]]; then
-        export MIX_DEPS_PATH="$shared_repo/deps"
-      fi
-
-      if [[ -n "$shared_repo" && -z "${MIX_BUILD_ROOT:-}" && -d "$shared_repo/_build" ]]; then
-        export MIX_BUILD_ROOT="$shared_repo/_build"
-      fi
-    fi
-  fi
-
-  if command -v mise >/dev/null 2>&1; then
-    if [[ -f "$config_file" ]]; then
-      mise trust -q -y "$config_file" >/dev/null
-    fi
-
-    mise exec -- mix "$@"
-  else
-    mix "$@"
-  fi
+  [[ -x "$mix_runtime" ]] || sym_watch_die "Mix-Preflight fehlt oder ist nicht ausführbar: $mix_runtime"
+  "$mix_runtime" mix "$source_repo" "$@"
 }
 
 sym_watch_run() {
   local source_repo
+  local mix_runtime
 
   if ! source_repo="$(sym_watch_source_repo)"; then
     exit 1
   fi
 
+  mix_runtime="$source_repo/scripts/mix-runtime"
+  [[ -x "$mix_runtime" ]] || sym_watch_die "Mix-Preflight fehlt oder ist nicht ausführbar: $mix_runtime"
+
   (
     cd "$source_repo" || exit 1
-    if ! sym_watch_run_mix "$source_repo" deps.loadpaths --no-compile >/dev/null 2>&1; then
-      sym_watch_run_mix "$source_repo" deps.get 1>&2
-    fi
-
-    sym_watch_run_mix "$source_repo" compile 1>&2
+    "$mix_runtime" prepare "$source_repo" 1>&2
     sym_watch_run_mix "$source_repo" run --no-compile --no-start -e \
       'SymphonyElixir.Codex.Watch.main(System.argv())' -- "$@"
   )

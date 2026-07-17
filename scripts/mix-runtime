@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mix_runtime_die() {
+  printf 'mix-runtime: %s\n' "$*" >&2
+  exit 1
+}
+
+mix_runtime_repo_root() {
+  local raw_path="$1"
+
+  cd "$raw_path" 2>/dev/null && pwd -P
+}
+
+mix_runtime_trust_mise_config() {
+  local repo_root="$1"
+  local config_file="$repo_root/mise.toml"
+
+  [[ -f "$config_file" ]] || return 0
+
+  case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
+    *":$config_file:"*)
+      ;;
+    *)
+      export MISE_TRUSTED_CONFIG_PATHS="$config_file${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+      ;;
+  esac
+}
+
+mix_runtime_run_mix() {
+  local repo_root="$1"
+  shift
+
+  (
+    cd "$repo_root"
+    unset MIX_DEPS_PATH MIX_BUILD_ROOT
+    mix_runtime_trust_mise_config "$repo_root"
+
+    if command -v mise >/dev/null 2>&1; then
+      exec mise exec -- mix "$@"
+    fi
+
+    exec mix "$@"
+  )
+}
+
+mix_runtime_prepare() {
+  local repo_root="$1"
+
+  if ! mix_runtime_run_mix "$repo_root" deps.loadpaths --no-compile >/dev/null 2>&1; then
+    printf 'mix-runtime: Dependencies werden für %s abgeglichen.\n' "$repo_root" >&2
+    mix_runtime_run_mix "$repo_root" deps.get
+  fi
+
+  mix_runtime_run_mix "$repo_root" compile
+}
+
+mix_runtime_lock_path() {
+  local repo_root="$1"
+  local git_dir=""
+
+  git_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+
+  if [[ -n "$git_dir" ]]; then
+    printf '%s\n' "$git_dir/symphony-start.lock"
+    return 0
+  fi
+
+  mkdir -p "$repo_root/_build"
+  printf '%s\n' "$repo_root/_build/.symphony-start.lock"
+}
+
+mix_runtime_main() {
+  local command="${1:-}"
+  local raw_repo_root="${2:-}"
+  local repo_root=""
+
+  if [[ -z "$command" || -z "$raw_repo_root" ]]; then
+    mix_runtime_die "usage: mix-runtime <mix|prepare|build|lock-path> <checkout> [mix args...]"
+  fi
+
+  repo_root="$(mix_runtime_repo_root "$raw_repo_root")" ||
+    mix_runtime_die "Checkout existiert nicht: $raw_repo_root"
+
+  case "$command" in
+    mix)
+      shift 2
+      mix_runtime_run_mix "$repo_root" "$@"
+      ;;
+    prepare)
+      mix_runtime_prepare "$repo_root"
+      ;;
+    build)
+      mix_runtime_prepare "$repo_root"
+      mix_runtime_run_mix "$repo_root" escript.build
+      ;;
+    lock-path)
+      mix_runtime_lock_path "$repo_root"
+      ;;
+    *)
+      mix_runtime_die "unbekannter Befehl: $command"
+      ;;
+  esac
+}
+
+mix_runtime_main "$@"

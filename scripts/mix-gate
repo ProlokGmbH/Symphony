@@ -23,6 +23,8 @@ for env_var in "${runtime_env_vars[@]}"; do
   unset "$env_var"
 done
 
+unset MIX_DEPS_PATH MIX_BUILD_ROOT
+
 if [[ -f "$mise_config" ]]; then
   case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
     *":$mise_config:"*)

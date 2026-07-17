@@ -15,93 +15,21 @@ sym_codex_mcp_activate_venv() {
   fi
 }
 
-sym_codex_mcp_trust_mise_config() {
-  local source_repo="$1"
-  local config_file="$source_repo/mise.toml"
-
-  [[ -f "$config_file" ]] || return 0
-
-  case ":${MISE_TRUSTED_CONFIG_PATHS:-}:" in
-    *":$config_file:"*)
-      ;;
-    *)
-      export MISE_TRUSTED_CONFIG_PATHS="$config_file${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
-      ;;
-  esac
-}
-
-sym_codex_mcp_configure_mix_paths() {
-  local source_repo="$1"
-  local common_dir=""
-  local shared_repo=""
-
-  if [[ -n "${MIX_DEPS_PATH:-}" ]]; then
-    return 0
-  fi
-
-  common_dir="$(git -C "$source_repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-
-  if [[ -z "$common_dir" ]]; then
-    return 0
-  fi
-
-  shared_repo="$(
-    cd "$common_dir/.." >/dev/null 2>&1 && pwd -P
-  )" || return 0
-
-  if [[ -d "$shared_repo/deps" ]]; then
-    export MIX_DEPS_PATH="$shared_repo/deps"
-  fi
-
-  if [[ -z "${MIX_BUILD_ROOT:-}" && -d "$shared_repo/_build" ]]; then
-    export MIX_BUILD_ROOT="$shared_repo/_build"
-  fi
-}
-
 sym_codex_mcp_run_mix() {
   local source_repo="$1"
+  local mix_runtime="$source_repo/scripts/mix-runtime"
   shift
 
-  if command -v mise >/dev/null 2>&1; then
-    sym_codex_mcp_trust_mise_config "$source_repo"
-    sym_codex_mcp_configure_mix_paths "$source_repo"
-    mise exec -- mix "$@"
-  else
-    sym_codex_mcp_configure_mix_paths "$source_repo"
-    mix "$@"
-  fi
-}
-
-sym_codex_mcp_compile_lock_mismatch() {
-  local output="$1"
-
-  [[ "$output" == *"Unchecked dependencies for environment"* &&
-    "$output" == *"lock mismatch"* ]]
+  [[ -x "$mix_runtime" ]] || sym_codex_mcp_die "Mix-Preflight fehlt oder ist nicht ausführbar: $mix_runtime"
+  "$mix_runtime" mix "$source_repo" "$@"
 }
 
 sym_codex_mcp_prepare_mix() {
   local source_repo="$1"
-  local output=""
+  local mix_runtime="$source_repo/scripts/mix-runtime"
 
-  if output="$(sym_codex_mcp_run_mix "$source_repo" compile 2>&1)"; then
-    return 0
-  fi
-
-  printf '%s\n' "$output" >&2
-
-  if ! sym_codex_mcp_compile_lock_mismatch "$output"; then
-    return 1
-  fi
-
-  if ! output="$(sym_codex_mcp_run_mix "$source_repo" deps.get 2>&1)"; then
-    printf '%s\n' "$output" >&2
-    return 1
-  fi
-
-  if ! output="$(sym_codex_mcp_run_mix "$source_repo" compile 2>&1)"; then
-    printf '%s\n' "$output" >&2
-    return 1
-  fi
+  [[ -x "$mix_runtime" ]] || sym_codex_mcp_die "Mix-Preflight fehlt oder ist nicht ausführbar: $mix_runtime"
+  "$mix_runtime" prepare "$source_repo"
 }
 
 main() {

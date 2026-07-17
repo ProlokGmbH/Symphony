@@ -39,6 +39,7 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
 
 - `mise` fuer die Elixir-/OTP-Versionen
 - Git
+- `flock` aus `util-linux` für serialisierte Starts
 - Zugriff auf Linear
 - Fuer den vollen PR- und Merge-Ablauf zusaetzlich `gh`
 
@@ -87,7 +88,34 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
    ./symphony
    ```
 
-Der Wrapper `./symphony` prüft beim Start zunächst, ob der aktuelle Git-Upstream einen neueren Commit enthält. Wenn eine neue Version verfügbar ist, fragt Symphony `Neue Symphony Version verfügbar. Update ausführen j/n?`; bei Zustimmung führt das Autoupdate im Hintergrund `git pull --ff-only` und anschließend `make all` aus und zeigt währenddessen `Symphony Update läuft…`. Danach verlinkt der Wrapper die mitgelieferten Skills sowie `sym-codex` und `sym-watch` in deine lokalen Codex- und Bin-Verzeichnisse und startet `bin/symphony`. Ohne Git-Upstream, ohne neues Update oder bei lokalen Checkout-Änderungen startet Symphony ohne Update. Das Dashboard ist standardmäßig unter `http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Startport überschrieben werden. Wenn dieser Port bereits belegt ist, verwendet Symphony automatisch den nächsten freien Port.
+Der Wrapper `./symphony` serialisiert jeden Start über einen checkout-spezifischen
+`flock`. Innerhalb dieses Locks prüft er zunächst, ob der aktuelle Git-Upstream
+einen neueren Commit enthält. Wenn eine neue Version verfügbar ist, fragt
+Symphony `Neue Symphony Version verfügbar. Update ausführen j/n?`; bei Zustimmung
+führt das Autoupdate im Hintergrund `git pull --ff-only` und anschließend
+`make all` aus und zeigt währenddessen `Symphony Update läuft…`.
+
+Unabhängig davon, ob ein Update verfügbar oder angenommen wurde, folgt im selben
+Lock ein selbstheilender Preflight. `mix deps.loadpaths --no-compile` prüft den
+lokalen Dependency-Zustand; bei einer Abweichung folgt `mix deps.get`. Danach
+kompiliert Symphony den Checkout und baut `bin/symphony` mit `mix escript.build`.
+Erst nach erfolgreichem Build wird der Lock freigegeben, der Wrapper verlinkt die
+mitgelieferten Skills sowie `sym-codex` und `sym-watch` in die lokalen Codex- und
+Bin-Verzeichnisse und startet das gerade gebaute Binary. Ein nicht reparierbarer
+Dependency-, Compile- oder Escript-Build-Fehler beendet den Start vorher; in
+diesem Fall beginnt kein Ticket-Polling. Das Dashboard ist standardmäßig unter
+`http://127.0.0.1:4000/` erreichbar; mit `--port <port>` kann der Startport
+überschrieben werden. Wenn dieser Port bereits belegt ist, verwendet Symphony
+automatisch den nächsten freien Port.
+
+Mix-Artefakte werden nicht zwischen Git-Checkouts geteilt. Jeder Haupt-Checkout
+und jeder Worktree verwendet sein eigenes `deps` und `_build`; insbesondere
+bleibt `_build` immer checkout-lokal. `symphony`, `autoupdate`, `sym-codex`,
+`sym-codex-mcp`, `sym-watch` und `scripts/mix-gate` entfernen deshalb geerbte
+`MIX_DEPS_PATH`- und `MIX_BUILD_ROOT`-Werte für ihre Mix- beziehungsweise
+Codex-Child-Prozesse. Der gemeinsame Helfer `scripts/mix-runtime` ergänzt
+`mise.toml` nur prozesslokal zu `MISE_TRUSTED_CONFIG_PATHS` und führt Mix aus dem
+jeweiligen Checkout aus.
 
 `SYMPHONY_WORKFLOW_DIR` bezeichnet dabei den Symphony-Checkout mit dem
 ausführbaren Mix-Projekt, während `SYMPHONY_WORKFLOW_FILE` die aktuell geladene
@@ -115,7 +143,8 @@ make all
 ```
 
 Das Makefile führt Mix über `scripts/mix-gate` aus. Der Wrapper entfernt für
-den Gate-Prozess bekannte geerbte `SYMPHONY_*`-Runtime-Variablen und ergänzt
+den Gate-Prozess bekannte geerbte `SYMPHONY_*`-Runtime-Variablen sowie
+`MIX_DEPS_PATH` und `MIX_BUILD_ROOT` und ergänzt
 `MISE_TRUSTED_CONFIG_PATHS` prozesslokal um `<Checkout>/mise.toml`, falls die
 Datei existiert. Ein dauerhaftes `mise trust` ist für `make all` nicht
 erforderlich.

@@ -2,6 +2,7 @@ defmodule SymWatchScriptTest do
   use ExUnit.Case, async: true
 
   @script_source Path.expand("../sym-watch", __DIR__)
+  @mix_runtime_source Path.expand("../scripts/mix-runtime", __DIR__)
 
   test "sym-watch runs the Elixir watcher with forwarded arguments" do
     %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
@@ -43,6 +44,35 @@ defmodule SymWatchScriptTest do
     assert output =~ "mix-calls=deps.loadpaths deps.get compile run"
   end
 
+  test "sym-watch ignores inherited Mix artifact paths" do
+    %{repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+    foreign_deps = Path.join(repo_dir, "foreign-deps")
+    foreign_build = Path.join(repo_dir, "foreign-build")
+
+    File.mkdir_p!(foreign_deps)
+    File.mkdir_p!(foreign_build)
+    File.write!(Path.join(foreign_deps, "sentinel"), "newer checkout deps\n")
+    File.write!(Path.join(foreign_build, "sentinel"), "newer checkout build\n")
+
+    on_exit(fn ->
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {_output, 0} =
+             run_script(Path.join(repo_dir, "sym-watch"), bin_dir, ["--once", "PRO-608"],
+               env: [
+                 {"MIX_DEPS_PATH", foreign_deps},
+                 {"MIX_BUILD_ROOT", foreign_build}
+               ]
+             )
+
+    assert File.ls!(foreign_deps) == ["sentinel"]
+    assert File.ls!(foreign_build) == ["sentinel"]
+    assert File.exists?(Path.join(repo_dir, "deps/sym-watch-touch"))
+    assert File.exists?(Path.join(repo_dir, "_build/sym-watch-touch"))
+  end
+
   defp build_script_fixture!(opts \\ []) do
     repo_dir = Path.join(System.tmp_dir!(), "sym-watch-script-#{System.unique_integer([:positive])}")
     bin_dir = Path.join(System.tmp_dir!(), "sym-watch-bin-#{System.unique_integer([:positive])}")
@@ -51,12 +81,19 @@ defmodule SymWatchScriptTest do
     deps_loadpaths_status = Keyword.get(opts, :deps_loadpaths_status, 0)
 
     File.mkdir_p!(repo_dir)
+    File.mkdir_p!(Path.join(repo_dir, "scripts"))
     File.mkdir_p!(bin_dir)
     File.cp!(@script_source, Path.join(repo_dir, "sym-watch"))
+    File.cp!(@mix_runtime_source, Path.join(repo_dir, "scripts/mix-runtime"))
 
     File.write!(mix_path, """
     #!/usr/bin/env bash
     calls_file="$PWD/.mix-calls"
+    deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
+    build_root="${MIX_BUILD_ROOT:-$PWD/_build}"
+    mkdir -p "$deps_path" "$build_root"
+    printf '%s\\n' "$1" >> "$deps_path/sym-watch-touch"
+    printf '%s\\n' "$1" >> "$build_root/sym-watch-touch"
 
     if [ "$1" = "deps.loadpaths" ]; then
       printf '%s\\n' "$1" >> "$calls_file"
@@ -119,6 +156,7 @@ defmodule SymWatchScriptTest do
     """)
 
     File.chmod!(Path.join(repo_dir, "sym-watch"), 0o755)
+    File.chmod!(Path.join(repo_dir, "scripts/mix-runtime"), 0o755)
     File.chmod!(mix_path, 0o755)
     File.chmod!(mise_path, 0o755)
     File.write!(Path.join(repo_dir, "WORKFLOW.md"), "")
@@ -127,9 +165,11 @@ defmodule SymWatchScriptTest do
     %{repo_dir: repo_dir, bin_dir: bin_dir}
   end
 
-  defp run_script(script_path, bin_dir, args) do
+  defp run_script(script_path, bin_dir, args, opts \\ []) do
+    env = [{"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}] ++ Keyword.get(opts, :env, [])
+
     System.cmd("bash", [script_path | args],
-      env: [{"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}],
+      env: env,
       stderr_to_stdout: true
     )
   end
