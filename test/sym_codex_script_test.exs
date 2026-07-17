@@ -62,11 +62,12 @@ defmodule SymCodexScriptTest do
                env: [
                  {"SYMPHONY_PROJECT_WORKTREES_ROOT", workspace_root},
                  {"MIX_DEPS_PATH", foreign_deps},
-                 {"MIX_BUILD_ROOT", foreign_build}
+                 {"MIX_BUILD_ROOT", foreign_build},
+                 {"MIX_BUILD_PATH", foreign_build}
                ]
              )
 
-    assert output =~ "mix_deps=unset mix_build=unset"
+    assert output =~ "mix_deps=unset mix_build_root=unset mix_build_path=unset"
     assert File.ls!(foreign_deps) == ["sentinel"]
     assert File.ls!(foreign_build) == ["sentinel"]
     assert File.exists?(Path.join(worktree, "deps/sym-codex-touch"))
@@ -780,14 +781,15 @@ defmodule SymCodexScriptTest do
 
     File.write!(codex_path, """
     #!/usr/bin/env bash
-    printf 'codex-stub pwd=%s args=%s runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build=%s\\n' \
+    printf 'codex-stub pwd=%s args=%s runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \
       "$PWD" \
       "$*" \
       "${SYMPHONY_WORKFLOW_DIR:-}" \
       "${SYMPHONY_SOURCE_REPO:-}" \
       "${SYMPHONY_ISSUE_IDENTIFIER:-}" \
       "${MIX_DEPS_PATH-unset}" \
-      "${MIX_BUILD_ROOT-unset}"
+      "${MIX_BUILD_ROOT-unset}" \
+      "${MIX_BUILD_PATH-unset}"
     """)
 
     create_venv_fixture!(repo_dir, "repo")
@@ -795,10 +797,10 @@ defmodule SymCodexScriptTest do
     File.write!(mix_path, """
     #!/usr/bin/env bash
     deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
-    build_root="${MIX_BUILD_ROOT:-$PWD/_build}"
-    mkdir -p "$deps_path" "$build_root"
+    build_path="${MIX_BUILD_PATH:-${MIX_BUILD_ROOT:-$PWD/_build}}"
+    mkdir -p "$deps_path" "$build_path"
     printf '%s\\n' "$1" >> "$deps_path/sym-codex-touch"
-    printf '%s\\n' "$1" >> "$build_root/sym-codex-touch"
+    printf '%s\\n' "$1" >> "$build_path/sym-codex-touch"
 
     if [ "$1" = "deps.loadpaths" ]; then
       exit 0
@@ -980,7 +982,7 @@ defmodule SymCodexScriptTest do
 
     File.write!(venv_codex_path, """
     #!/usr/bin/env bash
-    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label} runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build=%s\\n' \\
+    printf 'codex-stub pwd=%s args=%s venv=%s label=#{label} runtime_workflow_dir=%s runtime_source_repo=%s runtime_issue_identifier=%s mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \\
       "$PWD" \\
       "$*" \\
       "${VIRTUAL_ENV:-}" \\
@@ -988,7 +990,8 @@ defmodule SymCodexScriptTest do
       "${SYMPHONY_SOURCE_REPO:-}" \\
       "${SYMPHONY_ISSUE_IDENTIFIER:-}" \\
       "${MIX_DEPS_PATH-unset}" \\
-      "${MIX_BUILD_ROOT-unset}"
+      "${MIX_BUILD_ROOT-unset}" \\
+      "${MIX_BUILD_PATH-unset}"
     """)
 
     File.write!(venv_python_path, """

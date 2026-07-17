@@ -73,6 +73,27 @@ defmodule SymphonyScriptTest do
              "deps.loadpaths\ndeps.get\ncompile\nescript.build\n"
   end
 
+  test "symphony clears inherited Mix artifact paths before preflight and launch" do
+    %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
+
+    on_exit(fn ->
+      File.rm_rf(home_dir)
+      File.rm_rf(repo_dir)
+      File.rm_rf(bin_dir)
+    end)
+
+    assert {output, 0} =
+             run_script(repo_dir, home_dir, bin_dir, [],
+               env: [
+                 {"MIX_DEPS_PATH", "/tmp/foreign-deps"},
+                 {"MIX_BUILD_ROOT", "/tmp/foreign-build-root"},
+                 {"MIX_BUILD_PATH", "/tmp/foreign-build-path"}
+               ]
+             )
+
+    assert output =~ "symphony-stub mix_deps=unset mix_build_root=unset mix_build_path=unset"
+  end
+
   test "symphony fails before polling when the local build cannot be repaired" do
     %{home_dir: home_dir, repo_dir: repo_dir, bin_dir: bin_dir} = build_script_fixture!()
 
@@ -285,6 +306,10 @@ defmodule SymphonyScriptTest do
     printf 'symphony-stub workflow_dialog_file=%s\\n' "${SYMPHONY_WORKFLOW_DIALOG_FILE:-}"
     printf 'symphony-stub workflow_dir=%s\\n' "${SYMPHONY_WORKFLOW_DIR:-}"
     printf 'symphony-stub worktrees_root=%s\\n' "${SYMPHONY_PROJECT_WORKTREES_ROOT:-}"
+    printf 'symphony-stub mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \
+      "${MIX_DEPS_PATH-unset}" \
+      "${MIX_BUILD_ROOT-unset}" \
+      "${MIX_BUILD_PATH-unset}"
     printf 'symphony-stub args=%s\\n' "$*"
     """)
 

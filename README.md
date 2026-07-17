@@ -112,8 +112,9 @@ Mix-Artefakte werden nicht zwischen Git-Checkouts geteilt. Jeder Haupt-Checkout
 und jeder Worktree verwendet sein eigenes `deps` und `_build`; insbesondere
 bleibt `_build` immer checkout-lokal. `symphony`, `autoupdate`, `sym-codex`,
 `sym-codex-mcp`, `sym-watch` und `scripts/mix-gate` entfernen deshalb geerbte
-`MIX_DEPS_PATH`- und `MIX_BUILD_ROOT`-Werte für ihre Mix- beziehungsweise
-Codex-Child-Prozesse. Der gemeinsame Helfer `scripts/mix-runtime` ergänzt
+`MIX_DEPS_PATH`-, `MIX_BUILD_ROOT`- und `MIX_BUILD_PATH`-Werte für ihre Mix-
+beziehungsweise Codex-Child-Prozesse. Der gemeinsame Helfer
+`scripts/mix-runtime` ergänzt
 `mise.toml` nur prozesslokal zu `MISE_TRUSTED_CONFIG_PATHS` und führt Mix aus dem
 jeweiligen Checkout aus.
 
@@ -144,7 +145,7 @@ make all
 
 Das Makefile führt Mix über `scripts/mix-gate` aus. Der Wrapper entfernt für
 den Gate-Prozess bekannte geerbte `SYMPHONY_*`-Runtime-Variablen sowie
-`MIX_DEPS_PATH` und `MIX_BUILD_ROOT` und ergänzt
+`MIX_DEPS_PATH`, `MIX_BUILD_ROOT` und `MIX_BUILD_PATH` und ergänzt
 `MISE_TRUSTED_CONFIG_PATHS` prozesslokal um `<Checkout>/mise.toml`, falls die
 Datei existiert. Ein dauerhaftes `mise trust` ist für `make all` nicht
 erforderlich.

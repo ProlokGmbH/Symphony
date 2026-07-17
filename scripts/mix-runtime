@@ -33,7 +33,7 @@ mix_runtime_run_mix() {
 
   (
     cd "$repo_root"
-    unset MIX_DEPS_PATH MIX_BUILD_ROOT
+    unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
     mix_runtime_trust_mise_config "$repo_root"
 
     if command -v mise >/dev/null 2>&1; then

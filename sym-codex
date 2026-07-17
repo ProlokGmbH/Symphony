@@ -806,14 +806,14 @@ sym_codex_run() {
   if (( _sym_codex_sourced )); then
     sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
     (
-      unset MIX_DEPS_PATH MIX_BUILD_ROOT
+      unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
       codex "${codex_args[@]}"
     )
     return $?
   fi
 
   sym_codex_activate_venv "$project_root" "$workspace" "$source_repo"
-  exec env -u MIX_DEPS_PATH -u MIX_BUILD_ROOT codex "${codex_args[@]}"
+  exec env -u MIX_DEPS_PATH -u MIX_BUILD_ROOT -u MIX_BUILD_PATH codex "${codex_args[@]}"
 }
 
 sym_codex_run "$@"

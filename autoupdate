@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-unset MIX_DEPS_PATH MIX_BUILD_ROOT
+unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
 
 PROJECT_DIR="${1:-}"
 

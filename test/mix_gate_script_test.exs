@@ -22,7 +22,8 @@ defmodule MixGateScriptTest do
     printf 'labels=%s\\n' "${SYMPHONY_ISSUE_LABELS_JSON-unset}"
     printf 'project=%s\\n' "${SYMPHONY_PROJECT_ROOT-unset}"
     printf 'mix_deps=%s\\n' "${MIX_DEPS_PATH-unset}"
-    printf 'mix_build=%s\\n' "${MIX_BUILD_ROOT-unset}"
+    printf 'mix_build_root=%s\\n' "${MIX_BUILD_ROOT-unset}"
+    printf 'mix_build_path=%s\\n' "${MIX_BUILD_PATH-unset}"
     """)
 
     File.chmod!(Path.join(bin_dir, "mise"), 0o755)
@@ -41,7 +42,8 @@ defmodule MixGateScriptTest do
         {"SYMPHONY_ISSUE_LABELS_JSON", ~s([{"name":"Requires Manual Review"}])},
         {"SYMPHONY_PROJECT_ROOT", "/tmp/wrong-project"},
         {"MIX_DEPS_PATH", "/tmp/wrong-deps"},
-        {"MIX_BUILD_ROOT", "/tmp/wrong-build"}
+        {"MIX_BUILD_ROOT", "/tmp/wrong-build"},
+        {"MIX_BUILD_PATH", "/tmp/wrong-build-path"}
       ]
 
     assert {output, 0} = System.cmd(@script_path, ["format", "--check-formatted"], env: env, stderr_to_stdout: true)
@@ -56,6 +58,7 @@ defmodule MixGateScriptTest do
     assert output =~ "labels=unset"
     assert output =~ "project=unset"
     assert output =~ "mix_deps=unset"
-    assert output =~ "mix_build=unset"
+    assert output =~ "mix_build_root=unset"
+    assert output =~ "mix_build_path=unset"
   end
 end

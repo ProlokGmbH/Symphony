@@ -58,7 +58,9 @@ defmodule AutoupdateScriptTest do
     assert output =~ @update_prompt
     assert output =~ "Symphony Update läuft…"
     assert git_output!(worktree_dir, ["rev-parse", "HEAD"]) == remote_head
-    assert File.read!(make_log) == "make args=all mix_deps=unset mix_build=unset\n"
+
+    assert File.read!(make_log) ==
+             "make args=all mix_deps=unset mix_build_root=unset mix_build_path=unset\n"
   end
 
   defp build_git_fixture! do
@@ -157,10 +159,11 @@ defmodule AutoupdateScriptTest do
 
     File.write!(Path.join(bin_dir, "make"), """
     #!/usr/bin/env bash
-    printf 'make args=%s mix_deps=%s mix_build=%s\\n' \
+    printf 'make args=%s mix_deps=%s mix_build_root=%s mix_build_path=%s\\n' \
       "$*" \
       "${MIX_DEPS_PATH-unset}" \
-      "${MIX_BUILD_ROOT-unset}" >> "$MAKE_LOG"
+      "${MIX_BUILD_ROOT-unset}" \
+      "${MIX_BUILD_PATH-unset}" >> "$MAKE_LOG"
     """)
 
     File.chmod!(Path.join(bin_dir, "make"), 0o755)
@@ -191,6 +194,7 @@ defmodule AutoupdateScriptTest do
         {"MAKE_LOG", make_log},
         {"MIX_DEPS_PATH", "/tmp/foreign-deps"},
         {"MIX_BUILD_ROOT", "/tmp/foreign-build"},
+        {"MIX_BUILD_PATH", "/tmp/foreign-build-path"},
         {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"}
       ],
       stderr_to_stdout: true

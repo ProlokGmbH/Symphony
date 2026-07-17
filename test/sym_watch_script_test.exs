@@ -63,7 +63,8 @@ defmodule SymWatchScriptTest do
              run_script(Path.join(repo_dir, "sym-watch"), bin_dir, ["--once", "PRO-608"],
                env: [
                  {"MIX_DEPS_PATH", foreign_deps},
-                 {"MIX_BUILD_ROOT", foreign_build}
+                 {"MIX_BUILD_ROOT", foreign_build},
+                 {"MIX_BUILD_PATH", foreign_build}
                ]
              )
 
@@ -90,10 +91,10 @@ defmodule SymWatchScriptTest do
     #!/usr/bin/env bash
     calls_file="$PWD/.mix-calls"
     deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
-    build_root="${MIX_BUILD_ROOT:-$PWD/_build}"
-    mkdir -p "$deps_path" "$build_root"
+    build_path="${MIX_BUILD_PATH:-${MIX_BUILD_ROOT:-$PWD/_build}}"
+    mkdir -p "$deps_path" "$build_path"
     printf '%s\\n' "$1" >> "$deps_path/sym-watch-touch"
-    printf '%s\\n' "$1" >> "$build_root/sym-watch-touch"
+    printf '%s\\n' "$1" >> "$build_path/sym-watch-touch"
 
     if [ "$1" = "deps.loadpaths" ]; then
       printf '%s\\n' "$1" >> "$calls_file"

@@ -29,7 +29,7 @@ symphony_shell_escape() {
   printf '%q' "$1"
 }
 
-unset MIX_DEPS_PATH MIX_BUILD_ROOT
+unset MIX_DEPS_PATH MIX_BUILD_ROOT MIX_BUILD_PATH
 
 if ! command -v mise >/dev/null 2>&1; then
   echo "symphony: mise not found in PATH" >&2

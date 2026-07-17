@@ -25,10 +25,10 @@ defmodule SymCodexMcpScriptTest do
     File.write!(Path.join(bin_dir, "mix"), """
     #!/usr/bin/env bash
     deps_path="${MIX_DEPS_PATH:-$PWD/deps}"
-    build_root="${MIX_BUILD_ROOT:-$PWD/_build}"
-    mkdir -p "$deps_path" "$build_root"
+    build_path="${MIX_BUILD_PATH:-${MIX_BUILD_ROOT:-$PWD/_build}}"
+    mkdir -p "$deps_path" "$build_path"
     printf '%s\\n' "$1" >> "$deps_path/sym-codex-mcp-touch"
-    printf '%s\\n' "$1" >> "$build_root/sym-codex-mcp-touch"
+    printf '%s\\n' "$1" >> "$build_path/sym-codex-mcp-touch"
 
     case "$1" in
       deps.loadpaths|compile)
@@ -62,7 +62,8 @@ defmodule SymCodexMcpScriptTest do
                  {"PATH", "#{bin_dir}:#{System.get_env("PATH")}"},
                  {"SYMPHONY_SOURCE_REPO", source_repo},
                  {"MIX_DEPS_PATH", foreign_deps},
-                 {"MIX_BUILD_ROOT", foreign_build}
+                 {"MIX_BUILD_ROOT", foreign_build},
+                 {"MIX_BUILD_PATH", foreign_build}
                ],
                stderr_to_stdout: true
              )
