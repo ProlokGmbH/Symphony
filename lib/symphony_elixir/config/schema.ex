@@ -43,6 +43,7 @@ defmodule SymphonyElixir.Config.Schema do
     import Ecto.Changeset
 
     @primary_key false
+    @type t :: %__MODULE__{}
     @default_active_states [
       "Todo (AI)",
       "Planung (AI)",
@@ -61,6 +62,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:endpoint, :string, default: "https://api.linear.app/graphql")
       field(:api_key, :string)
       field(:project_slug, :string)
+      field(:team_key, :string)
       field(:assignee, :string)
       field(:active_states, {:array, :string}, default: @default_active_states)
       field(:terminal_states, {:array, :string}, default: @default_terminal_states)
@@ -71,7 +73,7 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
+        [:kind, :endpoint, :api_key, :project_slug, :team_key, :assignee, :active_states, :terminal_states],
         empty_values: []
       )
     end
@@ -392,6 +394,7 @@ defmodule SymphonyElixir.Config.Schema do
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
         project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
+        team_key: resolve_optional_string_setting(settings.tracker.team_key),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE")),
         active_states: filter_managed_states(settings.tracker.active_states)
     }

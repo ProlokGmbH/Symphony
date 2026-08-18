@@ -396,24 +396,28 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_project_link_lines do
-    project_part =
-      case Config.settings!().tracker.project_slug do
-        project_slug when is_binary(project_slug) and project_slug != "" ->
-          colorize(linear_project_url(project_slug), @ansi_cyan)
-
-        _ ->
-          colorize("n/a", @ansi_gray)
-      end
-
-    project_line = colorize("│ Project: ", @ansi_bold) <> project_part
+    scope_line = format_linear_scope_line(Config.linear_scope())
 
     case dashboard_url() do
       url when is_binary(url) ->
-        [project_line, colorize("│ Dashboard: ", @ansi_bold) <> colorize(url, @ansi_cyan)]
+        [scope_line, colorize("│ Dashboard: ", @ansi_bold) <> colorize(url, @ansi_cyan)]
 
       _ ->
-        [project_line]
+        [scope_line]
     end
+  end
+
+  defp format_linear_scope_line({:ok, {:project, project_slug}}) do
+    colorize("│ Project: ", @ansi_bold) <> colorize(linear_project_url(project_slug), @ansi_cyan)
+  end
+
+  defp format_linear_scope_line({:ok, {:team, team_key}}) do
+    team_scope = "#{team_key} — #{linear_team_url(team_key)}"
+    colorize("│ Team: ", @ansi_bold) <> colorize(team_scope, @ansi_cyan)
+  end
+
+  defp format_linear_scope_line(_error) do
+    colorize("│ Project: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
   end
 
   defp format_assignee_lines do
@@ -445,6 +449,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
+  defp linear_team_url(team_key), do: "https://linear.app/team/#{team_key}/all"
 
   defp dashboard_url do
     dashboard_url(Config.settings!().server.host, Config.server_port(), HttpServer.bound_port())

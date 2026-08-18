@@ -2,6 +2,8 @@
 tracker:
   kind: linear
   project_slug: $LINEAR_PROJECT_SLUG
+  # Alternative: project_slug auskommentieren und stattdessen den Team-Scope aktivieren:
+  # team_key: $LINEAR_TEAM_KEY
   assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo (AI)

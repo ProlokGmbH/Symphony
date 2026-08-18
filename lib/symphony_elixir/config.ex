@@ -6,6 +6,8 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Workflow
 
+  @type linear_scope :: {:project, String.t()} | {:team, String.t()}
+
   @default_prompt_template """
   Du arbeitest an einem Linear-Ticket.
 
@@ -125,6 +127,13 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec linear_scope() :: {:ok, linear_scope()} | {:error, term()}
+  def linear_scope do
+    with {:ok, settings} <- settings() do
+      linear_scope(settings.tracker)
+    end
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -168,18 +177,27 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_linear_tracker(settings) do
-    cond do
-      not is_binary(settings.tracker.api_key) ->
-        {:error, :missing_linear_api_token}
+    if is_binary(settings.tracker.api_key) do
+      case linear_scope(settings.tracker) do
+        {:ok, _scope} -> validate_linear_assignee(settings.tracker.assignee)
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :missing_linear_api_token}
+    end
+  end
 
-      not is_binary(settings.tracker.project_slug) ->
-        {:error, :missing_linear_project_slug}
+  defp validate_linear_assignee(assignee) do
+    if yolo?() or is_binary(assignee), do: :ok, else: {:error, :missing_linear_assignee}
+  end
 
-      not yolo?() and not is_binary(settings.tracker.assignee) ->
-        {:error, :missing_linear_assignee}
-
-      true ->
-        :ok
+  @spec linear_scope(Schema.Tracker.t()) :: {:ok, linear_scope()} | {:error, term()}
+  def linear_scope(%Schema.Tracker{project_slug: project_slug, team_key: team_key}) do
+    case {project_slug, team_key} do
+      {project_slug, nil} when is_binary(project_slug) -> {:ok, {:project, project_slug}}
+      {nil, team_key} when is_binary(team_key) -> {:ok, {:team, team_key}}
+      {nil, nil} -> {:error, :missing_linear_scope}
+      {_project_slug, _team_key} -> {:error, :multiple_linear_scopes}
     end
   end
 
@@ -227,8 +245,12 @@ defmodule SymphonyElixir.Config do
     "Invalid WORKFLOW.md config: missing linear api token"
   end
 
-  defp format_simple_config_error(:missing_linear_project_slug) do
-    "Invalid WORKFLOW.md config: missing linear project slug"
+  defp format_simple_config_error(:missing_linear_scope) do
+    "Invalid WORKFLOW.md config: configure exactly one of tracker.project_slug or tracker.team_key"
+  end
+
+  defp format_simple_config_error(:multiple_linear_scopes) do
+    "Invalid WORKFLOW.md config: tracker.project_slug and tracker.team_key are mutually exclusive"
   end
 
   defp format_simple_config_error(:missing_linear_assignee) do

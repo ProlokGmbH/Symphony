@@ -54,12 +54,29 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
 2. Umgebungsvariablen vorbereiten, zum Beispiel über `.symphony/.env.local`.
    Typisch benötigt werden:
    - `LINEAR_API_KEY`
-   - `LINEAR_PROJECT_SLUG`
+   - genau eine Scope-Variable: `LINEAR_PROJECT_SLUG` oder `LINEAR_TEAM_KEY`
    - `LINEAR_TEST_PROJECT_SLUG` für den Project-Slug, den Worktrees als
      `LINEAR_PROJECT_SLUG` verwenden
    - `LINEAR_ASSIGNEE`
    - `SYMPHONY_PROJECT_ROOT`
    - `SYMPHONY_PROJECT_WORKTREES_ROOT`
+
+   Der Linear-Tracker wird in `WORKFLOW.md` über genau einen von zwei
+   gegenseitig ausschließenden Scopes konfiguriert:
+
+   ```yaml
+   tracker:
+     project_slug: $LINEAR_PROJECT_SLUG
+     # team_key: $LINEAR_TEAM_KEY
+   ```
+
+   `project_slug` behält das bisherige Verhalten bei und verarbeitet nur Issues
+   des angegebenen Linear-Projects. Alternativ verarbeitet `team_key` alle
+   Issues des exakt angegebenen Teams über sämtliche Projects hinweg,
+   einschließlich Issues ohne Project. Issues anderer Teams und von Subteams
+   sind nicht enthalten. Für den Team-Modus werden keine Projects vorab
+   aufgelistet. Werden beide Felder oder keines der Felder gesetzt, bricht
+   Symphony beim Start mit einem Konfigurationsfehler ab.
 
    `sym-codex <TicketId>` priorisiert für den Linear-MCP-Zugriff die
    `.symphony/.env(.local)` des aufrufenden Projekt-Roots auch gegenüber
@@ -129,7 +146,7 @@ Repository-, Test- oder Merge-Worker ab.
 
 Nach jedem abgeschlossenen Linear-Poll plant Symphony den nächsten automatischen Refresh mit `polling.interval_ms` multipliziert mit der Anzahl laufender `bin/symphony`-Instanzen. Der konfigurierte Wert bleibt das Basisintervall; der Initial-Poll und manuelle Refresh-Anforderungen bleiben unmittelbar.
 
-Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im Projekt werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen. Review-Findings müssen weiterhin vom Hauptagenten behandelt und dokumentiert werden; nach dieser Behandlung überspringt `--yolo` aber auch `Freigabe Review`.
+Für private, unbeaufsichtigte Projekte kann Symphony mit `./symphony --yolo` gestartet werden. In diesem Modus wird kein Assignee für das Routing benötigt, alle Tickets im konfigurierten Linear-Scope werden unabhängig vom Assignee bearbeitet, die Freigaben `Freigabe Implementierung` und `Freigabe Review` werden wie durch passende Skip-Labels übersprungen, und das Dashboard zeigt `--yolo` statt des Assignees. Der manuelle Status `Planung` wird auch im `--yolo`-Modus nicht übersprungen. Review-Findings müssen weiterhin vom Hauptagenten behandelt und dokumentiert werden; nach dieser Behandlung überspringt `--yolo` aber auch `Freigabe Review`.
 
 Das Linear-Label `Requires Manual Review` ist davon unabhängig: Es ist kein internes Symphony-Skip-Label, sondern ein externes GitHub-Merge-Gate im Status `Merge (AI)`. Wenn das Label gesetzt ist, muss vor dem Merge ein menschliches GitHub-Approval eines Nicht-Autors auf der aktuellen PR-Head-SHA vorliegen. `--yolo` und `Skip "Freigabe Review"` umgehen dieses Gate nicht; das Label wird von Symphony weder automatisch angelegt noch nach Approval oder Merge entfernt.
 
