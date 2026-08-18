@@ -288,4 +288,24 @@ defmodule SymphonyElixir.CLITest do
     assert message =~ "Failed to start Symphony with workflow"
     assert message =~ "LINEAR_ASSIGNEE must be set"
   end
+
+  test "scope validation errors identify workflow and repository environment sources" do
+    for reason <- [:missing_linear_scope, :multiple_linear_scopes] do
+      deps = %{
+        default_workflow_path: fn -> "/tmp/symphony-install/WORKFLOW.md" end,
+        env_files_dir: fn -> "/tmp/project" end,
+        file_regular?: fn _path -> true end,
+        load_env_files: fn _path -> :ok end,
+        set_workflow_file_path: fn _path -> :ok end,
+        validate_startup_requirements: fn -> {:error, reason} end,
+        set_logs_root: fn _path -> :ok end,
+        set_server_port_override: fn _port -> :ok end,
+        ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      }
+
+      assert {:error, message} = CLI.evaluate([], deps)
+      assert message =~ "tracker.project_slug/tracker.team_key"
+      assert message =~ "LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY"
+    end
+  end
 end

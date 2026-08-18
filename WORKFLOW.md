@@ -1,9 +1,9 @@
 ---
 tracker:
   kind: linear
+  # Der Scope wird repository-lokal über LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY gewählt;
+  # fehlende Tracker-Felder erhalten den jeweils gleichnamigen Env-Fallback.
   project_slug: $LINEAR_PROJECT_SLUG
-  # Alternative: project_slug auskommentieren und stattdessen den Team-Scope aktivieren:
-  # team_key: $LINEAR_TEAM_KEY
   assignee: $LINEAR_ASSIGNEE
   active_states:
     - Todo (AI)
