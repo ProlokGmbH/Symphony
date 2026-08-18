@@ -153,8 +153,12 @@ defmodule SymphonyElixir.CLI do
     "Failed to start Symphony with workflow #{workflow_path}: missing linear api token"
   end
 
-  defp format_run_error(workflow_path, :missing_linear_project_slug) do
-    "Failed to start Symphony with workflow #{workflow_path}: missing linear project slug"
+  defp format_run_error(workflow_path, :missing_linear_scope) do
+    "Failed to start Symphony with workflow #{workflow_path}: configure exactly one of tracker.project_slug or tracker.team_key"
+  end
+
+  defp format_run_error(workflow_path, :multiple_linear_scopes) do
+    "Failed to start Symphony with workflow #{workflow_path}: tracker.project_slug and tracker.team_key are mutually exclusive"
   end
 
   defp format_run_error(workflow_path, reason) do

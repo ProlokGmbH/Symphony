@@ -885,6 +885,263 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute query =~ "assignee:"
   end
 
+  test "linear team polling spans projects, includes projectless issues and excludes other teams and subteams" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn -> restore_app_env(:linear_client_request_fun, previous_request_fun) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "PRO"
+    )
+
+    raw_issue = fn id, identifier, project ->
+      %{
+        "id" => id,
+        "identifier" => identifier,
+        "title" => identifier,
+        "description" => "Team candidate",
+        "state" => %{"name" => "Todo (AI)"},
+        "project" => project,
+        "assignee" => %{"id" => "user-1", "email" => "dev@example.com"},
+        "labels" => %{"nodes" => []},
+        "inverseRelations" => %{"nodes" => []}
+      }
+    end
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:team_candidate_poll, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => [
+                 raw_issue.("issue-a", "PRO-1", %{"slugId" => "project-a"}),
+                 raw_issue.("issue-b", "PRO-2", %{"slugId" => "project-b"}),
+                 raw_issue.("issue-none", "PRO-3", nil)
+               ],
+               "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, issues} = Client.fetch_candidate_issues()
+    assert Enum.map(issues, & &1.identifier) == ["PRO-1", "PRO-2", "PRO-3"]
+    assert Enum.all?(issues, & &1.assigned_to_worker)
+
+    assert_receive {:team_candidate_poll,
+                    %{
+                      "query" => query,
+                      "variables" => %{
+                        teamKey: "PRO",
+                        stateNames: state_names,
+                        first: 50,
+                        relationFirst: 50,
+                        after: nil
+                      }
+                    }}
+
+    assert "Todo (AI)" in state_names
+    assert query =~ "SymphonyLinearTeamPoll"
+    assert query =~ "team: {key: {eq: $teamKey}}"
+    assert query =~ ~s(assignee: {email: {eqIgnoreCase: "dev@example.com"}})
+    refute query =~ "project:"
+    refute query =~ "subteam"
+  end
+
+  test "linear team candidate polling preserves pagination and yolo routing" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+    previous_yolo = Application.get_env(:symphony_elixir, :yolo)
+
+    on_exit(fn ->
+      restore_app_env(:linear_client_request_fun, previous_request_fun)
+      restore_app_env(:yolo, previous_yolo)
+    end)
+
+    Application.put_env(:symphony_elixir, :yolo, true)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "PRO",
+      tracker_assignee: nil,
+      tracker_active_states: ["Todo (AI)"]
+    )
+
+    raw_issue = fn id, identifier ->
+      %{
+        "id" => id,
+        "identifier" => identifier,
+        "title" => identifier,
+        "state" => %{"name" => "Todo (AI)"},
+        "labels" => %{"nodes" => []},
+        "inverseRelations" => %{"nodes" => []}
+      }
+    end
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:team_candidate_page, payload})
+
+      {nodes, page_info} =
+        case payload["variables"].after do
+          nil ->
+            {[raw_issue.("issue-1", "PRO-1")], %{"hasNextPage" => true, "endCursor" => "cursor-1"}}
+
+          "cursor-1" ->
+            {[raw_issue.("issue-2", "PRO-2")], %{"hasNextPage" => false, "endCursor" => nil}}
+        end
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{"data" => %{"issues" => %{"nodes" => nodes, "pageInfo" => page_info}}}
+       }}
+    end)
+
+    assert {:ok, issues} = Client.fetch_candidate_issues()
+    assert Enum.map(issues, & &1.identifier) == ["PRO-1", "PRO-2"]
+
+    assert_receive {:team_candidate_page, %{"query" => query, "variables" => %{teamKey: "PRO", after: nil}}}
+
+    refute query =~ "assignee:"
+
+    assert_receive {:team_candidate_page, %{"query" => ^query, "variables" => %{teamKey: "PRO", after: "cursor-1"}}}
+  end
+
+  test "linear terminal startup cleanup uses the configured team scope" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn -> restore_app_env(:linear_client_request_fun, previous_request_fun) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "PRO"
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:team_terminal_poll, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => [],
+               "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, []} = Client.fetch_issues_by_states(["Review"])
+
+    assert_receive {:team_terminal_poll,
+                    %{
+                      "query" => query,
+                      "variables" => %{teamKey: "PRO", stateNames: ["Review"]}
+                    }}
+
+    assert query =~ "team: {key: {eq: $teamKey}}"
+  end
+
+  test "linear team id revalidation treats an issue outside the team as invisible" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn -> restore_app_env(:linear_client_request_fun, previous_request_fun) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "PRO"
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:team_issue_revalidation, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{"data" => %{"issues" => %{"nodes" => []}}}
+       }}
+    end)
+
+    assert {:ok, []} = Client.fetch_issue_states_by_ids(["issue-outside-team"])
+
+    assert_receive {:team_issue_revalidation,
+                    %{
+                      "query" => query,
+                      "variables" => %{
+                        ids: ["issue-outside-team"],
+                        teamKey: "PRO",
+                        first: 1,
+                        relationFirst: 50
+                      }
+                    }}
+
+    assert query =~ "SymphonyLinearIssuesByIdInTeam"
+    assert query =~ "team: {key: {eq: $teamKey}}"
+  end
+
+  test "manual team lookup rejects foreign identifiers while project scope remains unchanged" do
+    previous_request_fun = Application.get_env(:symphony_elixir, :linear_client_request_fun)
+
+    on_exit(fn -> restore_app_env(:linear_client_request_fun, previous_request_fun) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "PRO"
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:manual_issue_lookup, payload})
+      {:error, :unexpected_request}
+    end)
+
+    assert {:error, "Linear issue OTHER-123 is outside configured team scope PRO"} =
+             Client.fetch_issue_by_identifier("OTHER-123")
+
+    refute_received {:manual_issue_lookup, _payload}
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "project",
+      tracker_team_key: nil
+    )
+
+    Application.put_env(:symphony_elixir, :linear_client_request_fun, fn payload, _headers ->
+      send(self(), {:manual_issue_lookup, payload})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "issues" => %{
+               "nodes" => [
+                 %{
+                   "id" => "issue-other",
+                   "identifier" => "OTHER-123",
+                   "title" => "Cross-team project issue",
+                   "state" => %{"name" => "In Arbeit (AI)"},
+                   "labels" => %{"nodes" => []},
+                   "inverseRelations" => %{"nodes" => []}
+                 }
+               ]
+             }
+           }
+         }
+       }}
+    end)
+
+    assert {:ok, %Issue{identifier: "OTHER-123"}} = Client.fetch_issue_by_identifier("OTHER-123")
+
+    assert_receive {:manual_issue_lookup, %{"variables" => %{teamKey: "OTHER", number: 123}}}
+  end
+
   test "linear client pagination merge helper preserves issue ordering" do
     issue_page_1 = [
       %Issue{id: "issue-1", identifier: "MT-1"},
@@ -1052,6 +1309,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                     }}
 
     assert query =~ "state: {name: {in: $stateNames}}"
+    assert query =~ "project: {slugId: {eq: $projectSlug}}"
+    refute query =~ "$teamKey"
   end
 
   test "linear client includes manual approval states in candidate polling in yolo mode" do
@@ -1715,6 +1974,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.tracker.endpoint == "https://api.linear.app/graphql"
     assert config.tracker.api_key == nil
     assert config.tracker.project_slug == nil
+    assert config.tracker.team_key == nil
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
@@ -1907,6 +2167,47 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.tracker.project_slug == project_slug
     assert config.workspace.root == Path.expand(workspace_root)
     assert config.codex.command == "#{codex_bin} app-server"
+  end
+
+  test "linear config requires exactly one project or team scope and resolves team env references" do
+    team_key_env_var = "SYMP_LINEAR_TEAM_KEY_#{System.unique_integer([:positive])}"
+    previous_team_key = System.get_env(team_key_env_var)
+
+    on_exit(fn -> restore_env(team_key_env_var, previous_team_key) end)
+    System.put_env(team_key_env_var, "PRO")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "project",
+      tracker_team_key: nil
+    )
+
+    assert :ok = Config.validate!()
+    assert {:ok, {:project, "project"}} = Config.linear_scope()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "$#{team_key_env_var}"
+    )
+
+    assert :ok = Config.validate!()
+    assert Config.settings!().tracker.team_key == "PRO"
+    assert {:ok, {:team, "PRO"}} = Config.linear_scope()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "project",
+      tracker_team_key: "PRO"
+    )
+
+    assert {:error, :multiple_linear_scopes} = Config.validate!()
+    assert {:error, :multiple_linear_scopes} = Config.linear_scope()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: nil
+    )
+
+    assert {:error, :missing_linear_scope} = Config.validate!()
+    assert {:error, :missing_linear_scope} = Config.linear_scope()
   end
 
   test "config no longer resolves legacy env: references" do
