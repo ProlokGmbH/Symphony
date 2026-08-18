@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.TestSupport do
   @workflow_prompt "Du arbeitest an einem Ticket dieses Repositorys."
   @repo_workflow_file Path.expand("../../WORKFLOW.md", __DIR__)
+  @test_isolation_env_names ["LINEAR_PROJECT_SLUG", "LINEAR_TEAM_KEY"]
 
   defmacro __using__(_opts) do
     quote do
@@ -86,8 +87,9 @@ defmodule SymphonyElixir.TestSupport do
   end
 
   def scrub_symphony_runtime_env do
-    snapshot = Map.new(symphony_runtime_env_keys(), fn key -> {key, System.get_env(key)} end)
-    Enum.each(symphony_runtime_env_keys(), &System.delete_env/1)
+    env_names = symphony_runtime_env_keys() ++ @test_isolation_env_names
+    snapshot = Map.new(env_names, fn key -> {key, System.get_env(key)} end)
+    Enum.each(env_names, &System.delete_env/1)
     snapshot
   end
 

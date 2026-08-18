@@ -45,7 +45,7 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
 
 ### Einrichtung
 
-1. Abhaengigkeiten installieren:
+1. Abhängigkeiten installieren:
 
    ```bash
    mix setup
@@ -61,22 +61,34 @@ Ursprungsticket nach `Umsetzungsticket erstellt` verschieben.
    - `SYMPHONY_PROJECT_ROOT`
    - `SYMPHONY_PROJECT_WORKTREES_ROOT`
 
-   Der Linear-Tracker wird in `WORKFLOW.md` über genau einen von zwei
-   gegenseitig ausschließenden Scopes konfiguriert:
+   Jedes aufrufende Repository wählt seinen Linear-Scope in der eigenen
+   `.symphony/.env` oder `.symphony/.env.local` aus. Genau eine der beiden
+   Variablen erhält einen Wert, die andere bleibt leer:
 
-   ```yaml
-   tracker:
-     project_slug: $LINEAR_PROJECT_SLUG
-     # team_key: $LINEAR_TEAM_KEY
+   ```env
+   # Project-Scope
+   LINEAR_PROJECT_SLUG=my-project
+   LINEAR_TEAM_KEY=
+
+   # Team-Scope (alternativ)
+   LINEAR_PROJECT_SLUG=
+   LINEAR_TEAM_KEY=QAI
    ```
 
-   `project_slug` behält das bisherige Verhalten bei und verarbeitet nur Issues
-   des angegebenen Linear-Projects. Alternativ verarbeitet `team_key` alle
-   Issues des exakt angegebenen Teams über sämtliche Projects hinweg,
-   einschließlich Issues ohne Project. Issues anderer Teams und von Subteams
-   sind nicht enthalten. Für den Team-Modus werden keine Projects vorab
-   aufgelistet. Werden beide Felder oder keines der Felder gesetzt, bricht
-   Symphony beim Start mit einem Konfigurationsfehler ab.
+   Die zentrale `WORKFLOW.md` muss dafür nicht pro Repository umgeschaltet
+   werden: Fehlt dort `tracker.project_slug` oder `tracker.team_key`, verwendet
+   Symphony als Fallback `LINEAR_PROJECT_SLUG` beziehungsweise
+   `LINEAR_TEAM_KEY`. Direkte Workflow-Werte und explizite `$ENV`-Referenzen
+   bleiben unterstützt und haben für das jeweilige Feld Vorrang vor dem
+   Fallback.
+
+   Der Project-Scope verarbeitet nur Issues des angegebenen Linear-Projects.
+   Der Team-Scope verarbeitet alle Issues des exakt angegebenen Teams über
+   sämtliche Projects hinweg, einschließlich Issues ohne Project. Issues
+   anderer Teams und von Subteams sind nicht enthalten. Für den Team-Modus
+   werden keine Projects vorab aufgelistet. Sind nach der Auflösung beide
+   Scopes gesetzt oder beide leer, bricht Symphony beim Start mit einem
+   Konfigurationsfehler ab.
 
    `sym-codex <TicketId>` priorisiert für den Linear-MCP-Zugriff die
    `.symphony/.env(.local)` des aufrufenden Projekt-Roots auch gegenüber
