@@ -154,11 +154,11 @@ defmodule SymphonyElixir.CLI do
   end
 
   defp format_run_error(workflow_path, :missing_linear_scope) do
-    "Failed to start Symphony with workflow #{workflow_path}: configure exactly one of tracker.project_slug or tracker.team_key"
+    "Failed to start Symphony with workflow #{workflow_path}: configure exactly one Linear scope using tracker.project_slug/tracker.team_key or LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY"
   end
 
   defp format_run_error(workflow_path, :multiple_linear_scopes) do
-    "Failed to start Symphony with workflow #{workflow_path}: tracker.project_slug and tracker.team_key are mutually exclusive"
+    "Failed to start Symphony with workflow #{workflow_path}: project and team scopes are mutually exclusive; check tracker.project_slug/tracker.team_key and LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY"
   end
 
   defp format_run_error(workflow_path, reason) do

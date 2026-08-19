@@ -2210,6 +2210,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:error, :missing_linear_scope} = Config.linear_scope()
   end
 
+  test "linear scope falls back to repository environment for fields missing from the workflow" do
+    env_names = ["LINEAR_PROJECT_SLUG", "LINEAR_TEAM_KEY"]
+    previous_env = Map.new(env_names, fn name -> {name, System.get_env(name)} end)
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn {name, value} -> restore_env(name, value) end)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "$LINEAR_PROJECT_SLUG",
+      tracker_team_key: nil
+    )
+
+    for {project_slug, team_key, expected_scope} <- [
+          {"symphony-project", "", {:ok, {:project, "symphony-project"}}},
+          {"", "QAI", {:ok, {:team, "QAI"}}},
+          {"symphony-project", "QAI", {:error, :multiple_linear_scopes}},
+          {"", "", {:error, :missing_linear_scope}}
+        ] do
+      System.put_env("LINEAR_PROJECT_SLUG", project_slug)
+      System.put_env("LINEAR_TEAM_KEY", team_key)
+
+      assert Config.linear_scope() == expected_scope
+    end
+  end
+
+  test "direct linear scopes and explicit env references take precedence over field fallbacks" do
+    project_env_var = "SYMP_EXPLICIT_PROJECT_SLUG_#{System.unique_integer([:positive])}"
+    team_env_var = "SYMP_EXPLICIT_TEAM_KEY_#{System.unique_integer([:positive])}"
+    env_names = ["LINEAR_PROJECT_SLUG", "LINEAR_TEAM_KEY", project_env_var, team_env_var]
+    previous_env = Map.new(env_names, fn name -> {name, System.get_env(name)} end)
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn {name, value} -> restore_env(name, value) end)
+    end)
+
+    System.put_env("LINEAR_PROJECT_SLUG", "fallback-project")
+    System.put_env("LINEAR_TEAM_KEY", "")
+    System.put_env(project_env_var, "referenced-project")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "direct-project",
+      tracker_team_key: nil
+    )
+
+    assert {:ok, {:project, "direct-project"}} = Config.linear_scope()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "$#{project_env_var}",
+      tracker_team_key: nil
+    )
+
+    assert {:ok, {:project, "referenced-project"}} = Config.linear_scope()
+
+    System.put_env("LINEAR_PROJECT_SLUG", "")
+    System.put_env("LINEAR_TEAM_KEY", "fallback-team")
+    System.put_env(team_env_var, "REFERENCED")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "direct-team"
+    )
+
+    assert {:ok, {:team, "direct-team"}} = Config.linear_scope()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: nil,
+      tracker_team_key: "$#{team_env_var}"
+    )
+
+    assert {:ok, {:team, "REFERENCED"}} = Config.linear_scope()
+  end
+
+  test "CLI loads repository-local team scope before validating the unchanged central workflow" do
+    project_root =
+      Path.join(System.tmp_dir!(), "symphony-cli-team-scope-#{System.unique_integer([:positive])}")
+
+    env_names = ["LINEAR_API_KEY", "LINEAR_ASSIGNEE", "LINEAR_PROJECT_SLUG", "LINEAR_TEAM_KEY"]
+    previous_env = Map.new(env_names, fn name -> {name, System.get_env(name)} end)
+    parent = self()
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn {name, value} -> restore_env(name, value) end)
+      File.rm_rf(project_root)
+    end)
+
+    Enum.each(env_names, &System.delete_env/1)
+    config_dir = SymphonyElixir.EnvFile.config_dir(project_root)
+    File.mkdir_p!(config_dir)
+
+    File.write!(
+      Path.join(config_dir, ".env.local"),
+      "LINEAR_API_KEY=test-token\nLINEAR_ASSIGNEE=dev@example.com\nLINEAR_PROJECT_SLUG=\nLINEAR_TEAM_KEY=QAI\n"
+    )
+
+    workflow_file = Path.expand("../../WORKFLOW.md", __DIR__)
+
+    deps = %{
+      file_regular?: &File.regular?/1,
+      load_env_files: fn path -> SymphonyElixir.EnvFile.load(path, override_existing: true) end,
+      set_workflow_file_path: &Workflow.set_workflow_file_path/1,
+      validate_startup_requirements: fn ->
+        send(parent, {:scope_before_start, Config.linear_scope()})
+        Config.validate_startup_requirements()
+      end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert :ok = CLI.run(workflow_file, project_root, deps)
+    assert_received {:scope_before_start, {:ok, {:team, "QAI"}}}
+  end
+
   test "config no longer resolves legacy env: references" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"

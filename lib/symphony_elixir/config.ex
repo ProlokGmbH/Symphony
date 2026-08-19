@@ -246,11 +246,11 @@ defmodule SymphonyElixir.Config do
   end
 
   defp format_simple_config_error(:missing_linear_scope) do
-    "Invalid WORKFLOW.md config: configure exactly one of tracker.project_slug or tracker.team_key"
+    "Invalid Linear scope config: configure exactly one Linear scope using tracker.project_slug/tracker.team_key or LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY"
   end
 
   defp format_simple_config_error(:multiple_linear_scopes) do
-    "Invalid WORKFLOW.md config: tracker.project_slug and tracker.team_key are mutually exclusive"
+    "Invalid Linear scope config: project and team scopes are mutually exclusive; check tracker.project_slug/tracker.team_key and LINEAR_PROJECT_SLUG/LINEAR_TEAM_KEY"
   end
 
   defp format_simple_config_error(:missing_linear_assignee) do

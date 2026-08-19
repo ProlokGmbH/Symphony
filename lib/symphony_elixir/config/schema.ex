@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Config.Schema do
   alias SymphonyElixir.{PathSafety, RuntimePaths}
 
   @primary_key false
+  @linear_project_slug_env "LINEAR_PROJECT_SLUG"
+  @linear_team_key_env "LINEAR_TEAM_KEY"
 
   @type t :: %__MODULE__{}
 
@@ -393,8 +395,8 @@ defmodule SymphonyElixir.Config.Schema do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        project_slug: resolve_optional_string_setting(settings.tracker.project_slug),
-        team_key: resolve_optional_string_setting(settings.tracker.team_key),
+        project_slug: resolve_linear_scope_setting(settings.tracker.project_slug, @linear_project_slug_env),
+        team_key: resolve_linear_scope_setting(settings.tracker.team_key, @linear_team_key_env),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE")),
         active_states: filter_managed_states(settings.tracker.active_states)
     }
@@ -460,13 +462,21 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
-  defp resolve_optional_string_setting(nil), do: nil
-
   defp resolve_optional_string_setting(value) when is_binary(value) do
     case resolve_env_value(value, nil) do
       resolved when is_binary(resolved) -> normalize_secret_value(resolved)
       resolved -> resolved
     end
+  end
+
+  defp resolve_linear_scope_setting(nil, env_name) do
+    env_name
+    |> System.get_env()
+    |> normalize_secret_value()
+  end
+
+  defp resolve_linear_scope_setting(value, _env_name) when is_binary(value) do
+    resolve_optional_string_setting(value)
   end
 
   defp resolve_path_value(value, default) when is_binary(value) do
